@@ -1,0 +1,1 @@
+import{D as o}from"./DriveLinksPanel-CUJhZCdt.js";import"./index-Csa01ti_.js";import"./ui-kit-BkX43OF4.js";import"./external-link-B0ZruXFf.js";import"./folder-ClkMqsjy.js";const n=o;export{n as component};
