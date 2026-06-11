@@ -15,9 +15,9 @@ function ManagerLayout() {
   useEffect(() => {
     if (!ready) return;
     if (!userId) navigate({ to: "/auth" });
-    else if (role && role !== "supervisor" && role !== "owner") navigate({ to: `/${role}` as "/worker" });
+    else if (role && role !== "supervisor") navigate({ to: "/business-consultant" });
   }, [ready, userId, role, navigate]);
-  if (!ready || !userId || (role !== "supervisor" && role !== "owner")) return null;
+  if (!ready || !userId || role !== "supervisor") return null;
   return (
     <StaffShell role="supervisor">
       <Outlet />

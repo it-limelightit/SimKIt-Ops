@@ -79,7 +79,7 @@ function LoginForm({ onDone }: { onDone: () => void }) {
       }
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
-      // Check approval status
+      // Check approval status — only workers need manager approval
       const { data: userData } = await supabase.auth.getUser();
       const uid = userData.user?.id;
       if (uid) {
@@ -88,13 +88,9 @@ function LoginForm({ onDone }: { onDone: () => void }) {
           supabase.from("user_roles").select("role").eq("user_id", uid).limit(1).maybeSingle(),
         ]);
         const userRole = roleRow?.role as string | undefined;
-        if (userRole !== "owner" && !prof?.is_active) {
+        if (userRole === "worker" && !prof?.is_active) {
           await supabase.auth.signOut();
-          throw new Error(
-            userRole === "supervisor"
-              ? "Your manager account is pending owner approval."
-              : "Your account is pending manager approval."
-          );
+          throw new Error("Your account is pending manager approval.");
         }
       }
       toast.success("Signed in");
@@ -155,7 +151,7 @@ function SignupForm({ onDone }: { onDone: () => void }) {
       if (error) throw error;
       toast.success(
         role === "supervisor"
-          ? "Account created. Awaiting owner approval."
+          ? "Account created. You can sign in now."
           : "Account created. Awaiting manager approval."
       );
       onDone();

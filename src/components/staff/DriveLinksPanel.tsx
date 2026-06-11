@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, EmptyState } from "@/components/ui-kit";
 import { Folder, ExternalLink, Link2, Info } from "lucide-react";
 import { toast } from "sonner";
+import { parseSiteMetadata } from "@/lib/site-metadata";
 
 export type Site = {
   id: string;
@@ -20,17 +21,6 @@ export type MediaRow = {
   caption: string | null;
   file_name: string | null;
 };
-
-function parseSiteMetadata(taskNotes: string | null) {
-  if (!taskNotes) return null;
-  const match = taskNotes.match(/\[METADATA:([^\]]+)\]/);
-  if (!match) return null;
-  try {
-    return JSON.parse(match[1]);
-  } catch (e) {
-    return null;
-  }
-}
 
 export function DriveLinksPanel() {
   const [sites, setSites] = useState<Site[]>([]);

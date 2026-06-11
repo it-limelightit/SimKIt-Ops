@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useAuth } from "@/lib/auth-store";
-import { LayoutDashboard, MapPin, Users, BarChart3, LogOut, Settings, Activity, Menu, X, Folder } from "lucide-react";
+import { LayoutDashboard, MapPin, Users, BarChart3, LogOut, Activity, Menu, X, Folder } from "lucide-react";
 import { Button } from "../ui-kit";
 
 export function StaffShell({
@@ -9,14 +9,14 @@ export function StaffShell({
   role,
 }: {
   children: React.ReactNode;
-  role: "supervisor" | "owner";
+  role: "supervisor";
 }) {
   const { signOut, profile } = useAuth();
   const path = useRouterState({ select: (s) => s.location.pathname });
   const [isOpen, setIsOpen] = useState(false);
   const base = `/${role}`;
-  const displayRole = role === "supervisor" ? "manager" : role;
-  
+  const displayRole = "manager";
+
   const items = [
     { to: `${base}`, label: "Overview", icon: LayoutDashboard },
     { to: `${base}/sites`, label: "Sites", icon: MapPin },
@@ -24,12 +24,6 @@ export function StaffShell({
     { to: `${base}/performance`, label: "Performance", icon: Activity },
     { to: `${base}/drive-links`, label: "Links of Drive", icon: Folder },
     { to: `${base}/reports`, label: "Reports", icon: BarChart3 },
-    ...(role === "owner"
-      ? [
-          { to: `${base}/managers`, label: "Managers", icon: Users },
-          { to: `${base}/settings`, label: "Settings", icon: Settings },
-        ]
-      : []),
   ];
 
   return (

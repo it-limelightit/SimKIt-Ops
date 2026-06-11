@@ -15,6 +15,7 @@ import {
 import { toast } from "sonner";
 import { MediaUploader } from "@/components/MediaUploader";
 import { usePhaseData } from "@/lib/use-phase-data";
+import { advanceSiteVisitStatus } from "@/lib/site-metadata";
 
 type Props = { siteId: string; workerId: string; hiddenSections?: string[]; onSubmit?: () => void };
 
@@ -366,13 +367,20 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit }:
                     Edit Final MOM
                   </Button>
                 ) : (
-                  <Button onClick={() => save({ ...data, final_mom_uploaded: true })}>Submit Final MOM</Button>
+                  <Button onClick={async () => {
+                    await save({ ...data, final_mom_uploaded: true });
+                    advanceSiteVisitStatus(siteId, "Visit Complete");
+                  }}>Submit Final MOM</Button>
                 )}
               </div>
               {renderCustomFields("Final MOM", !!data.final_mom_uploaded)}
               <CompleteJobRow
                 checked={!!data.final_mom_uploaded}
-                onToggle={() => patch({ final_mom_uploaded: !data.final_mom_uploaded })}
+                onToggle={async () => {
+                  const next = !data.final_mom_uploaded;
+                  patch({ final_mom_uploaded: next });
+                  if (next) advanceSiteVisitStatus(siteId, "Visit Complete");
+                }}
               />
             </div>
           )}

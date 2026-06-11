@@ -18,6 +18,7 @@ import {
 import { MediaUploader } from "@/components/MediaUploader";
 import { usePhaseData } from "@/lib/use-phase-data";
 import { useAuth } from "@/lib/auth-store";
+import { advanceSiteVisitStatus } from "@/lib/site-metadata";
 import { Plus, Trash2, Users, Wrench } from "lucide-react";
 
 type Props = { siteId: string; workerId: string; hiddenSections?: string[]; onSubmit?: () => void };
@@ -836,7 +837,11 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
               {renderCustomFields("Media")}
               <CompleteJobRow
                 checked={!!data.media_uploaded}
-                onToggle={() => patch({ media_uploaded: !data.media_uploaded })}
+                onToggle={async () => {
+                  const next = !data.media_uploaded;
+                  patch({ media_uploaded: next });
+                  if (next) advanceSiteVisitStatus(siteId, "Assessment Done");
+                }}
                 validate={() => validateSectionLinks("Media", ["media"])}
               />
             </div>

@@ -134,7 +134,7 @@ export function Badge({
   tone = "neutral",
   children,
 }: {
-  tone?: "neutral" | "success" | "warning" | "danger";
+  tone?: "neutral" | "success" | "warning" | "danger" | "info";
   children: React.ReactNode;
 }) {
   const m = {
@@ -142,6 +142,7 @@ export function Badge({
     success: "border-mint/20 text-mint bg-mint-dim",
     warning: "border-warning/20 text-warning bg-warning/8",
     danger: "border-coral/20 text-coral bg-coral-dim",
+    info: "border-violet/20 text-violet bg-violet/8",
   }[tone];
   return (
     <span className={cn("inline-flex items-center border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider rounded-[4px]", m)}>

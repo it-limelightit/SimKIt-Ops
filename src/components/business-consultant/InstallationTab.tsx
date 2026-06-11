@@ -16,6 +16,7 @@ import {
 import { toast } from "sonner";
 import { MediaUploader } from "@/components/MediaUploader";
 import { usePhaseData } from "@/lib/use-phase-data";
+import { advanceSiteVisitStatus } from "@/lib/site-metadata";
 
 type Props = { siteId: string; workerId: string; hiddenSections?: string[]; onSubmit?: () => void };
 
@@ -327,7 +328,11 @@ export function InstallationTab({ siteId, workerId, hiddenSections, onSubmit }: 
               {renderCustomFields("Photos")}
               <CompleteJobRow
                 checked={!!data.photos_uploaded}
-                onToggle={() => patch({ photos_uploaded: !data.photos_uploaded })}
+                onToggle={async () => {
+                  const next = !data.photos_uploaded;
+                  patch({ photos_uploaded: next });
+                  if (next) advanceSiteVisitStatus(siteId, "Installation Done");
+                }}
                 validate={() => validateSectionLinks("Photos", ["photos"])}
               />
             </div>

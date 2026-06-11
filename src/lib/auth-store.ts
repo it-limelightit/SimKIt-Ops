@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
-export type AppRole = "worker" | "supervisor" | "owner";
+export type AppRole = "worker" | "supervisor";
 
 type AuthState = {
   ready: boolean;

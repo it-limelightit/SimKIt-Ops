@@ -3,34 +3,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button, Card, Input, Label, Select, Badge } from "@/components/ui-kit";
 import { toast } from "sonner";
 import { Plus, X, Edit, Phone, Calendar, Clock, Folder, ExternalLink } from "lucide-react";
+import { parseSiteMetadata, serializeSiteMetadata } from "@/lib/site-metadata";
 
-export function parseSiteMetadata(taskNotes: string | null) {
-  const defaultMeta = {
-    c1_name: "",
-    c1_mobile: "",
-    c1_email: "",
-    c2_name: "",
-    c2_mobile: "",
-    c2_email: "",
-    status: "Running",
-    create_drive_folder: false,
-    drive_folder_name: "",
-    drive_folder_link: ""
-  };
-  if (!taskNotes) return defaultMeta;
-  const match = taskNotes.match(/\[METADATA:([^\]]+)\]/);
-  if (!match) return defaultMeta;
-  try {
-    return { ...defaultMeta, ...JSON.parse(match[1]) };
-  } catch (e) {
-    return defaultMeta;
-  }
-}
-
-export function serializeSiteMetadata(taskNotes: string | null, metaObj: any) {
-  const baseNotes = taskNotes ? taskNotes.replace(/\[METADATA:[^\]]*\]/g, "") : "";
-  return `[METADATA:${JSON.stringify(metaObj)}]${baseNotes}`;
-}
+export { parseSiteMetadata, serializeSiteMetadata };
 
 export function SitesPanel() {
   const [sites, setSites] = useState<any[]>([]);
@@ -382,9 +357,24 @@ export function SitesPanel() {
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    <Badge tone={meta.status === "Running" ? "success" : meta.status === "Stopped" ? "danger" : "warning"}>
-                      {meta.status}
-                    </Badge>
+                    {meta.visit_status ? (
+                      <div className="flex flex-col gap-1">
+                        <Badge tone={
+                          meta.visit_status === "Visit Complete" ? "success"
+                          : meta.visit_status === "Installation Done" ? "info"
+                          : "warning"
+                        }>
+                          {meta.visit_status}
+                        </Badge>
+                        {meta.status && (
+                          <span className="font-mono text-[9px] uppercase tracking-wider text-text-dim">{meta.status}</span>
+                        )}
+                      </div>
+                    ) : (
+                      <Badge tone={meta.status === "Running" ? "success" : meta.status === "Stopped" ? "danger" : "warning"}>
+                        {meta.status}
+                      </Badge>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <Select value={s.assigned_worker_id ?? ""} onChange={(e) => assign(s.id, e.target.value)}>
