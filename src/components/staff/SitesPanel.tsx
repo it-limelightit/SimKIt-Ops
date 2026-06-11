@@ -173,6 +173,14 @@ export function SitesPanel() {
     await load();
   };
 
+  const updateSiteStatus = async (siteId: string, newStatus: string, currentTaskNotes: string | null) => {
+    const meta = parseSiteMetadata(currentTaskNotes);
+    const newNotes = serializeSiteMetadata(currentTaskNotes, { ...meta, status: newStatus || "" });
+    const { error } = await supabase.from("sites").update({ task_notes: newNotes } as never).eq("id", siteId);
+    if (error) toast.error(error.message);
+    else await load();
+  };
+
   const deleteSite = async (siteId: string) => {
     if (!window.confirm("Are you sure you want to delete this site? All associated forms, appointments, and progress data will be permanently removed.")) return;
     try {
@@ -357,24 +365,34 @@ export function SitesPanel() {
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    {meta.visit_status ? (
-                      <div className="flex flex-col gap-1">
-                        <Badge tone={
-                          meta.visit_status === "Visit Complete" ? "success"
-                          : meta.visit_status === "Installation Done" ? "info"
-                          : "warning"
-                        }>
-                          {meta.visit_status}
-                        </Badge>
-                        {meta.status && (
-                          <span className="font-mono text-[9px] uppercase tracking-wider text-text-dim">{meta.status}</span>
-                        )}
-                      </div>
-                    ) : (
-                      <Badge tone={meta.status === "Running" ? "success" : meta.status === "Stopped" ? "danger" : "warning"}>
-                        {meta.status}
-                      </Badge>
-                    )}
+                    <div className="flex flex-col gap-1">
+                      <select
+                        value={meta.status || ""}
+                        onChange={(e) => updateSiteStatus(s.id, e.target.value, s.task_notes)}
+                        className={`appearance-none rounded-[4px] px-2 py-1 font-mono text-[10px] uppercase tracking-wider font-bold border outline-none cursor-pointer transition-all ${
+                          meta.status === "Running" ? "bg-mint-dim text-mint border-mint/20"
+                          : meta.status === "Reject" ? "bg-coral-dim text-coral border-coral/20"
+                          : !meta.status ? "bg-surface text-text-dim border-border"
+                          : "bg-warning/8 text-warning border-warning/20"
+                        }`}
+                      >
+                        <option value="">— None —</option>
+                        <option value="Assigned">Assigned</option>
+                        <option value="Assessment &amp; Visit">Assessment &amp; Visit</option>
+                        <option value="Concept">Concept</option>
+                        <option value="Installation">Installation</option>
+                        <option value="Verification">Verification</option>
+                        <option value="Running">Running</option>
+                        <option value="Reject">Reject</option>
+                      </select>
+                      {meta.visit_status && (
+                        <span className={`font-mono text-[9px] uppercase tracking-wider ${
+                          meta.visit_status === "Visit Complete" ? "text-mint"
+                          : meta.visit_status === "Installation Done" ? "text-violet"
+                          : "text-warning"
+                        }`}>{meta.visit_status}</span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3">
                     <Select value={s.assigned_worker_id ?? ""} onChange={(e) => assign(s.id, e.target.value)}>

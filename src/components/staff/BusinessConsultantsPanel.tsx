@@ -164,19 +164,9 @@ export function BusinessConsultantsPanel() {
                   </Badge>
                 </td>
                 <td className="px-4 py-4 align-middle">
-                  <select
-                    value={r.status ?? "assigned"}
-                    onChange={(e) => updateStatus(r.id, e.target.value)}
-                    className={`appearance-none rounded-[6px] px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide outline-none cursor-pointer text-center transition-all ${getStatusStyle(r.status)}`}
-                  >
-                    <option value="assigned" className="bg-[#800000] text-white uppercase font-bold">assigned</option>
-                    <option value="assessment & Visit" className="bg-[#C4E1F6] text-[#1D4ED8] uppercase font-bold">assessment & Visit</option>
-                    <option value="concept" className="bg-[#FDF2CE] text-[#B45309] uppercase font-bold">concept</option>
-                    <option value="installation" className="bg-[#FCE7D4] text-[#C2410C] uppercase font-bold">installation</option>
-                    <option value="verification" className="bg-[#1D4ED8] text-white uppercase font-bold">verification</option>
-                    <option value="Running" className="bg-[#107C41] text-white uppercase font-bold">Running</option>
-                    <option value="Reject" className="bg-[#E1E1E1] text-[#374151] uppercase font-bold">Reject</option>
-                  </select>
+                  <span className={`inline-block rounded-[6px] px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-center ${getStatusStyle(r.status)}`}>
+                    {r.status ?? "assigned"}
+                  </span>
                 </td>
                 <td className="px-4 py-4 align-middle text-right">
                   <div className="flex items-center justify-end gap-2.5 whitespace-nowrap">
