@@ -12,4 +12,7 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  vite: {
+    base: process.env.VERCEL ? "/" : (process.env.NODE_ENV === "production" ? "/SimKIt-Ops/" : "/"),
+  }
 });
