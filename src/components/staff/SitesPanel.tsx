@@ -333,7 +333,22 @@ export function SitesPanel() {
           <tbody>
             {sites.length === 0 ? (
               <tr><td colSpan={6} className="px-4 py-10 text-center text-text-dim italic">No sites created yet.</td></tr>
-            ) : sites.map((s) => {
+            ) : [...sites].sort((a, b) => {
+                const order: Record<string, number> = {
+                  "Running": 0,
+                  "Assessment & Visit": 1,
+                  "Concept": 2,
+                  "Installation": 3,
+                  "Verification": 4,
+                  "Assigned": 5,
+                  "Reject": 6,
+                };
+                const aStatus = parseSiteMetadata(a.task_notes).status || "";
+                const bStatus = parseSiteMetadata(b.task_notes).status || "";
+                const aRank = order[aStatus] ?? 7;
+                const bRank = order[bStatus] ?? 7;
+                return aRank - bRank;
+              }).map((s) => {
               const meta = parseSiteMetadata(s.task_notes);
               return (
                 <tr key={s.id} className="border-b border-border last:border-0 hover:bg-surface-raised/30 transition-colors">
