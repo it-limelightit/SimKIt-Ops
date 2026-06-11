@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth, type AppRole } from "@/lib/auth-store";
 import { Button, Card, Input, Label } from "@/components/ui-kit";
-import { Briefcase, HardHat, Shield } from "lucide-react";
+import { HardHat, Shield } from "lucide-react";
 
 export const Route = createFileRoute("/auth")({
   ssr: false,
@@ -54,10 +54,9 @@ function AuthPage() {
   );
 }
 
-const ROLE_OPTS: { value: AppRole; label: string; icon: React.ComponentType<{ size?: number; strokeWidth?: number }>; desc: string }[] = [
-  { value: "worker", label: "Business Consultant", icon: HardHat, desc: "Field" },
-  { value: "supervisor", label: "Manager", icon: Shield, desc: "Operations" },
-  { value: "owner", label: "Owner", icon: Briefcase, desc: "Admin" },
+const SIGNUP_ROLES: { value: AppRole; label: string; icon: React.ComponentType<{ size?: number; strokeWidth?: number }>; desc: string }[] = [
+  { value: "supervisor", label: "Manager", icon: Shield, desc: "Manage sites, tasks & consultants" },
+  { value: "worker", label: "Business Consultant", icon: HardHat, desc: "Perform field assessments & installs" },
 ];
 
 function LoginForm({ onDone }: { onDone: () => void }) {
@@ -126,10 +125,15 @@ function LoginForm({ onDone }: { onDone: () => void }) {
 
 function SignupForm({ onDone }: { onDone: () => void }) {
   const [f, setF] = useState({ name: "", email: "", mobile: "", whatsapp: "", password: "", confirm: "" });
+  const [role, setRole] = useState<AppRole | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!role) {
+      toast.error("Please select a role");
+      return;
+    }
     if (f.password !== f.confirm) {
       toast.error("Passwords do not match");
       return;
@@ -140,9 +144,6 @@ function SignupForm({ onDone }: { onDone: () => void }) {
     }
     setLoading(true);
     try {
-      const emailLower = f.email.toLowerCase();
-      const role = emailLower.includes("manager") || emailLower.includes("supervisor") ? "supervisor" : "worker";
-
       const { error } = await supabase.auth.signUp({
         email: f.email,
         password: f.password,
@@ -169,6 +170,33 @@ function SignupForm({ onDone }: { onDone: () => void }) {
 
   return (
     <form onSubmit={submit} className="space-y-6">
+      <div>
+        <Label>I am a <span className="text-[#A63D2F]">*</span></Label>
+        <div className="mt-2 grid grid-cols-2 gap-3">
+          {SIGNUP_ROLES.map((r) => {
+            const Icon = r.icon;
+            const active = role === r.value;
+            return (
+              <button
+                key={r.value}
+                type="button"
+                onClick={() => setRole(r.value)}
+                className={`flex flex-col items-start gap-2 border p-4 text-left transition-colors ${
+                  active
+                    ? "border-foreground bg-foreground text-background"
+                    : "border-border bg-surface hover:border-foreground/40"
+                }`}
+              >
+                <Icon size={20} strokeWidth={1.5} />
+                <span className="text-sm font-medium leading-tight">{r.label}</span>
+                <span className={`text-xs leading-snug ${active ? "text-background/70" : "text-muted-foreground"}`}>
+                  {r.desc}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
       <div>
         <Label>Full Name <span className="text-[#A63D2F]">*</span></Label>
         <Input value={f.name} onChange={set("name")} required />
