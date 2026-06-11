@@ -12,7 +12,11 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  // When building on Vercel, use Vercel's Nitro preset so the output lands in
+  // .output/ — the format Vercel natively understands for serverless deployment.
+  // Without this, Nitro defaults to cloudflare-module which has no index.html.
+  nitro: process.env.VERCEL ? { preset: "vercel" } : {},
   vite: {
-    base: process.env.VERCEL ? "/" : (process.env.NODE_ENV === "production" ? "/SimKIt-Ops/" : "/"),
-  }
+    base: "/",
+  },
 });
