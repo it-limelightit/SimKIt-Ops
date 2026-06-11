@@ -1,0 +1,148 @@
+import { useState } from "react";
+import { Link, useRouterState } from "@tanstack/react-router";
+import { useAuth } from "@/lib/auth-store";
+import { LayoutDashboard, MapPin, Users, BarChart3, LogOut, Settings, Activity, Menu, X, Folder } from "lucide-react";
+import { Button } from "../ui-kit";
+
+export function StaffShell({
+  children,
+  role,
+}: {
+  children: React.ReactNode;
+  role: "supervisor" | "owner";
+}) {
+  const { signOut, profile } = useAuth();
+  const path = useRouterState({ select: (s) => s.location.pathname });
+  const [isOpen, setIsOpen] = useState(false);
+  const base = `/${role}`;
+  const displayRole = role === "supervisor" ? "manager" : role;
+  
+  const items = [
+    { to: `${base}`, label: "Overview", icon: LayoutDashboard },
+    { to: `${base}/sites`, label: "Sites", icon: MapPin },
+    { to: `${base}/business-consultants`, label: "Business Consultants", icon: Users },
+    { to: `${base}/performance`, label: "Performance", icon: Activity },
+    { to: `${base}/drive-links`, label: "Links of Drive", icon: Folder },
+    { to: `${base}/reports`, label: "Reports", icon: BarChart3 },
+    ...(role === "owner"
+      ? [
+          { to: `${base}/managers`, label: "Managers", icon: Users },
+          { to: `${base}/settings`, label: "Settings", icon: Settings },
+        ]
+      : []),
+  ];
+
+  return (
+    <div className="flex min-h-screen flex-col md:flex-row bg-background text-text-primary">
+      {/* Mobile Header */}
+      <header className="flex h-16 items-center justify-between border-b border-border bg-surface px-6 md:hidden">
+        <Link to={base as "/manager"} className="flex items-center gap-2 font-syne font-bold uppercase tracking-wider text-lime">
+          <span className="flex h-5 w-5 items-center justify-center rounded-[4px] bg-lime text-bg text-[10px] font-extrabold font-mono">⬡</span>
+          <span>SIM-KIT OPS</span>
+        </Link>
+        <button
+          onClick={() => setIsOpen(!isOpen)}
+          className="p-2 text-text-secondary hover:text-text-primary"
+          aria-label="Toggle menu"
+        >
+          {isOpen ? <X size={20} strokeWidth={2} /> : <Menu size={20} strokeWidth={2} />}
+        </button>
+      </header>
+
+      {/* Mobile Drawer (Menu Overlay) */}
+      {isOpen && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-background text-text-primary animate-in slide-in-from-top duration-200 md:hidden">
+          <div className="flex h-16 items-center justify-between border-b border-border px-6 bg-surface">
+            <Link to={base as "/manager"} className="flex items-center gap-2 font-syne font-bold uppercase tracking-wider text-lime" onClick={() => setIsOpen(false)}>
+              <span className="flex h-5 w-5 items-center justify-center rounded-[4px] bg-lime text-bg text-[10px] font-extrabold font-mono">⬡</span>
+              <span>SIM-KIT OPS</span>
+            </Link>
+            <button
+              onClick={() => setIsOpen(false)}
+              className="p-2 text-text-secondary hover:text-text-primary"
+            >
+              <X size={20} strokeWidth={2} />
+            </button>
+          </div>
+          <nav className="flex-1 px-4 py-6 space-y-1">
+            {items.map((it) => {
+              const active = path === it.to || (it.to !== base && path.startsWith(it.to));
+              return (
+                <Link
+                  key={it.to}
+                  to={it.to}
+                  onClick={() => setIsOpen(false)}
+                  className={`flex items-center gap-3 px-4 py-3 text-sm font-semibold rounded-[6px] transition-all duration-150 ${
+                    active ? "bg-lime/10 text-lime border-l-3 border-lime" : "text-text-secondary hover:bg-surface hover:text-text-primary"
+                  }`}
+                >
+                  <it.icon size={18} strokeWidth={2} />
+                  {it.label}
+                </Link>
+              );
+            })}
+          </nav>
+          <div className="border-t border-border px-6 py-6 bg-surface">
+            <div className="font-mono text-[9px] text-lime mb-1 uppercase tracking-widest font-bold">{displayRole}</div>
+            <div className="text-sm font-semibold mb-3 text-text-primary">{profile?.name ?? "—"}</div>
+            <Button
+              onClick={() => {
+                setIsOpen(false);
+                signOut();
+              }}
+              variant="danger"
+              className="w-full text-xs"
+            >
+              <LogOut size={14} strokeWidth={1.5} /> Sign out
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Desktop Sidebar */}
+      <aside className="hidden w-60 shrink-0 flex-col bg-surface border-r border-border md:flex md:h-screen md:sticky md:top-0">
+        <div className="px-6 py-6 border-b border-border">
+          <Link to={base as "/manager"} className="flex items-center gap-2 font-syne font-bold uppercase tracking-wider text-lime">
+            <span className="flex h-5 w-5 items-center justify-center rounded-[4px] bg-lime text-bg text-[10px] font-extrabold font-mono">⬡</span>
+            <span>SIM-KIT OPS</span>
+          </Link>
+          <div className="mt-1.5 font-mono text-[9px] uppercase tracking-widest text-text-secondary font-bold">{displayRole}</div>
+        </div>
+        <nav className="flex-1 px-3 py-6 space-y-1">
+          {items.map((it) => {
+            const active = path === it.to || (it.to !== base && path.startsWith(it.to));
+            return (
+              <Link
+                key={it.to}
+                to={it.to}
+                className={`flex items-center gap-3 px-4 py-2.5 text-sm font-semibold transition-all duration-150 rounded-[6px] ${
+                  active ? "bg-lime/10 text-lime border-l-3 border-lime" : "text-text-secondary hover:bg-surface hover:text-text-primary"
+                }`}
+              >
+                <it.icon size={16} strokeWidth={2} />
+                {it.label}
+              </Link>
+            );
+          })}
+        </nav>
+        <div className="border-t border-border px-4 py-4 bg-surface-raised/30 flex items-center justify-between">
+          <div className="flex flex-col min-w-0">
+            <div className="font-mono text-[8px] uppercase tracking-wider text-text-secondary font-bold truncate">User</div>
+            <div className="text-xs font-semibold text-text-primary truncate">{profile?.name ?? "—"}</div>
+          </div>
+          <button
+            onClick={signOut}
+            className="text-text-secondary hover:text-coral transition-colors p-1.5 cursor-pointer"
+            title="Sign out"
+          >
+            <LogOut size={16} strokeWidth={2} />
+          </button>
+        </div>
+      </aside>
+
+      <main className="flex-1 overflow-x-hidden">
+        <div className="mx-auto max-w-6xl px-6 py-10 md:px-10 md:py-12">{children}</div>
+      </main>
+    </div>
+  );
+}

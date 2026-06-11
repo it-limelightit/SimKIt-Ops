@@ -1,0 +1,6 @@
+User-agent: *
+Disallow: /worker
+Disallow: /supervisor
+Disallow: /owner
+Allow: /
+Allow: /auth
