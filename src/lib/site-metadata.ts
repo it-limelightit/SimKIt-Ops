@@ -12,6 +12,7 @@ export type SiteMeta = {
   drive_folder_name: string;
   drive_folder_link: string;
   visit_status: string;
+  worker_ids: string[];
 };
 
 const DEFAULT_META: SiteMeta = {
@@ -26,6 +27,7 @@ const DEFAULT_META: SiteMeta = {
   drive_folder_name: "",
   drive_folder_link: "",
   visit_status: "",
+  worker_ids: [],
 };
 
 export function parseSiteMetadata(taskNotes: string | null): SiteMeta {

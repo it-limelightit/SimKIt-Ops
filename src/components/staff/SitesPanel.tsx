@@ -1,12 +1,99 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button, Card, Input, Label, Select, Badge } from "@/components/ui-kit";
 import { toast } from "sonner";
-import { Plus, X, Edit, Phone, Calendar, Clock, Folder, ExternalLink } from "lucide-react";
+import { Plus, X, Edit, Phone, Calendar, Clock, Folder, ExternalLink, ChevronDown, Check } from "lucide-react";
 import { parseSiteMetadata, serializeSiteMetadata } from "@/lib/site-metadata";
 
 export { parseSiteMetadata, serializeSiteMetadata };
 
+// ── Multi-select BC dropdown ──────────────────────────────────────────────────
+function BCMultiSelect({
+  allBCs,
+  selectedIds,
+  onChange,
+}: {
+  allBCs: any[];
+  selectedIds: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const toggle = (id: string) => {
+    const next = selectedIds.includes(id)
+      ? selectedIds.filter((x) => x !== id)
+      : [...selectedIds, id];
+    onChange(next);
+  };
+
+  const names = allBCs
+    .filter((w) => selectedIds.includes(w.id))
+    .map((w) => w.name ?? w.mobile);
+
+  return (
+    <div ref={ref} className="relative min-w-[160px]">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center justify-between w-full gap-2 rounded-[6px] border border-border bg-surface px-2 py-1.5 text-xs text-text-primary hover:border-lime transition-colors"
+      >
+        <span className="truncate max-w-[140px]">
+          {names.length === 0 ? (
+            <span className="text-text-dim italic">— Unassigned —</span>
+          ) : (
+            names.join(", ")
+          )}
+        </span>
+        <ChevronDown size={12} className="shrink-0 text-text-secondary" />
+      </button>
+
+      {open && (
+        <div className="absolute z-50 mt-1 w-max min-w-full max-h-52 overflow-y-auto rounded-[6px] border border-border bg-surface shadow-lg">
+          {allBCs.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-text-dim italic">No BCs available</div>
+          ) : (
+            allBCs.map((w) => {
+              const checked = selectedIds.includes(w.id);
+              return (
+                <button
+                  key={w.id}
+                  type="button"
+                  onClick={() => toggle(w.id)}
+                  className="flex items-center gap-2 w-full px-3 py-2 text-xs text-left hover:bg-surface-raised transition-colors"
+                >
+                  <span className={`flex items-center justify-center h-3.5 w-3.5 rounded-[3px] border shrink-0 ${checked ? "bg-lime border-lime" : "border-border"}`}>
+                    {checked && <Check size={10} strokeWidth={3} className="text-black" />}
+                  </span>
+                  <span className="text-text-primary">{w.name ?? w.mobile}</span>
+                </button>
+              );
+            })
+          )}
+          {selectedIds.length > 0 && (
+            <button
+              type="button"
+              onClick={() => onChange([])}
+              className="flex items-center gap-2 w-full px-3 py-2 text-[10px] text-coral hover:bg-surface-raised border-t border-border transition-colors"
+            >
+              <X size={10} /> Clear all
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main panel ────────────────────────────────────────────────────────────────
 export function SitesPanel() {
   const [sites, setSites] = useState<any[]>([]);
   const [businessConsultants, setBusinessConsultants] = useState<any[]>([]);
@@ -17,7 +104,7 @@ export function SitesPanel() {
     name: "",
     city: "",
     address: "",
-    worker: "",
+    workers: [] as string[],
     c1_name: "",
     c1_mobile: "",
     c1_email: "",
@@ -28,7 +115,7 @@ export function SitesPanel() {
     appt_date: "",
     appt_time: "",
     create_drive_folder: false,
-    drive_folder_link: ""
+    drive_folder_link: "",
   });
 
   const load = async () => {
@@ -49,6 +136,14 @@ export function SitesPanel() {
     void load();
   }, []);
 
+  // Returns the full list of assigned BC IDs for a site row
+  const getSiteWorkerIds = (s: any): string[] => {
+    const meta = parseSiteMetadata(s.task_notes);
+    if (meta.worker_ids?.length > 0) return meta.worker_ids;
+    if (s.assigned_worker_id) return [s.assigned_worker_id];
+    return [];
+  };
+
   const create = async () => {
     if (!form.name) return toast.error("Name required");
     const meta = {
@@ -60,8 +155,9 @@ export function SitesPanel() {
       c2_email: form.c2_email,
       status: form.status,
       create_drive_folder: form.create_drive_folder,
-      drive_folder_name: form.name, // Keep for backward compatibility
-      drive_folder_link: form.create_drive_folder ? form.drive_folder_link : ""
+      drive_folder_name: form.name,
+      drive_folder_link: form.create_drive_folder ? form.drive_folder_link : "",
+      worker_ids: form.workers,
     };
     const taskNotes = serializeSiteMetadata("", meta);
 
@@ -69,10 +165,10 @@ export function SitesPanel() {
       name: form.name,
       city: form.city || null,
       address: form.address || null,
-      assigned_worker_id: form.worker || null,
+      assigned_worker_id: form.workers[0] || null,
       task_notes: taskNotes,
       appt_date: form.appt_date || null,
-      appt_time: form.appt_time || null
+      appt_time: form.appt_time || null,
     } as never);
 
     if (error) toast.error(error.message);
@@ -86,12 +182,15 @@ export function SitesPanel() {
 
   const startEdit = (s: any) => {
     const meta = parseSiteMetadata(s.task_notes);
+    const workerIds = meta.worker_ids?.length > 0
+      ? meta.worker_ids
+      : s.assigned_worker_id ? [s.assigned_worker_id] : [];
     setEditingSite(s);
     setForm({
       name: s.name,
       city: s.city ?? "",
       address: s.address ?? "",
-      worker: s.assigned_worker_id ?? "",
+      workers: workerIds,
       c1_name: meta.c1_name,
       c1_mobile: meta.c1_mobile,
       c1_email: meta.c1_email,
@@ -102,7 +201,7 @@ export function SitesPanel() {
       appt_date: s.appt_date ?? "",
       appt_time: s.appt_time ?? "",
       create_drive_folder: !!meta.create_drive_folder,
-      drive_folder_link: meta.drive_folder_link ?? ""
+      drive_folder_link: meta.drive_folder_link ?? "",
     });
   };
 
@@ -118,7 +217,8 @@ export function SitesPanel() {
       status: form.status,
       create_drive_folder: form.create_drive_folder,
       drive_folder_name: form.name,
-      drive_folder_link: form.create_drive_folder ? form.drive_folder_link : ""
+      drive_folder_link: form.create_drive_folder ? form.drive_folder_link : "",
+      worker_ids: form.workers,
     };
     const taskNotes = serializeSiteMetadata(editingSite.task_notes, meta);
 
@@ -128,10 +228,10 @@ export function SitesPanel() {
         name: form.name,
         city: form.city || null,
         address: form.address || null,
-        assigned_worker_id: form.worker || null,
+        assigned_worker_id: form.workers[0] || null,
         task_notes: taskNotes,
         appt_date: form.appt_date || null,
-        appt_time: form.appt_time || null
+        appt_time: form.appt_time || null,
       } as never)
       .eq("id", editingSite.id);
 
@@ -149,7 +249,7 @@ export function SitesPanel() {
       name: "",
       city: "",
       address: "",
-      worker: "",
+      workers: [],
       c1_name: "",
       c1_mobile: "",
       c1_email: "",
@@ -160,16 +260,22 @@ export function SitesPanel() {
       appt_date: "",
       appt_time: "",
       create_drive_folder: false,
-      drive_folder_link: ""
+      drive_folder_link: "",
     });
   };
 
-  const assign = async (siteId: string, workerId: string) => {
+  const assignMultiple = async (siteId: string, workerIds: string[], currentTaskNotes: string | null) => {
+    const meta = parseSiteMetadata(currentTaskNotes);
+    const newNotes = serializeSiteMetadata(currentTaskNotes, { ...meta, worker_ids: workerIds });
     await supabase
       .from("sites")
-      .update({ assigned_worker_id: workerId || null, assigned_at: new Date().toISOString() } as never)
+      .update({
+        assigned_worker_id: workerIds[0] || null,
+        assigned_at: new Date().toISOString(),
+        task_notes: newNotes,
+      } as never)
       .eq("id", siteId);
-    toast.success("Updated");
+    toast.success("Assignment updated");
     await load();
   };
 
@@ -226,13 +332,10 @@ export function SitesPanel() {
           <div className="grid gap-4 md:grid-cols-2">
             <div>
               <Label>Site Name</Label>
-              <Input 
-                value={form.name} 
-                onChange={(e) => setForm({ ...form, name: e.target.value })} 
-              />
+              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
             </div>
             <div><Label>City</Label><Input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></div>
-            
+
             <div className="md:col-span-2"><Label>Address</Label><Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
 
             <div>
@@ -278,34 +381,59 @@ export function SitesPanel() {
                 </Select>
               </div>
               <div>
-                <Label>Assign Business Consultant</Label>
-                <Select value={form.worker} onChange={(e) => setForm({ ...form, worker: e.target.value })}>
-                  <option value="">— Unassigned —</option>
-                  {businessConsultants.map((w) => (
-                    <option key={w.id} value={w.id}>{w.name ?? w.mobile}</option>
-                  ))}
-                </Select>
+                <Label>Assign Business Consultants</Label>
+                <div className="mt-1 border border-border rounded-[6px] divide-y divide-border max-h-44 overflow-y-auto">
+                  {businessConsultants.length === 0 ? (
+                    <p className="px-3 py-2 text-xs text-text-dim italic">No active BCs available</p>
+                  ) : businessConsultants.map((w) => {
+                    const checked = form.workers.includes(w.id);
+                    return (
+                      <label key={w.id} className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-surface-raised transition-colors">
+                        <span className={`flex items-center justify-center h-4 w-4 rounded-[3px] border shrink-0 transition-colors ${checked ? "bg-lime border-lime" : "border-border bg-surface"}`}>
+                          {checked && <Check size={10} strokeWidth={3} className="text-black" />}
+                        </span>
+                        <input
+                          type="checkbox"
+                          className="sr-only"
+                          checked={checked}
+                          onChange={() => {
+                            const next = checked
+                              ? form.workers.filter((id) => id !== w.id)
+                              : [...form.workers, w.id];
+                            setForm({ ...form, workers: next });
+                          }}
+                        />
+                        <span className="text-sm text-text-primary">{w.name ?? w.mobile}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                {form.workers.length > 0 && (
+                  <p className="mt-1 text-[10px] font-mono text-lime/70">
+                    {form.workers.length} BC{form.workers.length > 1 ? "s" : ""} selected
+                  </p>
+                )}
               </div>
             </div>
 
             <div className="border-t border-border pt-4 md:col-span-2 grid gap-4 md:grid-cols-2">
               <div className="flex items-center gap-2 mt-6">
-                <input 
-                  type="checkbox" 
+                <input
+                  type="checkbox"
                   id="create_drive_folder"
-                  checked={form.create_drive_folder} 
+                  checked={form.create_drive_folder}
                   onChange={(e) => setForm({ ...form, create_drive_folder: e.target.checked })}
                   className="rounded border-border bg-surface text-lime focus:ring-lime h-4 w-4"
                 />
-                <Label htmlFor="create_drive_folder" className="cursor-pointer">Google Drive Link</Label>
+                <label htmlFor="create_drive_folder" className="cursor-pointer text-sm font-medium text-text-primary">Google Drive Link</label>
               </div>
               {form.create_drive_folder && (
                 <div>
                   <Label>Google Drive Folder Link</Label>
-                  <Input 
-                    placeholder="https://drive.google.com/drive/folders/..." 
-                    value={form.drive_folder_link} 
-                    onChange={(e) => setForm({ ...form, drive_folder_link: e.target.value })} 
+                  <Input
+                    placeholder="https://drive.google.com/drive/folders/..."
+                    value={form.drive_folder_link}
+                    onChange={(e) => setForm({ ...form, drive_folder_link: e.target.value })}
                   />
                 </div>
               )}
@@ -350,6 +478,7 @@ export function SitesPanel() {
                 return aRank - bRank;
               }).map((s) => {
               const meta = parseSiteMetadata(s.task_notes);
+              const assignedIds = getSiteWorkerIds(s);
               return (
                 <tr key={s.id} className="border-b border-border last:border-0 hover:bg-surface-raised/30 transition-colors">
                   <td className="px-4 py-3">
@@ -357,9 +486,7 @@ export function SitesPanel() {
                     <div className="text-xs text-text-secondary mt-0.5 truncate max-w-[200px]">{s.address || "—"}</div>
                     {meta.drive_folder_link && (
                       <button
-                        onClick={() => {
-                          window.open(meta.drive_folder_link, "_blank");
-                        }}
+                        onClick={() => window.open(meta.drive_folder_link, "_blank")}
                         className="text-xs text-lime hover:underline flex items-center gap-1 mt-1 font-mono text-left"
                       >
                         <Folder size={12} className="inline mr-1" /> Open Drive Folder <ExternalLink size={10} className="inline ml-1" />
@@ -410,21 +537,23 @@ export function SitesPanel() {
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <Select value={s.assigned_worker_id ?? ""} onChange={(e) => assign(s.id, e.target.value)}>
-                      <option value="">— Unassigned —</option>
-                      {businessConsultants.map((w) => (
-                        <option key={w.id} value={w.id}>{w.name ?? w.mobile}</option>
-                      ))}
-                    </Select>
+                    <BCMultiSelect
+                      allBCs={businessConsultants}
+                      selectedIds={assignedIds}
+                      onChange={(ids) => assignMultiple(s.id, ids, s.task_notes)}
+                    />
+                    {assignedIds.length > 1 && (
+                      <p className="mt-1 font-mono text-[9px] text-lime/60">{assignedIds.length} BCs assigned</p>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
                       <Button variant="secondary" className="p-1 px-2.5 text-xs" onClick={() => startEdit(s)}>
                         <Edit size={12} /> Edit
                       </Button>
-                      <Button 
-                        variant="danger" 
-                        className="py-1 px-2.5 text-xs" 
+                      <Button
+                        variant="danger"
+                        className="py-1 px-2.5 text-xs"
                         onClick={() => deleteSite(s.id)}
                       >
                         Delete
