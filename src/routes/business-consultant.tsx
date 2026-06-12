@@ -57,7 +57,7 @@ function BusinessConsultantPage() {
     const { data, error } = await supabase
       .from("sites")
       .select("id,name,city,address,assigned_at,appt_date,appt_time,task_notes")
-      .eq("assigned_worker_id", userId)
+      .or(`assigned_worker_id.eq.${userId},task_notes.ilike.%"${userId}"%`)
       .order("assigned_at", { ascending: false });
     
     if (error) {
