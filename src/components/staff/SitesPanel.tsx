@@ -113,6 +113,12 @@ export function SitesPanel() {
   const [creating, setCreating] = useState(false);
   const [editingSite, setEditingSite] = useState<any | null>(null);
 
+  const [search, setSearch] = useState("");
+  const [filterCity, setFilterCity] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [filterAssessor, setFilterAssessor] = useState("");
+  const [filterBC, setFilterBC] = useState("");
+
   const [form, setForm] = useState({
     name: "",
     city: "",
@@ -507,6 +513,68 @@ export function SitesPanel() {
         </Card>
       )}
 
+      {/* ── Search & Filters ── */}
+      {(() => {
+        const allMetas = sites.map((s) => parseSiteMetadata(s.task_notes));
+        const cities = Array.from(new Set(sites.map((s) => s.city).filter(Boolean))).sort();
+        const statuses = Array.from(new Set(allMetas.map((m) => m.status).filter(Boolean))).sort();
+        const assessors = Array.from(new Set(allMetas.map((m) => m.assessor_company).filter(Boolean))).sort();
+        const hasFilters = search || filterCity || filterStatus || filterAssessor || filterBC;
+        return (
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-2 items-center">
+              <div className="relative flex-1 min-w-[200px]">
+                <input
+                  type="text"
+                  placeholder="Search by site name, assessor or city…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full rounded-[6px] border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-dim focus:border-lime focus:outline-none transition-colors pr-8"
+                />
+                {search && (
+                  <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-text-dim hover:text-text-primary">
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+              {hasFilters && (
+                <button
+                  onClick={() => { setSearch(""); setFilterCity(""); setFilterStatus(""); setFilterAssessor(""); setFilterBC(""); }}
+                  className="text-xs font-mono text-coral hover:text-coral/70 transition-colors whitespace-nowrap flex items-center gap-1"
+                >
+                  <X size={12} /> Clear all
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { label: "City", value: filterCity, set: setFilterCity, options: cities },
+                { label: "Status", value: filterStatus, set: setFilterStatus, options: statuses },
+                { label: "Assessor", value: filterAssessor, set: setFilterAssessor, options: assessors },
+              ].map(({ label, value, set, options }) => (
+                <select
+                  key={label}
+                  value={value}
+                  onChange={(e) => set(e.target.value)}
+                  className={`rounded-[6px] border px-2.5 py-1.5 text-xs font-mono focus:outline-none transition-colors cursor-pointer ${value ? "border-lime bg-lime/5 text-lime" : "border-border bg-surface text-text-secondary"}`}
+                >
+                  <option value="">All {label}s</option>
+                  {options.map((o) => <option key={o} value={o}>{o}</option>)}
+                </select>
+              ))}
+              <select
+                value={filterBC}
+                onChange={(e) => setFilterBC(e.target.value)}
+                className={`rounded-[6px] border px-2.5 py-1.5 text-xs font-mono focus:outline-none transition-colors cursor-pointer ${filterBC ? "border-lime bg-lime/5 text-lime" : "border-border bg-surface text-text-secondary"}`}
+              >
+                <option value="">All BCs</option>
+                {businessConsultants.map((w) => <option key={w.id} value={w.id}>{w.name ?? w.mobile}</option>)}
+              </select>
+            </div>
+          </div>
+        );
+      })()}
+
       <div className="overflow-x-auto border border-border bg-surface rounded-[10px]">
         <table className="w-full text-sm">
           <thead className="border-b border-border bg-surface-raised">
@@ -522,23 +590,32 @@ export function SitesPanel() {
           <tbody>
             {sites.length === 0 ? (
               <tr><td colSpan={6} className="px-4 py-10 text-center text-text-dim italic">No sites created yet.</td></tr>
-            ) : [...sites].sort((a, b) => {
-                const order: Record<string, number> = {
-                  "Running": 0,
-                  "Assessment & Visit": 1,
-                  "Concept": 2,
-                  "Installation": 3,
-                  "Verification": 4,
-                  "Shipped": 5,
-                  "Assigned": 6,
-                  "Reject": 7,
+            ) : (() => {
+                const ORDER: Record<string, number> = {
+                  "Running": 0, "Assessment & Visit": 1, "Concept": 2,
+                  "Installation": 3, "Verification": 4, "Shipped": 5, "Assigned": 6, "Reject": 7,
                 };
-                const aStatus = parseSiteMetadata(a.task_notes).status || "";
-                const bStatus = parseSiteMetadata(b.task_notes).status || "";
-                const aRank = order[aStatus] ?? 7;
-                const bRank = order[bStatus] ?? 7;
-                return aRank - bRank;
-              }).map((s) => {
+                const q = search.toLowerCase().trim();
+                const filtered = [...sites]
+                  .filter((s) => {
+                    const meta = parseSiteMetadata(s.task_notes);
+                    const assignedIds = getSiteWorkerIds(s);
+                    if (q && ![s.name, meta.assessor_company, s.city].some((v) => (v ?? "").toLowerCase().includes(q))) return false;
+                    if (filterCity && s.city !== filterCity) return false;
+                    if (filterStatus && meta.status !== filterStatus) return false;
+                    if (filterAssessor && meta.assessor_company !== filterAssessor) return false;
+                    if (filterBC && !assignedIds.includes(filterBC)) return false;
+                    return true;
+                  })
+                  .sort((a, b) => {
+                    const aRank = ORDER[parseSiteMetadata(a.task_notes).status ?? ""] ?? 8;
+                    const bRank = ORDER[parseSiteMetadata(b.task_notes).status ?? ""] ?? 8;
+                    return aRank - bRank;
+                  });
+                if (filtered.length === 0) return (
+                  <tr><td colSpan={6} className="px-4 py-10 text-center text-text-dim italic">No sites match your search or filters.</td></tr>
+                );
+                return filtered.map((s) => {
               const meta = parseSiteMetadata(s.task_notes);
               const assignedIds = getSiteWorkerIds(s);
               return (
@@ -638,7 +715,8 @@ export function SitesPanel() {
                   </td>
                 </tr>
               );
-            })}
+            })
+            })()}
           </tbody>
         </table>
       </div>
