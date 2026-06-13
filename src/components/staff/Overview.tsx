@@ -19,7 +19,21 @@ type SiteRow = {
   businessConsultantName: string | null;
 };
 
-const ASSESS = 11, INSTALL = 3, COMMISSION = 8;
+const ASSESSMENT_KEYS = [
+  "factory_call_done","third_party_call_done","appointment_saved","facility_visit_done",
+  "explanation_saved","contacts_done","floor_visit_done","business_profile_saved",
+  "machines_done","mom_uploaded","media_uploaded",
+];
+const INSTALLATION_KEYS = ["delivery_confirmed","coordination_done","photos_uploaded"];
+const COMMISSIONING_KEYS = [
+  "coordination_done","visit_done","connection_done","configure_done",
+  "testing_done","screenshots_uploaded","certificate_sent","final_mom_uploaded",
+];
+
+function pctKeys(data: any, keys: string[]) {
+  if (!data) return 0;
+  return Math.round(keys.filter((k) => !!data[k]).length / keys.length * 100);
+}
 
 export function Overview() {
   const [stats, setStats] = useState<null | {
@@ -59,17 +73,12 @@ export function Overview() {
       const nameById: Record<string, string> = {};
       for (const p of (profilesRes.data ?? []) as any[]) nameById[p.id] = p.name;
 
-      const pct = (data: any, total: number) => {
-        if (!data) return 0;
-        const f = Object.values(data).filter(Boolean).length;
-        return Math.round((f / total) * 100);
-      };
       setStats({
         sites: s.count ?? 0,
         workers: w.count ?? 0,
-        a: ((a.data ?? []) as any[]).filter((r) => pct(r.data, ASSESS) === 100).length,
-        i: ((i.data ?? []) as any[]).filter((r) => pct(r.data, INSTALL) === 100).length,
-        c: ((c.data ?? []) as any[]).filter((r) => pct(r.data, COMMISSION) === 100).length,
+        a: ((a.data ?? []) as any[]).filter((r) => !!(r.data as any)?.assessment_phase_submitted).length,
+        i: ((i.data ?? []) as any[]).filter((r) => pctKeys(r.data, INSTALLATION_KEYS) === 100).length,
+        c: ((c.data ?? []) as any[]).filter((r) => pctKeys(r.data, COMMISSIONING_KEYS) === 100).length,
       });
 
       const aMap = new Map<string, any>(((a.data ?? []) as any[]).map((r) => [r.site_id, r]));
@@ -78,9 +87,9 @@ export function Overview() {
 
       const built: SiteRow[] = sites.map((site) => {
         const ar = aMap.get(site.id), ir = iMap.get(site.id), cr = cMap.get(site.id);
-        const aP = pct(ar?.data, ASSESS);
-        const iP = pct(ir?.data, INSTALL);
-        const cP = pct(cr?.data, COMMISSION);
+        const aP = (ar?.data as any)?.assessment_phase_submitted ? 100 : pctKeys(ar?.data, ASSESSMENT_KEYS);
+        const iP = pctKeys(ir?.data, INSTALLATION_KEYS);
+        const cP = pctKeys(cr?.data, COMMISSIONING_KEYS);
         const updated = [ar?.updated_at, ir?.updated_at, cr?.updated_at].filter(Boolean).sort().pop() ?? null;
 
         let appt: Appt = { status: "none", scheduled: null, completed: null };
@@ -114,11 +123,11 @@ export function Overview() {
       const f = { unassigned: 0, scheduled: 0, assess: 0, install: 0, commission: 0, done: 0 };
       for (const r of built) {
         if (!r.assigned_worker_id) f.unassigned++;
-        else if (!r.appt_date) f.scheduled++;
         else if (r.progress.c === 100 && r.progress.i === 100 && r.progress.a === 100) f.done++;
         else if (r.progress.i === 100) f.commission++;
         else if (r.progress.a === 100) f.install++;
-        else f.assess++;
+        else if (r.progress.a > 0) f.assess++;
+        else f.scheduled++;
       }
       setFunnel(f);
 
@@ -172,7 +181,7 @@ export function Overview() {
           return t >= dt.getTime() && t < next.getTime();
         }).length;
         const doneCount = ((c.data ?? []) as any[]).filter((r) => {
-          if (pct(r.data, COMMISSION) !== 100) return false;
+          if (pctKeys(r.data, COMMISSIONING_KEYS) !== 100) return false;
           const t = new Date(r.updated_at).getTime();
           return t >= dt.getTime() && t < next.getTime();
         }).length;

@@ -703,6 +703,7 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
               return;
             }
 
+            await save({ ...data, assessment_phase_submitted: true });
             if (onSubmit) onSubmit();
           }}
           className="w-full sm:w-auto text-base py-3 px-8"
