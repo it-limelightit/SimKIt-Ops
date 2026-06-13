@@ -494,7 +494,7 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
             <div className="mt-6 space-y-6 animate-in fade-in duration-200">
               <div className="grid gap-6 md:grid-cols-2">
                 <div>
-                  <Label>Business Name <span className="text-[#A63D2F] ml-0.5">*</span></Label>
+                  <Label>Business Name</Label>
                   <Input
                     defaultValue={data.biz_name ?? ""}
                     onBlur={(e) => patch({ biz_name: e.target.value })}
@@ -502,7 +502,7 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
                   />
                 </div>
                 <div>
-                  <Label>Industry Type <span className="text-[#A63D2F] ml-0.5">*</span></Label>
+                  <Label>Industry Type</Label>
                   <Select
                     defaultValue={data.biz_industry ?? ""}
                     onBlur={(e) => patch({ biz_industry: e.target.value })}
@@ -524,7 +524,7 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
                   />
                 </div>
                 <div>
-                  <Label>Primary Contact Name <span className="text-[#A63D2F] ml-0.5">*</span></Label>
+                  <Label>Primary Contact Name</Label>
                   <Input
                     defaultValue={data.biz_contact_name ?? ""}
                     onBlur={(e) => patch({ biz_contact_name: e.target.value })}
@@ -532,7 +532,7 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
                   />
                 </div>
                 <div className="md:col-span-2">
-                  <Label>Address <span className="text-[#A63D2F] ml-0.5">*</span></Label>
+                  <Label>Address</Label>
                   <Textarea
                     rows={2}
                     defaultValue={data.biz_address ?? ""}
@@ -541,7 +541,7 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
                   />
                 </div>
                 <div>
-                  <Label>City <span className="text-[#A63D2F] ml-0.5">*</span></Label>
+                  <Label>City</Label>
                   <Input
                     defaultValue={data.biz_city ?? ""}
                     onBlur={(e) => patch({ biz_city: e.target.value })}
@@ -549,7 +549,7 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
                   />
                 </div>
                 <div>
-                  <Label>State <span className="text-[#A63D2F] ml-0.5">*</span></Label>
+                  <Label>State</Label>
                   <Input
                     defaultValue={data.biz_state ?? ""}
                     onBlur={(e) => patch({ biz_state: e.target.value })}
@@ -557,7 +557,7 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
                   />
                 </div>
                 <div>
-                  <Label>PIN <span className="text-[#A63D2F] ml-0.5">*</span></Label>
+                  <Label>PIN</Label>
                   <Input
                     defaultValue={data.biz_pin ?? ""}
                     onBlur={(e) => patch({ biz_pin: e.target.value })}
@@ -565,7 +565,7 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
                   />
                 </div>
                 <div>
-                  <Label>Primary Contact Number <span className="text-[#A63D2F] ml-0.5">*</span></Label>
+                  <Label>Primary Contact Number</Label>
                   <Input
                     defaultValue={data.biz_contact_mobile ?? ""}
                     onBlur={(e) => patch({ biz_contact_mobile: e.target.value })}
@@ -585,24 +585,7 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
                 ) : (
                   <Button
                     type="button"
-                    onClick={() => {
-                      const required = [
-                        { k: "biz_name", label: "Business Name" },
-                        { k: "biz_industry", label: "Industry Type" },
-                        { k: "biz_contact_name", label: "Primary Contact Name" },
-                        { k: "biz_address", label: "Address" },
-                        { k: "biz_city", label: "City" },
-                        { k: "biz_state", label: "State" },
-                        { k: "biz_pin", label: "PIN" },
-                        { k: "biz_contact_mobile", label: "Primary Contact Number" },
-                      ];
-                      const missing = required.filter((f) => !data[f.k]?.trim());
-                      if (missing.length > 0) {
-                        toast.error(`Please fill in all required fields: ${missing.map((f) => f.label).join(", ")}`);
-                        return;
-                      }
-                      save({ ...data, business_profile_saved: true });
-                    }}
+                    onClick={() => save({ ...data, business_profile_saved: true })}
                   >
                     Save Business Profile
                   </Button>
@@ -610,24 +593,7 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
               </div>
               <CompleteJobRow
                 checked={!!data.business_profile_saved}
-                onToggle={() => {
-                  const required = [
-                    { k: "biz_name", label: "Business Name" },
-                    { k: "biz_industry", label: "Industry Type" },
-                    { k: "biz_contact_name", label: "Primary Contact Name" },
-                    { k: "biz_address", label: "Address" },
-                    { k: "biz_city", label: "City" },
-                    { k: "biz_state", label: "State" },
-                    { k: "biz_pin", label: "PIN" },
-                    { k: "biz_contact_mobile", label: "Primary Contact Number" },
-                  ];
-                  const missing = required.filter((f) => !data[f.k]?.trim());
-                  if (missing.length > 0) {
-                    toast.error(`Please fill in all required fields first: ${missing.map((f) => f.label).join(", ")}`);
-                    return;
-                  }
-                  patch({ business_profile_saved: !data.business_profile_saved });
-                }}
+                onToggle={() => patch({ business_profile_saved: !data.business_profile_saved })}
               />
               {renderCustomFields("Business Profile", !!data.business_profile_saved)}
             </div>
@@ -750,24 +716,6 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
             if (shouldShow("Explanation") && !data.explanation_notes?.trim()) {
               toast.error("Please fill in Explanation Notes.");
               return;
-            }
-
-            if (shouldShow("Business Profile")) {
-              const required = [
-                { k: "biz_name", label: "Business Name" },
-                { k: "biz_industry", label: "Industry Type" },
-                { k: "biz_contact_name", label: "Primary Contact Name" },
-                { k: "biz_address", label: "Address" },
-                { k: "biz_city", label: "City" },
-                { k: "biz_state", label: "State" },
-                { k: "biz_pin", label: "PIN" },
-                { k: "biz_contact_mobile", label: "Primary Contact Number" },
-              ];
-              const missing = required.filter((f) => !data[f.k]?.trim());
-              if (missing.length > 0) {
-                toast.error(`Please fill in and save all required fields in Business Profile: ${missing.map((f) => f.label).join(", ")}`);
-                return;
-              }
             }
 
             if (onSubmit) onSubmit();
