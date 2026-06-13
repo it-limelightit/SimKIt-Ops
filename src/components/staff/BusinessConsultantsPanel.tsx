@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button, Badge } from "@/components/ui-kit";
 import { toast } from "sonner";
+import { deleteConsultantFn } from "@/routes/api.delete-consultant";
 
 export function BusinessConsultantsPanel() {
   const [rows, setRows] = useState<any[]>([]);
@@ -85,65 +86,9 @@ export function BusinessConsultantsPanel() {
   };
 
   const deleteConsultant = async (workerId: string, name: string) => {
-    if (!window.confirm(`Permanently delete "${name}"? This removes their profile, role, and all site assignments. This cannot be undone.`)) return;
+    if (!window.confirm(`Permanently delete "${name}"? This removes their account, role, and all site assignments. This cannot be undone.`)) return;
     try {
-      // Fetch all sites where this worker is assigned (primary or in worker_ids)
-      const { data: allSites } = await supabase
-        .from("sites")
-        .select("id,assigned_worker_id,task_notes")
-        .or(`assigned_worker_id.eq.${workerId},task_notes.ilike.%"${workerId}"%`);
-
-      for (const site of allSites ?? []) {
-        let notes = site.task_notes as string | null;
-        // Parse and strip from worker_ids
-        let meta: any = {};
-        const jsonMatch = (() => {
-          if (!notes) return null;
-          const prefix = "[METADATA:";
-          const idx = notes.indexOf(prefix);
-          if (idx === -1) return null;
-          const start = idx + prefix.length;
-          let depth = 0;
-          for (let i = start; i < notes.length; i++) {
-            if (notes[i] === "{") depth++;
-            else if (notes[i] === "}") { depth--; if (depth === 0) return notes.slice(start, i + 1); }
-          }
-          return null;
-        })();
-        if (jsonMatch) { try { meta = JSON.parse(jsonMatch); } catch {} }
-        const workerIds: string[] = (meta.worker_ids ?? []).filter((id: string) => id !== workerId);
-        const newPrimary = site.assigned_worker_id === workerId ? (workerIds[0] ?? null) : site.assigned_worker_id;
-        meta.worker_ids = workerIds;
-
-        const base = notes ? (() => {
-          const prefix = "[METADATA:";
-          const idx = notes!.indexOf(prefix);
-          if (idx === -1) return notes ?? "";
-          const start = idx + prefix.length;
-          let depth = 0;
-          for (let i = start; i < notes!.length; i++) {
-            if (notes![i] === "{") depth++;
-            else if (notes![i] === "}") {
-              depth--;
-              if (depth === 0) {
-                const end = i + 1 + (notes![i + 1] === "]" ? 1 : 0);
-                return notes!.slice(0, idx) + notes!.slice(end);
-              }
-            }
-          }
-          return notes ?? "";
-        })() : "";
-        const newNotes = `[METADATA:${JSON.stringify(meta)}]${base}`;
-
-        await supabase.from("sites").update({
-          assigned_worker_id: newPrimary,
-          task_notes: newNotes,
-        } as never).eq("id", site.id);
-      }
-
-      // Remove role and profile
-      await supabase.from("user_roles").delete().eq("user_id", workerId);
-      await supabase.from("profiles").delete().eq("id", workerId);
+      await deleteConsultantFn({ data: { workerId } });
 
       // Clean up local stage storage
       try {
