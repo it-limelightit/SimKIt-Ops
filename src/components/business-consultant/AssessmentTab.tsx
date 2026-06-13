@@ -273,12 +273,12 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
         </Card>
       )}
 
-      {/* 2. Third Party Call */}
+      {/* 2. Assessor Call */}
       {shouldShow("Third Party Call") && (
         <Card className="border-l-[3px] border-lime relative">
           <div className="section-number-ghost">02</div>
           <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSection("Third Party Call")}>
-            <SectionTitle num={2}>Third Party Call</SectionTitle>
+            <SectionTitle num={2}>Assessor Call</SectionTitle>
             <span className="font-mono text-[10px] text-lime bg-lime-dim/50 px-2 py-0.5 border border-lime/20 rounded-[4px] font-bold">
               {expandedSections["Third Party Call"] ? "COLLAPSE ▲" : "EXPAND ▼"}
             </span>
@@ -286,28 +286,48 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
 
           {expandedSections["Third Party Call"] && (
             <div className="mt-6 space-y-6 animate-in fade-in duration-200">
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-text-secondary">Third party coordinator verification</span>
-                <Badge tone={data.third_party_call_done ? "success" : "warning"}>
-                  {data.third_party_call_done ? "Done" : "Pending"}
-                </Badge>
-              </div>
-              {data.third_party_call_done && (
-                <div className="mt-5">
-                  <Label>Completed at</Label>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <Label>City <span className="text-[#A63D2F] ml-0.5">*</span></Label>
                   <Input
-                    type="datetime-local"
-                    defaultValue={toLocalInput(data.third_party_call_at)}
-                    onBlur={(e) => patch({ third_party_call_at: fromLocalInput(e.target.value) })}
+                    defaultValue={data.assessor_city ?? ""}
+                    onBlur={(e) => patch({ assessor_city: e.target.value })}
                   />
                 </div>
-              )}
+                <div>
+                  <Label>Number <span className="text-[#A63D2F] ml-0.5">*</span></Label>
+                  <Input
+                    defaultValue={data.assessor_number ?? ""}
+                    onBlur={(e) => patch({ assessor_number: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label>Email <span className="text-[#A63D2F] ml-0.5">*</span></Label>
+                  <Input
+                    type="email"
+                    defaultValue={data.assessor_email ?? ""}
+                    onBlur={(e) => patch({ assessor_email: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label>Address</Label>
+                  <Input
+                    defaultValue={data.assessor_address ?? ""}
+                    onBlur={(e) => patch({ assessor_address: e.target.value })}
+                  />
+                </div>
+              </div>
               {renderCustomFields("Third Party Call")}
               <CompleteJobRow
                 checked={!!data.third_party_call_done}
                 onToggle={() => {
                   const v = !data.third_party_call_done;
-                  patch({ ...data, third_party_call_done: v, third_party_call_at: v ? data.third_party_call_at ?? nowIso() : null });
+                  if (v) {
+                    if (!data.assessor_city?.trim()) { toast.error("City is required."); return; }
+                    if (!data.assessor_number?.trim()) { toast.error("Number is required."); return; }
+                    if (!data.assessor_email?.trim()) { toast.error("Email is required."); return; }
+                  }
+                  patch({ third_party_call_done: v, third_party_call_at: v ? nowIso() : null });
                 }}
               />
             </div>
@@ -328,120 +348,11 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
 
           {expandedSections["Appointment"] && (
             <div className="mt-6 space-y-6 animate-in fade-in duration-200">
-              <div>
-                <Label>Client Company Name</Label>
-                <Input
-                  defaultValue={data.appt_company ?? ""}
-                  onBlur={(e) => patch({ appt_company: e.target.value })}
-                  disabled={!!data.appointment_saved}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label>Appointment Date</Label>
-                  <Input
-                    type="date"
-                    defaultValue={data.appt_date ?? ""}
-                    onBlur={(e) => patch({ appt_date: e.target.value })}
-                    disabled={!!data.appointment_saved}
-                  />
-                </div>
-                <div>
-                  <Label>Appointment Time</Label>
-                  <Input
-                    type="time"
-                    defaultValue={data.appt_time ?? ""}
-                    onBlur={(e) => patch({ appt_time: e.target.value })}
-                    disabled={!!data.appointment_saved}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <Label>Meeting Mode</Label>
-                <div className="mt-1">
-                  <Segmented
-                    options={[
-                      { value: "in_person", label: "In Person" },
-                      { value: "video", label: "Video Call" },
-                      { value: "phone", label: "Phone" },
-                    ]}
-                    value={data.appt_mode ?? null}
-                    onChange={(v) => patch({ appt_mode: v })}
-                    disabled={!!data.appointment_saved}
-                  />
-                </div>
-              </div>
-              <div>
-                <Label>Notes</Label>
-                <Textarea
-                  rows={3}
-                  defaultValue={data.appt_notes || siteDetails?.task_notes || ""}
-                  onBlur={(e) => patch({ appt_notes: e.target.value })}
-                  disabled={!!data.appointment_saved}
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  {data.appointment_saved && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-text-secondary font-medium">Timing:</span>
-                      <Badge tone={
-                        getAppointmentTimingStatus(
-                          siteDetails?.appt_date ?? null,
-                          siteDetails?.appt_time ?? null,
-                          data.appointment_saved_at ?? null
-                        ) === "Late" ? "danger" : "success"
-                      }>
-                        {getAppointmentTimingStatus(
-                          siteDetails?.appt_date ?? null,
-                          siteDetails?.appt_time ?? null,
-                          data.appointment_saved_at ?? null
-                        )}
-                      </Badge>
-                    </div>
-                  )}
-                </div>
-                <div className="flex justify-end gap-3">
-                  {data.appointment_saved ? (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={() => save({ ...data, appointment_saved: false, appointment_saved_at: null })}
-                    >
-                      Edit Appointment
-                    </Button>
-                  ) : (
-                    <Button
-                      type="button"
-                      onClick={async () => {
-                        await supabase
-                          .from("sites")
-                          .update({
-                            appt_date: data.appt_date || null,
-                            appt_time: data.appt_time || null,
-                          } as never)
-                          .eq("id", siteId);
-                        save({ ...data, appointment_saved: true, appointment_saved_at: data.appointment_saved_at ?? nowIso() });
-                      }}
-                    >
-                      Save Appointment
-                    </Button>
-                  )}
-                </div>
-              </div>
+              {renderCustomFields("Appointment", !!data.appointment_saved)}
               <CompleteJobRow
                 checked={!!data.appointment_saved}
-                onToggle={() => {
-                  const val = !data.appointment_saved;
-                  patch({
-                    appointment_saved: val,
-                    appointment_saved_at: val ? data.appointment_saved_at ?? nowIso() : null
-                  });
-                }}
+                onToggle={() => patch({ appointment_saved: !data.appointment_saved })}
               />
-              {renderCustomFields("Appointment", !!data.appointment_saved)}
             </div>
           )}
         </Card>
@@ -852,6 +763,13 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
       <div className="mt-8 flex justify-end">
         <Button
           onClick={async () => {
+            if (shouldShow("Third Party Call")) {
+              if (!data.assessor_city?.trim()) { toast.error("Assessor Call: City is required."); return; }
+              if (!data.assessor_number?.trim()) { toast.error("Assessor Call: Number is required."); return; }
+              if (!data.assessor_email?.trim()) { toast.error("Assessor Call: Email is required."); return; }
+              if (!data.third_party_call_done) { toast.error("Please complete the Assessor Call section."); return; }
+            }
+
             if (shouldShow("Contacts")) {
               const { data: contacts } = await supabase.from("contacts").select("*").eq("site_id", siteId);
               if (!contacts || contacts.length === 0) {
