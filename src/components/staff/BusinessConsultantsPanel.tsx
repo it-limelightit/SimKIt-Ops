@@ -84,6 +84,84 @@ export function BusinessConsultantsPanel() {
     }
   };
 
+  const deleteConsultant = async (workerId: string, name: string) => {
+    if (!window.confirm(`Permanently delete "${name}"? This removes their profile, role, and all site assignments. This cannot be undone.`)) return;
+    try {
+      // Fetch all sites where this worker is assigned (primary or in worker_ids)
+      const { data: allSites } = await supabase
+        .from("sites")
+        .select("id,assigned_worker_id,task_notes")
+        .or(`assigned_worker_id.eq.${workerId},task_notes.ilike.%"${workerId}"%`);
+
+      for (const site of allSites ?? []) {
+        let notes = site.task_notes as string | null;
+        // Parse and strip from worker_ids
+        let meta: any = {};
+        const jsonMatch = (() => {
+          if (!notes) return null;
+          const prefix = "[METADATA:";
+          const idx = notes.indexOf(prefix);
+          if (idx === -1) return null;
+          const start = idx + prefix.length;
+          let depth = 0;
+          for (let i = start; i < notes.length; i++) {
+            if (notes[i] === "{") depth++;
+            else if (notes[i] === "}") { depth--; if (depth === 0) return notes.slice(start, i + 1); }
+          }
+          return null;
+        })();
+        if (jsonMatch) { try { meta = JSON.parse(jsonMatch); } catch {} }
+        const workerIds: string[] = (meta.worker_ids ?? []).filter((id: string) => id !== workerId);
+        const newPrimary = site.assigned_worker_id === workerId ? (workerIds[0] ?? null) : site.assigned_worker_id;
+        meta.worker_ids = workerIds;
+
+        const base = notes ? (() => {
+          const prefix = "[METADATA:";
+          const idx = notes!.indexOf(prefix);
+          if (idx === -1) return notes ?? "";
+          const start = idx + prefix.length;
+          let depth = 0;
+          for (let i = start; i < notes!.length; i++) {
+            if (notes![i] === "{") depth++;
+            else if (notes![i] === "}") {
+              depth--;
+              if (depth === 0) {
+                const end = i + 1 + (notes![i + 1] === "]" ? 1 : 0);
+                return notes!.slice(0, idx) + notes!.slice(end);
+              }
+            }
+          }
+          return notes ?? "";
+        })() : "";
+        const newNotes = `[METADATA:${JSON.stringify(meta)}]${base}`;
+
+        await supabase.from("sites").update({
+          assigned_worker_id: newPrimary,
+          task_notes: newNotes,
+        } as never).eq("id", site.id);
+      }
+
+      // Remove role and profile
+      await supabase.from("user_roles").delete().eq("user_id", workerId);
+      await supabase.from("profiles").delete().eq("id", workerId);
+
+      // Clean up local stage storage
+      try {
+        const stored = localStorage.getItem("consultant_stages");
+        if (stored) {
+          const stages = JSON.parse(stored);
+          delete stages[workerId];
+          localStorage.setItem("consultant_stages", JSON.stringify(stages));
+        }
+      } catch {}
+
+      toast.success(`${name} deleted`);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete consultant");
+    }
+  };
+
   const clearConsultantData = async (workerId: string) => {
     if (!window.confirm("Are you sure you want to clear all assigned tasks, appointments, and progress data for this consultant? This will reset their app screen to 'Task will be assigned'.")) return;
     try {
@@ -173,12 +251,19 @@ export function BusinessConsultantsPanel() {
                     <Button variant="secondary" className="py-1 px-2.5 text-xs font-semibold" onClick={() => toggle(r.id, !r.is_active)}>
                       {r.is_active ? "Deactivate" : "Activate"}
                     </Button>
-                    <Button 
-                      variant="danger" 
-                      className="bg-coral/10 text-coral border border-coral/20 hover:bg-coral-dim py-1 px-2.5 text-xs font-semibold" 
+                    <Button
+                      variant="danger"
+                      className="bg-coral/10 text-coral border border-coral/20 hover:bg-coral-dim py-1 px-2.5 text-xs font-semibold"
                       onClick={() => clearConsultantData(r.id)}
                     >
                       Clear Consultant Side
+                    </Button>
+                    <Button
+                      variant="danger"
+                      className="py-1 px-2.5 text-xs font-semibold"
+                      onClick={() => deleteConsultant(r.id, r.name ?? r.email ?? "Consultant")}
+                    >
+                      Delete
                     </Button>
                   </div>
                 </td>
