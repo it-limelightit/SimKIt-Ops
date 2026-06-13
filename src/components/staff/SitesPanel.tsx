@@ -137,7 +137,7 @@ export function SitesPanel() {
         .from("sites")
         .select("id,name,city,address,assigned_worker_id,assigned_at,task_notes,appt_date,appt_time")
         .order("created_at", { ascending: false }),
-      supabase.from("profiles").select("id,name,mobile,is_active").order("created_at"),
+      supabase.from("profiles").select("id,name,mobile,is_active,status").neq("status", "deleted").order("created_at"),
     ]);
     if (s.error) toast.error("Error loading sites: " + s.error.message);
     if (w.error) toast.error("Error loading profiles: " + w.error.message);
