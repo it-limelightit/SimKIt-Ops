@@ -30,20 +30,58 @@ const DEFAULT_META: SiteMeta = {
   worker_ids: [],
 };
 
+// Extract the JSON object after [METADATA: by counting braces — safe for nested arrays/objects
+function extractMetaJson(taskNotes: string): string | null {
+  const prefix = "[METADATA:";
+  const idx = taskNotes.indexOf(prefix);
+  if (idx === -1) return null;
+  const start = idx + prefix.length;
+  let depth = 0;
+  for (let i = start; i < taskNotes.length; i++) {
+    if (taskNotes[i] === "{") depth++;
+    else if (taskNotes[i] === "}") {
+      depth--;
+      if (depth === 0) return taskNotes.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+// Remove the [METADATA:{...}] block from a string
+function stripMetaBlock(taskNotes: string): string {
+  const prefix = "[METADATA:";
+  const idx = taskNotes.indexOf(prefix);
+  if (idx === -1) return taskNotes;
+  const start = idx + prefix.length;
+  let depth = 0;
+  for (let i = start; i < taskNotes.length; i++) {
+    if (taskNotes[i] === "{") depth++;
+    else if (taskNotes[i] === "}") {
+      depth--;
+      if (depth === 0) {
+        // +1 to consume the closing ] after }
+        const end = i + 1 + (taskNotes[i + 1] === "]" ? 1 : 0);
+        return taskNotes.slice(0, idx) + taskNotes.slice(end);
+      }
+    }
+  }
+  return taskNotes;
+}
+
 export function parseSiteMetadata(taskNotes: string | null): SiteMeta {
   if (!taskNotes) return { ...DEFAULT_META };
-  const match = taskNotes.match(/\[METADATA:([^\]]+)\]/);
-  if (!match) return { ...DEFAULT_META };
+  const json = extractMetaJson(taskNotes);
+  if (!json) return { ...DEFAULT_META };
   try {
-    return { ...DEFAULT_META, ...JSON.parse(match[1]) };
+    return { ...DEFAULT_META, ...JSON.parse(json) };
   } catch {
     return { ...DEFAULT_META };
   }
 }
 
 export function serializeSiteMetadata(taskNotes: string | null, metaObj: Partial<SiteMeta>): string {
-  const baseNotes = taskNotes ? taskNotes.replace(/\[METADATA:[^\]]*\]/g, "") : "";
-  return `[METADATA:${JSON.stringify(metaObj)}]${baseNotes}`;
+  const base = taskNotes ? stripMetaBlock(taskNotes) : "";
+  return `[METADATA:${JSON.stringify(metaObj)}]${base}`;
 }
 
 const VISIT_RANK: Record<string, number> = {
