@@ -698,21 +698,6 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
               return;
             }
 
-            if (shouldShow("Contacts")) {
-              const { data: contacts } = await supabase.from("contacts").select("*").eq("site_id", siteId);
-              if (!contacts || contacts.length === 0) {
-                toast.error("Please add at least one Contact Number.");
-                return;
-              }
-              for (let i = 0; i < contacts.length; i++) {
-                const c = contacts[i];
-                if (!c.name?.trim() || !c.designation?.trim() || !c.mobile?.trim()) {
-                  toast.error(`Please fill in Name, Designation and Mobile for Contact ${i + 1}.`);
-                  return;
-                }
-              }
-            }
-
             if (shouldShow("Explanation") && !data.explanation_notes?.trim()) {
               toast.error("Please fill in Explanation Notes.");
               return;
@@ -779,15 +764,15 @@ function ContactsCardContent({ siteId, onChange }: { siteId: string; onChange: (
                 </button>
               </div>
               <div>
-                <Label>Name <span className="text-[#A63D2F] ml-0.5">*</span></Label>
+                <Label>Name</Label>
                 <Input defaultValue={r.name ?? ""} onBlur={(e) => update(r.id, { name: e.target.value })} />
               </div>
               <div>
-                <Label>Designation <span className="text-[#A63D2F] ml-0.5">*</span></Label>
+                <Label>Designation</Label>
                 <Input defaultValue={r.designation ?? ""} onBlur={(e) => update(r.id, { designation: e.target.value })} />
               </div>
               <div>
-                <Label>Mobile <span className="text-[#A63D2F] ml-0.5">*</span></Label>
+                <Label>Mobile</Label>
                 <Input defaultValue={r.mobile ?? ""} onBlur={(e) => update(r.id, { mobile: e.target.value })} />
               </div>
               <div>
