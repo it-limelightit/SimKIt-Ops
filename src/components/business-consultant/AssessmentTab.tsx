@@ -286,47 +286,11 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
 
           {expandedSections["Third Party Call"] && (
             <div className="mt-6 space-y-6 animate-in fade-in duration-200">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <Label>City <span className="text-[#A63D2F] ml-0.5">*</span></Label>
-                  <Input
-                    defaultValue={data.assessor_city ?? ""}
-                    onBlur={(e) => patch({ assessor_city: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label>Number <span className="text-[#A63D2F] ml-0.5">*</span></Label>
-                  <Input
-                    defaultValue={data.assessor_number ?? ""}
-                    onBlur={(e) => patch({ assessor_number: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label>Email <span className="text-[#A63D2F] ml-0.5">*</span></Label>
-                  <Input
-                    type="email"
-                    defaultValue={data.assessor_email ?? ""}
-                    onBlur={(e) => patch({ assessor_email: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label>Address</Label>
-                  <Input
-                    defaultValue={data.assessor_address ?? ""}
-                    onBlur={(e) => patch({ assessor_address: e.target.value })}
-                  />
-                </div>
-              </div>
               {renderCustomFields("Third Party Call")}
               <CompleteJobRow
                 checked={!!data.third_party_call_done}
                 onToggle={() => {
                   const v = !data.third_party_call_done;
-                  if (v) {
-                    if (!data.assessor_city?.trim()) { toast.error("City is required."); return; }
-                    if (!data.assessor_number?.trim()) { toast.error("Number is required."); return; }
-                    if (!data.assessor_email?.trim()) { toast.error("Email is required."); return; }
-                  }
                   patch({ third_party_call_done: v, third_party_call_at: v ? nowIso() : null });
                 }}
               />
@@ -763,11 +727,9 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
       <div className="mt-8 flex justify-end">
         <Button
           onClick={async () => {
-            if (shouldShow("Third Party Call")) {
-              if (!data.assessor_city?.trim()) { toast.error("Assessor Call: City is required."); return; }
-              if (!data.assessor_number?.trim()) { toast.error("Assessor Call: Number is required."); return; }
-              if (!data.assessor_email?.trim()) { toast.error("Assessor Call: Email is required."); return; }
-              if (!data.third_party_call_done) { toast.error("Please complete the Assessor Call section."); return; }
+            if (shouldShow("Third Party Call") && !data.third_party_call_done) {
+              toast.error("Please complete the Assessor Call section.");
+              return;
             }
 
             if (shouldShow("Contacts")) {

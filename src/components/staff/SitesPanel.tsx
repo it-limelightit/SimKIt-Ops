@@ -131,6 +131,10 @@ export function SitesPanel() {
     drive_folder_link: "",
     assessor_company: "",
     assessor_phone: "",
+    assessor_city: "",
+    assessor_number: "",
+    assessor_email: "",
+    assessor_address: "",
   });
 
   const load = async () => {
@@ -175,6 +179,10 @@ export function SitesPanel() {
       worker_ids: form.workers,
       assessor_company: form.assessor_company,
       assessor_phone: form.assessor_phone,
+      assessor_city: form.assessor_city,
+      assessor_number: form.assessor_number,
+      assessor_email: form.assessor_email,
+      assessor_address: form.assessor_address,
     };
     const taskNotes = serializeSiteMetadata("", meta);
 
@@ -221,6 +229,10 @@ export function SitesPanel() {
       drive_folder_link: meta.drive_folder_link ?? "",
       assessor_company: meta.assessor_company ?? "",
       assessor_phone: meta.assessor_phone ?? "",
+      assessor_city: meta.assessor_city ?? "",
+      assessor_number: meta.assessor_number ?? "",
+      assessor_email: meta.assessor_email ?? "",
+      assessor_address: meta.assessor_address ?? "",
     });
   };
 
@@ -240,6 +252,10 @@ export function SitesPanel() {
       worker_ids: form.workers,
       assessor_company: form.assessor_company,
       assessor_phone: form.assessor_phone,
+      assessor_city: form.assessor_city,
+      assessor_number: form.assessor_number,
+      assessor_email: form.assessor_email,
+      assessor_address: form.assessor_address,
     };
     const taskNotes = serializeSiteMetadata(editingSite.task_notes, meta);
 
@@ -284,6 +300,10 @@ export function SitesPanel() {
       drive_folder_link: "",
       assessor_company: "",
       assessor_phone: "",
+      assessor_city: "",
+      assessor_number: "",
+      assessor_email: "",
+      assessor_address: "",
     });
   };
 
@@ -397,8 +417,12 @@ export function SitesPanel() {
             <div className="border-t border-border pt-4 md:col-span-2">
               <h4 className="text-sm font-bold uppercase tracking-wider text-lime mb-3">Assessor</h4>
               <div className="grid gap-4 md:grid-cols-2">
-                <div><Label>Assessor Company Name</Label><Input value={form.assessor_company} onChange={(e) => setForm({ ...form, assessor_company: e.target.value })} placeholder="Company name" /></div>
-                <div><Label>Assessor Phone</Label><Input value={form.assessor_phone} onChange={(e) => setForm({ ...form, assessor_phone: e.target.value })} placeholder="Phone number" /></div>
+                <div><Label>Company Name</Label><Input value={form.assessor_company} onChange={(e) => setForm({ ...form, assessor_company: e.target.value })} placeholder="Company name" /></div>
+                <div><Label>Phone</Label><Input value={form.assessor_phone} onChange={(e) => setForm({ ...form, assessor_phone: e.target.value })} placeholder="Phone number" /></div>
+                <div><Label>City</Label><Input value={form.assessor_city} onChange={(e) => setForm({ ...form, assessor_city: e.target.value })} placeholder="City" /></div>
+                <div><Label>Contact Number</Label><Input value={form.assessor_number} onChange={(e) => setForm({ ...form, assessor_number: e.target.value })} placeholder="Contact number" /></div>
+                <div><Label>Email</Label><Input value={form.assessor_email} onChange={(e) => setForm({ ...form, assessor_email: e.target.value })} placeholder="Email address" /></div>
+                <div><Label>Address</Label><Input value={form.assessor_address} onChange={(e) => setForm({ ...form, assessor_address: e.target.value })} placeholder="Address (optional)" /></div>
               </div>
             </div>
 

@@ -15,6 +15,10 @@ export type SiteMeta = {
   worker_ids: string[];
   assessor_company: string;
   assessor_phone: string;
+  assessor_city: string;
+  assessor_number: string;
+  assessor_email: string;
+  assessor_address: string;
 };
 
 const DEFAULT_META: SiteMeta = {
@@ -32,6 +36,10 @@ const DEFAULT_META: SiteMeta = {
   worker_ids: [],
   assessor_company: "",
   assessor_phone: "",
+  assessor_city: "",
+  assessor_number: "",
+  assessor_email: "",
+  assessor_address: "",
 };
 
 // Extract the JSON object after [METADATA: by counting braces — safe for nested arrays/objects
