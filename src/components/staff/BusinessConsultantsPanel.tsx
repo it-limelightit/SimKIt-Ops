@@ -20,9 +20,8 @@ export function BusinessConsultantsPanel() {
     }
     const { data } = await supabase
       .from("profiles")
-      .select("id,name,email,mobile,whatsapp,is_active,last_login,created_at,status")
+      .select("id,name,email,mobile,whatsapp,is_active,last_login,created_at")
       .in("id", ids)
-      .neq("status", "deleted")
       .order("created_at", { ascending: false });
 
     // Retrieve local stages from localStorage
@@ -87,7 +86,7 @@ export function BusinessConsultantsPanel() {
   };
 
   const deleteConsultant = async (workerId: string, name: string) => {
-    if (!window.confirm(`Remove "${name}"? They will be removed from this list and all site assignments.`)) return;
+    if (!window.confirm(`Remove "${name}"? This removes their role and all site assignments. They will no longer appear in this list.`)) return;
     try {
       // 1. Remove from all site worker_ids arrays
       const { data: sites } = await supabase
@@ -106,14 +105,13 @@ export function BusinessConsultantsPanel() {
         } as never).eq("id", site.id);
       }
 
-      // 2. Mark profile as deleted + deactivate (UPDATE — works without DELETE RLS)
-      const { error } = await supabase
-        .from("profiles")
-        .update({ status: "deleted", is_active: false } as never)
-        .eq("id", workerId);
-      if (error) throw error;
+      // 2. Remove worker role (removes them from BC list)
+      await supabase.from("user_roles").delete().eq("user_id", workerId);
 
-      // 3. Clean up local stage storage
+      // 3. Deactivate profile so they can't log in
+      await supabase.from("profiles").update({ is_active: false } as never).eq("id", workerId);
+
+      // 4. Clean up local stage storage
       try {
         const stored = localStorage.getItem("consultant_stages");
         if (stored) {
