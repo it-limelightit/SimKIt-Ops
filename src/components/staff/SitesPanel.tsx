@@ -523,12 +523,13 @@ export function SitesPanel() {
                     <div className="font-semibold text-text-primary">{s.name}</div>
                     <div className="text-xs text-text-secondary mt-0.5 truncate max-w-[200px]">{s.address || "—"}</div>
                     {(meta.assessor_company || meta.assessor_phone) && (
-                      <div className="mt-1 text-[10px] font-mono text-text-secondary">
-                        {meta.assessor_company && <span className="text-violet font-semibold">{meta.assessor_company}</span>}
-                        {meta.assessor_company && meta.assessor_phone && <span className="mx-1 text-text-dim">·</span>}
+                      <div className="mt-1.5 flex items-center gap-3 flex-wrap">
+                        {meta.assessor_company && (
+                          <span className="text-xs font-bold text-violet tracking-wide">{meta.assessor_company}</span>
+                        )}
                         {meta.assessor_phone && (
-                          <a href={`tel:${meta.assessor_phone}`} className="text-text-secondary hover:text-violet transition-colors">
-                            <Phone size={9} className="inline mr-0.5" />{meta.assessor_phone}
+                          <a href={`tel:${meta.assessor_phone}`} className="text-xs font-mono font-semibold text-text-primary hover:text-violet transition-colors flex items-center gap-1">
+                            <Phone size={11} className="text-violet" />{meta.assessor_phone}
                           </a>
                         )}
                       </div>
