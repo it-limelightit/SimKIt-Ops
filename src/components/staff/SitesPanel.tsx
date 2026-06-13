@@ -18,24 +18,27 @@ function BCMultiSelect({
   onChange: (ids: string[]) => void;
 }) {
   const [open, setOpen] = useState(false);
+  // Local draft — lets user tick multiple boxes before saving
+  const [draft, setDraft] = useState<string[]>(selectedIds);
   const ref = useRef<HTMLDivElement>(null);
 
+  // Sync draft when parent refreshes selectedIds (e.g. after a save)
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+    if (!open) setDraft(selectedIds);
+  }, [selectedIds, open]);
 
-  const toggle = (id: string) => {
-    const next = selectedIds.includes(id)
-      ? selectedIds.filter((x) => x !== id)
-      : [...selectedIds, id];
-    onChange(next);
+  const close = (save: boolean) => {
+    if (save) onChange(draft);
+    setOpen(false);
   };
 
-  const names = allBCs
+  const toggle = (id: string) => {
+    setDraft((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const displayNames = allBCs
     .filter((w) => selectedIds.includes(w.id))
     .map((w) => w.name ?? w.mobile);
 
@@ -43,26 +46,27 @@ function BCMultiSelect({
     <div ref={ref} className="relative min-w-[160px]">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => { setDraft(selectedIds); setOpen((v) => !v); }}
         className="flex items-center justify-between w-full gap-2 rounded-[6px] border border-border bg-surface px-2 py-1.5 text-xs text-text-primary hover:border-lime transition-colors"
       >
         <span className="truncate max-w-[140px]">
-          {names.length === 0 ? (
+          {displayNames.length === 0 ? (
             <span className="text-text-dim italic">— Unassigned —</span>
           ) : (
-            names.join(", ")
+            displayNames.join(", ")
           )}
         </span>
         <ChevronDown size={12} className="shrink-0 text-text-secondary" />
       </button>
 
       {open && (
-        <div className="absolute z-50 mt-1 w-max min-w-full max-h-52 overflow-y-auto rounded-[6px] border border-border bg-surface shadow-lg">
+        <div className="absolute z-50 mt-1 w-max min-w-full rounded-[6px] border border-border bg-surface shadow-lg">
+          <div className="max-h-52 overflow-y-auto">
           {allBCs.length === 0 ? (
             <div className="px-3 py-2 text-xs text-text-dim italic">No BCs available</div>
           ) : (
             allBCs.map((w) => {
-              const checked = selectedIds.includes(w.id);
+              const checked = draft.includes(w.id);
               return (
                 <button
                   key={w.id}
@@ -78,15 +82,24 @@ function BCMultiSelect({
               );
             })
           )}
-          {selectedIds.length > 0 && (
+          </div>
+          {/* Save / Clear footer */}
+          <div className="flex items-center justify-between border-t border-border px-3 py-2 gap-2">
             <button
               type="button"
-              onClick={() => onChange([])}
-              className="flex items-center gap-2 w-full px-3 py-2 text-[10px] text-coral hover:bg-surface-raised border-t border-border transition-colors"
+              onClick={() => { setDraft([]); }}
+              className="text-[10px] text-coral hover:text-coral/70 transition-colors flex items-center gap-1"
             >
-              <X size={10} /> Clear all
+              <X size={10} /> Clear
             </button>
-          )}
+            <button
+              type="button"
+              onClick={() => close(true)}
+              className="text-[10px] font-bold text-lime hover:text-lime/70 transition-colors flex items-center gap-1"
+            >
+              <Check size={10} /> Apply ({draft.length})
+            </button>
+          </div>
         </div>
       )}
     </div>
