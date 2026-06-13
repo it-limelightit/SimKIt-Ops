@@ -294,15 +294,15 @@ function BusinessConsultantPage() {
             
             <div className="space-y-2">
               <div className="font-semibold text-text-primary uppercase text-xs tracking-wider">Primary Contact</div>
-              {meta.c1_name ? (
+              {(meta.c1_name || meta.c1_mobile || meta.c1_email) ? (
                 <div className="text-xs space-y-1">
-                  <div className="font-medium text-text-primary">{meta.c1_name}</div>
-                  <div>
-                    <a href={`tel:${meta.c1_mobile}`} className="text-lime hover:underline font-mono">
+                  {meta.c1_name && <div className="font-medium text-text-primary">{meta.c1_name}</div>}
+                  {meta.c1_mobile && (
+                    <a href={`tel:${meta.c1_mobile}`} className="text-lime hover:underline font-mono flex items-center gap-1">
                       📞 {meta.c1_mobile}
                     </a>
-                  </div>
-                  <div className="text-text-secondary truncate">{meta.c1_email}</div>
+                  )}
+                  {meta.c1_email && <div className="text-text-secondary truncate">{meta.c1_email}</div>}
                 </div>
               ) : (
                 <div className="text-text-dim text-xs">No primary contact</div>
@@ -311,15 +311,15 @@ function BusinessConsultantPage() {
 
             <div className="space-y-2">
               <div className="font-semibold text-text-primary uppercase text-xs tracking-wider">Secondary Contact</div>
-              {meta.c2_name ? (
+              {(meta.c2_name || meta.c2_mobile || meta.c2_email) ? (
                 <div className="text-xs space-y-1">
-                  <div className="font-medium text-text-primary">{meta.c2_name}</div>
-                  <div>
-                    <a href={`tel:${meta.c2_mobile}`} className="text-lime hover:underline font-mono">
+                  {meta.c2_name && <div className="font-medium text-text-primary">{meta.c2_name}</div>}
+                  {meta.c2_mobile && (
+                    <a href={`tel:${meta.c2_mobile}`} className="text-lime hover:underline font-mono flex items-center gap-1">
                       📞 {meta.c2_mobile}
                     </a>
-                  </div>
-                  <div className="text-text-secondary truncate">{meta.c2_email}</div>
+                  )}
+                  {meta.c2_email && <div className="text-text-secondary truncate">{meta.c2_email}</div>}
                 </div>
               ) : (
                 <div className="text-text-dim text-xs">No secondary contact</div>
