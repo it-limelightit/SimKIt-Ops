@@ -13,6 +13,8 @@ export type SiteMeta = {
   drive_folder_link: string;
   visit_status: string;
   worker_ids: string[];
+  assessor_company: string;
+  assessor_phone: string;
 };
 
 const DEFAULT_META: SiteMeta = {
@@ -28,6 +30,8 @@ const DEFAULT_META: SiteMeta = {
   drive_folder_link: "",
   visit_status: "",
   worker_ids: [],
+  assessor_company: "",
+  assessor_phone: "",
 };
 
 // Extract the JSON object after [METADATA: by counting braces — safe for nested arrays/objects

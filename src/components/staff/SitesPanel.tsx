@@ -129,6 +129,8 @@ export function SitesPanel() {
     appt_time: "",
     create_drive_folder: false,
     drive_folder_link: "",
+    assessor_company: "",
+    assessor_phone: "",
   });
 
   const load = async () => {
@@ -171,6 +173,8 @@ export function SitesPanel() {
       drive_folder_name: form.name,
       drive_folder_link: form.create_drive_folder ? form.drive_folder_link : "",
       worker_ids: form.workers,
+      assessor_company: form.assessor_company,
+      assessor_phone: form.assessor_phone,
     };
     const taskNotes = serializeSiteMetadata("", meta);
 
@@ -215,6 +219,8 @@ export function SitesPanel() {
       appt_time: s.appt_time ?? "",
       create_drive_folder: !!meta.create_drive_folder,
       drive_folder_link: meta.drive_folder_link ?? "",
+      assessor_company: meta.assessor_company ?? "",
+      assessor_phone: meta.assessor_phone ?? "",
     });
   };
 
@@ -232,6 +238,8 @@ export function SitesPanel() {
       drive_folder_name: form.name,
       drive_folder_link: form.create_drive_folder ? form.drive_folder_link : "",
       worker_ids: form.workers,
+      assessor_company: form.assessor_company,
+      assessor_phone: form.assessor_phone,
     };
     const taskNotes = serializeSiteMetadata(editingSite.task_notes, meta);
 
@@ -274,6 +282,8 @@ export function SitesPanel() {
       appt_time: "",
       create_drive_folder: false,
       drive_folder_link: "",
+      assessor_company: "",
+      assessor_phone: "",
     });
   };
 
@@ -384,13 +394,27 @@ export function SitesPanel() {
               </div>
             </div>
 
+            <div className="border-t border-border pt-4 md:col-span-2">
+              <h4 className="text-sm font-bold uppercase tracking-wider text-lime mb-3">Assessor</h4>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div><Label>Assessor Company Name</Label><Input value={form.assessor_company} onChange={(e) => setForm({ ...form, assessor_company: e.target.value })} placeholder="Company name" /></div>
+                <div><Label>Assessor Phone</Label><Input value={form.assessor_phone} onChange={(e) => setForm({ ...form, assessor_phone: e.target.value })} placeholder="Phone number" /></div>
+              </div>
+            </div>
+
             <div className="border-t border-border pt-4 md:col-span-2 grid gap-4 md:grid-cols-2">
               <div>
                 <Label>Factory Status</Label>
                 <Select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+                  <option value="">— None —</option>
+                  <option value="Assigned">Assigned</option>
+                  <option value="Assessment & Visit">Assessment &amp; Visit</option>
+                  <option value="Concept">Concept</option>
+                  <option value="Installation">Installation</option>
+                  <option value="Verification">Verification</option>
+                  <option value="Shipped">Shipped</option>
                   <option value="Running">Running</option>
-                  <option value="Stopped">Stopped</option>
-                  <option value="Maintenance">Maintenance</option>
+                  <option value="Reject">Reject</option>
                 </Select>
               </div>
               <div>
@@ -481,8 +505,9 @@ export function SitesPanel() {
                   "Concept": 2,
                   "Installation": 3,
                   "Verification": 4,
-                  "Assigned": 5,
-                  "Reject": 6,
+                  "Shipped": 5,
+                  "Assigned": 6,
+                  "Reject": 7,
                 };
                 const aStatus = parseSiteMetadata(a.task_notes).status || "";
                 const bStatus = parseSiteMetadata(b.task_notes).status || "";
@@ -497,6 +522,17 @@ export function SitesPanel() {
                   <td className="px-4 py-3">
                     <div className="font-semibold text-text-primary">{s.name}</div>
                     <div className="text-xs text-text-secondary mt-0.5 truncate max-w-[200px]">{s.address || "—"}</div>
+                    {(meta.assessor_company || meta.assessor_phone) && (
+                      <div className="mt-1 text-[10px] font-mono text-text-secondary">
+                        {meta.assessor_company && <span className="text-violet font-semibold">{meta.assessor_company}</span>}
+                        {meta.assessor_company && meta.assessor_phone && <span className="mx-1 text-text-dim">·</span>}
+                        {meta.assessor_phone && (
+                          <a href={`tel:${meta.assessor_phone}`} className="text-text-secondary hover:text-violet transition-colors">
+                            <Phone size={9} className="inline mr-0.5" />{meta.assessor_phone}
+                          </a>
+                        )}
+                      </div>
+                    )}
                     {meta.drive_folder_link && (
                       <button
                         onClick={() => window.open(meta.drive_folder_link, "_blank")}
@@ -527,6 +563,7 @@ export function SitesPanel() {
                         className={`appearance-none rounded-[4px] px-2 py-1 font-mono text-[10px] uppercase tracking-wider font-bold border outline-none cursor-pointer transition-all ${
                           meta.status === "Running" ? "bg-mint-dim text-mint border-mint/20"
                           : meta.status === "Reject" ? "bg-coral-dim text-coral border-coral/20"
+                          : meta.status === "Shipped" ? "bg-violet/10 text-violet border-violet/20"
                           : !meta.status ? "bg-surface text-text-dim border-border"
                           : "bg-warning/8 text-warning border-warning/20"
                         }`}
@@ -537,6 +574,7 @@ export function SitesPanel() {
                         <option value="Concept">Concept</option>
                         <option value="Installation">Installation</option>
                         <option value="Verification">Verification</option>
+                        <option value="Shipped">Shipped</option>
                         <option value="Running">Running</option>
                         <option value="Reject">Reject</option>
                       </select>
