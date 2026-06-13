@@ -86,9 +86,9 @@ export function BusinessConsultantsPanel() {
   };
 
   const deleteConsultant = async (workerId: string, name: string) => {
-    if (!window.confirm(`Remove "${name}"? This removes their role and all site assignments. They will no longer appear in this list.`)) return;
+    if (!window.confirm(`Permanently delete "${name}"? This cannot be undone.`)) return;
     try {
-      // 1. Remove from all site worker_ids arrays
+      // 1. Remove from all site worker_ids arrays (client-side, for multi-BC metadata)
       const { data: sites } = await supabase
         .from("sites")
         .select("id,assigned_worker_id,task_notes")
@@ -105,13 +105,11 @@ export function BusinessConsultantsPanel() {
         } as never).eq("id", site.id);
       }
 
-      // 2. Remove worker role (removes them from BC list)
-      await supabase.from("user_roles").delete().eq("user_id", workerId);
+      // 2. Call SECURITY DEFINER function — bypasses RLS to delete role + profile
+      const { error } = await supabase.rpc("delete_worker", { worker_id: workerId });
+      if (error) throw error;
 
-      // 3. Deactivate profile so they can't log in
-      await supabase.from("profiles").update({ is_active: false } as never).eq("id", workerId);
-
-      // 4. Clean up local stage storage
+      // 3. Clean up local stage storage
       try {
         const stored = localStorage.getItem("consultant_stages");
         if (stored) {
@@ -121,10 +119,10 @@ export function BusinessConsultantsPanel() {
         }
       } catch {}
 
-      toast.success(`${name} removed`);
+      toast.success(`${name} deleted`);
       await load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to remove consultant");
+      toast.error(err instanceof Error ? err.message : "Failed to delete consultant");
     }
   };
 
