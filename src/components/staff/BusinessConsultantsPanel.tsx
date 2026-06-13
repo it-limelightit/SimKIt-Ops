@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button, Badge } from "@/components/ui-kit";
 import { toast } from "sonner";
-import { deleteConsultantFn } from "@/routes/api.delete-consultant";
+import { parseSiteMetadata, serializeSiteMetadata } from "@/lib/site-metadata";
 
 export function BusinessConsultantsPanel() {
   const [rows, setRows] = useState<any[]>([]);
@@ -86,11 +86,32 @@ export function BusinessConsultantsPanel() {
   };
 
   const deleteConsultant = async (workerId: string, name: string) => {
-    if (!window.confirm(`Permanently delete "${name}"? This removes their account, role, and all site assignments. This cannot be undone.`)) return;
+    if (!window.confirm(`Remove "${name}"? This removes their role and all site assignments. They will no longer appear in this list.`)) return;
     try {
-      await deleteConsultantFn({ data: { workerId } });
+      // 1. Remove from all site worker_ids arrays
+      const { data: sites } = await supabase
+        .from("sites")
+        .select("id,assigned_worker_id,task_notes")
+        .or(`assigned_worker_id.eq.${workerId},task_notes.ilike.%"${workerId}"%`);
 
-      // Clean up local stage storage
+      for (const site of sites ?? []) {
+        const meta = parseSiteMetadata(site.task_notes);
+        const workerIds = (meta.worker_ids ?? []).filter((id: string) => id !== workerId);
+        const newPrimary = site.assigned_worker_id === workerId ? (workerIds[0] ?? null) : site.assigned_worker_id;
+        const newNotes = serializeSiteMetadata(site.task_notes, { ...meta, worker_ids: workerIds });
+        await supabase.from("sites").update({
+          assigned_worker_id: newPrimary,
+          task_notes: newNotes,
+        } as never).eq("id", site.id);
+      }
+
+      // 2. Remove worker role (removes them from BC list)
+      await supabase.from("user_roles").delete().eq("user_id", workerId);
+
+      // 3. Deactivate profile so they can't log in
+      await supabase.from("profiles").update({ is_active: false } as never).eq("id", workerId);
+
+      // 4. Clean up local stage storage
       try {
         const stored = localStorage.getItem("consultant_stages");
         if (stored) {
@@ -100,10 +121,10 @@ export function BusinessConsultantsPanel() {
         }
       } catch {}
 
-      toast.success(`${name} deleted`);
+      toast.success(`${name} removed`);
       await load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete consultant");
+      toast.error(err instanceof Error ? err.message : "Failed to remove consultant");
     }
   };
 
