@@ -115,7 +115,7 @@ function LoginForm({ onDone }: { onDone: () => void }) {
         identifier: resetId.trim(),
         new_password: resetNewPw,
       });
-      if (error) throw error;
+      if (error) throw new Error(error.message);
       toast.success("Password reset successfully. You can now sign in.");
       setResetMode(false);
       setResetId("");
