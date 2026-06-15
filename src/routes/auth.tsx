@@ -111,19 +111,8 @@ function LoginForm({ onDone }: { onDone: () => void }) {
     if (resetNewPw.length < 6) { toast.error("Password must be at least 6 characters"); return; }
     setLoading(true);
     try {
-      const id = resetId.trim();
-      const isEmail = id.includes("@");
-      let userId: string | null = null;
-      if (isEmail) {
-        const { data } = await supabase.from("profiles").select("id").eq("email", id).maybeSingle();
-        userId = data?.id ?? null;
-      } else {
-        const { data } = await supabase.from("profiles").select("id").eq("mobile", id).maybeSingle();
-        userId = data?.id ?? null;
-      }
-      if (!userId) throw new Error("No account found for that mobile or email.");
-      const { error } = await supabase.rpc("reset_user_password" as any, {
-        target_user_id: userId,
+      const { error } = await supabase.rpc("reset_password_by_identifier" as any, {
+        identifier: resetId.trim(),
         new_password: resetNewPw,
       });
       if (error) throw error;
