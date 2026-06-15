@@ -81,16 +81,16 @@ function BusinessConsultantPage() {
       supabase.from("commissioning").select("site_id,data").in("site_id", siteIds)
     ]);
 
-    const aMap = new Map((aRes.data ?? []).map(r => [r.site_id, (r.data as any)?.data]));
-    const iMap = new Map((iRes.data ?? []).map(r => [r.site_id, (r.data as any)?.data]));
-    const cMap = new Map((cRes.data ?? []).map(r => [r.site_id, (r.data as any)?.data]));
+    const aMap = new Map((aRes.data ?? []).map(r => [r.site_id, r.data as any]));
+    const iMap = new Map((iRes.data ?? []).map(r => [r.site_id, r.data as any]));
+    const cMap = new Map((cRes.data ?? []).map(r => [r.site_id, r.data as any]));
 
     const sitesData = data.map(s => {
       const aData = aMap.get(s.id);
       const iData = iMap.get(s.id);
       const cData = cMap.get(s.id);
       
-      const aPct = pctCount(aData, ASSESSMENT_KEYS);
+      const aPct = aData?.assessment_phase_submitted ? 100 : pctCount(aData, ASSESSMENT_KEYS);
       const iPct = pctCount(iData, INSTALLATION_KEYS);
       const cPct = pctCount(cData, COMMISSIONING_KEYS);
       const overall = Math.round((aPct + iPct + cPct) / 3);
@@ -418,10 +418,24 @@ function BusinessConsultantPage() {
   );
 }
 
-function ConsultantDashboard({ 
-  sites, 
-  onSelectSite 
-}: { 
+function siteStatusStyle(status: string) {
+  switch (status) {
+    case "Running":       return { bg: "bg-mint-dim", text: "text-mint", border: "border-mint/20" };
+    case "Reject":        return { bg: "bg-coral-dim", text: "text-coral", border: "border-coral/20" };
+    case "Shipped":       return { bg: "bg-violet/10", text: "text-violet", border: "border-violet/20" };
+    case "Verification":  return { bg: "bg-[#1D4ED8]/10", text: "text-[#1D4ED8]", border: "border-[#1D4ED8]/20" };
+    case "Installation":  return { bg: "bg-warning/10", text: "text-warning", border: "border-warning/20" };
+    case "Concept":       return { bg: "bg-warning/8", text: "text-warning", border: "border-warning/20" };
+    case "Assessment & Visit": return { bg: "bg-[#C4E1F6]/20", text: "text-[#1D4ED8]", border: "border-[#1D4ED8]/20" };
+    case "Assigned":      return { bg: "bg-[#800000]/10", text: "text-[#D07070]", border: "border-[#800000]/20" };
+    default:              return { bg: "bg-surface-raised", text: "text-text-secondary", border: "border-border" };
+  }
+}
+
+function ConsultantDashboard({
+  sites,
+  onSelectSite
+}: {
   sites: Array<Site & { aPct: number; iPct: number; cPct: number; overall: number; status: "Complete" | "Working" | "Pending" }>;
   onSelectSite: (siteId: string) => void;
 }) {
@@ -432,82 +446,74 @@ function ConsultantDashboard({
         <h1 className="mt-2 text-4xl uppercase tracking-tight font-extrabold font-syne text-text-primary">My Assignments</h1>
       </header>
 
-      <div className="overflow-x-auto border border-border rounded-[10px] bg-surface">
-        <table className="w-full border-collapse text-left">
-          <thead className="border-b border-border bg-surface-raised">
-            <tr className="text-left font-mono text-[9px] uppercase tracking-widest text-text-secondary">
-              <th className="px-6 py-4">Company / Factory</th>
-              <th className="px-6 py-4">Location</th>
-              <th className="px-6 py-4">Appt Details</th>
-              <th className="px-6 py-4">Overall Progress</th>
-              <th className="px-6 py-4">Status</th>
-              <th className="px-6 py-4 text-right">Action</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border/60">
-            {sites.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-6 py-12 text-center text-text-dim italic text-sm">
-                  No factories or sites assigned to you yet.
-                </td>
-              </tr>
-            ) : (
-              sites.map((s) => (
-                <tr key={s.id} className="hover:bg-surface-raised/35 transition-colors">
-                  <td className="px-6 py-4">
-                    <div className="font-semibold text-text-primary text-sm">{s.name}</div>
-                    <div className="text-xs text-text-secondary mt-0.5 truncate max-w-[220px]">
-                      {s.address || "—"}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-text-primary text-sm font-medium">
-                    {s.city || "—"}
-                  </td>
-                  <td className="px-6 py-4 text-xs text-text-secondary space-y-0.5">
+      {sites.length === 0 ? (
+        <div className="border border-border rounded-[10px] bg-surface px-6 py-12 text-center text-text-dim italic text-sm">
+          No factories or sites assigned to you yet.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {sites.map((s) => {
+            const siteMeta = parseSiteMetadata(s.task_notes ?? null);
+            const managerStatus = siteMeta.status || "";
+            const st = siteStatusStyle(managerStatus);
+            return (
+              <div key={s.id} className="border border-border rounded-[10px] bg-surface px-5 py-4 hover:bg-surface-raised/30 transition-colors">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                  {/* Company name + location */}
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-text-primary text-base leading-tight">{s.name}</div>
+                    <div className="text-xs text-text-secondary mt-0.5">{s.city || "—"}{s.address ? ` · ${s.address}` : ""}</div>
                     {s.appt_date ? (
-                      <>
-                        <div className="font-medium text-text-primary">{s.appt_date}</div>
-                        <div className="font-mono text-[10px]">{s.appt_time ? s.appt_time.slice(0, 5) : "—"}</div>
-                      </>
-                    ) : (
-                      <span className="text-text-dim">Not scheduled</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3 min-w-[120px]">
-                      <div className="flex-1">
-                        <ProgressBar value={s.overall} />
+                      <div className="mt-1.5 text-[10px] font-mono text-text-secondary">
+                        Appt: <span className="text-text-primary font-semibold">{s.appt_date}</span>
+                        {s.appt_time && <span className="ml-1">{s.appt_time.slice(0, 5)}</span>}
                       </div>
-                      <span className="font-mono text-[11px] font-bold text-text-primary">{s.overall}%</span>
+                    ) : (
+                      <div className="mt-1 text-[10px] font-mono text-text-dim">Not scheduled</div>
+                    )}
+                  </div>
+
+                  {/* Overall progress */}
+                  <div className="sm:w-48 shrink-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] font-mono text-text-secondary uppercase tracking-wider">Progress</span>
+                      <span className="font-mono text-xs font-bold text-text-primary">{s.overall}%</span>
                     </div>
+                    <ProgressBar value={s.overall} />
                     <div className="flex gap-2 mt-1.5 text-[9px] font-mono text-text-secondary">
-                      <span>A: {s.aPct}%</span>
-                      <span>•</span>
-                      <span>I: {s.iPct}%</span>
-                      <span>•</span>
+                      <span>A: {s.aPct}%</span><span>·</span>
+                      <span>I: {s.iPct}%</span><span>·</span>
                       <span>C: {s.cPct}%</span>
                     </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <Badge tone={s.status === "Complete" ? "success" : s.status === "Working" ? "warning" : "neutral"}>
-                      {s.status}
-                    </Badge>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <Button 
+                  </div>
+
+                  {/* Manager status badge */}
+                  <div className="sm:w-36 shrink-0 flex sm:justify-center">
+                    {managerStatus ? (
+                      <span className={`inline-block rounded-[5px] border px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-wider ${st.bg} ${st.text} ${st.border}`}>
+                        {managerStatus}
+                      </span>
+                    ) : (
+                      <span className="text-text-dim text-[10px] font-mono">—</span>
+                    )}
+                  </div>
+
+                  {/* Action button */}
+                  <div className="sm:w-36 shrink-0 flex sm:justify-end">
+                    <Button
                       onClick={() => onSelectSite(s.id)}
-                      variant={s.status === "Complete" ? "secondary" : "primary"}
-                      className="py-1.5 px-4 text-xs font-semibold uppercase tracking-wider"
+                      variant={s.overall === 100 ? "secondary" : "primary"}
+                      className="w-full sm:w-auto py-1.5 px-4 text-xs font-semibold uppercase tracking-wider"
                     >
-                      {s.status === "Complete" ? "View Submission" : "Start / Continue"}
+                      {s.overall === 100 ? "View" : "Start / Continue"}
                     </Button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -547,7 +553,7 @@ function Shell({
   return (
     <div className="min-h-screen bg-background text-text-primary font-sans antialiased">
       <div className="sticky top-0 z-40 border-b border-border bg-surface/90 backdrop-blur-md">
-        <div className="mx-auto flex max-w-4xl h-14 items-center justify-between px-6">
+        <div className="mx-auto flex max-w-6xl h-14 items-center justify-between px-6">
           <button 
             onClick={onGoToDashboard}
             className="flex items-center gap-2 font-syne font-bold uppercase tracking-wider text-lime cursor-pointer bg-transparent border-0 outline-none"
@@ -573,7 +579,7 @@ function Shell({
           </div>
         </div>
       </div>
-      <div className="mx-auto max-w-4xl px-6">{children}</div>
+      <div className="mx-auto max-w-6xl px-6">{children}</div>
     </div>
   );
 }
