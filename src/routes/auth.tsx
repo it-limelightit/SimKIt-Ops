@@ -63,12 +63,14 @@ function LoginForm({ onDone }: { onDone: () => void }) {
   const [mobile, setMobile] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resetMode, setResetMode] = useState(false);
+  const [resetId, setResetId] = useState("");
+  const [resetSent, setResetSent] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     try {
-      // Mobile is the identifier; we look up the email via profile
       const id = mobile.trim();
       const isEmail = id.includes("@");
       let email = id;
@@ -79,7 +81,6 @@ function LoginForm({ onDone }: { onDone: () => void }) {
       }
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
-      // Check approval status — only workers need manager approval
       const { data: userData } = await supabase.auth.getUser();
       const uid = userData.user?.id;
       if (uid) {
@@ -102,6 +103,68 @@ function LoginForm({ onDone }: { onDone: () => void }) {
     }
   }
 
+  async function sendReset(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const id = resetId.trim();
+      const isEmail = id.includes("@");
+      let email = id;
+      if (!isEmail) {
+        const { data } = await supabase.from("profiles").select("email").eq("mobile", id).maybeSingle();
+        if (!data?.email) throw new Error("No account found for that mobile number.");
+        email = data.email;
+      }
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/auth`,
+      });
+      if (error) throw error;
+      setResetSent(true);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to send reset link");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (resetMode) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-lg font-semibold text-text-primary">Reset Password</h2>
+          <p className="mt-1 text-sm text-text-secondary">Enter your mobile number or email and we'll send a reset link.</p>
+        </div>
+        {resetSent ? (
+          <div className="rounded-[6px] border border-lime/30 bg-lime/5 px-4 py-4 text-sm text-lime">
+            Reset link sent! Check your email inbox and follow the link to set a new password.
+          </div>
+        ) : (
+          <form onSubmit={sendReset} className="space-y-5">
+            <div>
+              <Label>Mobile Number / Email</Label>
+              <Input
+                value={resetId}
+                onChange={(e) => setResetId(e.target.value)}
+                placeholder="9876543210 or email@example.com"
+                required
+              />
+            </div>
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? "Sending…" : "Send Reset Link"}
+            </Button>
+          </form>
+        )}
+        <button
+          type="button"
+          onClick={() => { setResetMode(false); setResetSent(false); setResetId(""); }}
+          className="text-sm text-text-secondary hover:text-text-primary transition-colors"
+        >
+          ← Back to Sign In
+        </button>
+      </div>
+    );
+  }
+
   return (
     <form onSubmit={submit} className="space-y-8">
       <div>
@@ -109,7 +172,16 @@ function LoginForm({ onDone }: { onDone: () => void }) {
         <Input value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="9876543210 or email" required />
       </div>
       <div>
-        <Label>Password</Label>
+        <div className="flex items-center justify-between mb-1">
+          <Label>Password</Label>
+          <button
+            type="button"
+            onClick={() => setResetMode(true)}
+            className="text-xs text-text-secondary hover:text-lime transition-colors font-mono"
+          >
+            Forgot password?
+          </button>
+        </div>
         <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
       </div>
       <Button type="submit" className="w-full" disabled={loading}>
