@@ -16,12 +16,37 @@ function AuthPage() {
   const navigate = useNavigate();
   const { ready, userId, role, refresh } = useAuth();
   const [tab, setTab] = useState<"login" | "signup">("login");
+  const [recoveryMode, setRecoveryMode] = useState(false);
+
+  // Detect Supabase PASSWORD_RECOVERY event (fires when user lands from reset email link)
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY") {
+        setRecoveryMode(true);
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
 
   useEffect(() => {
-    if (ready && userId && role) {
+    if (ready && userId && role && !recoveryMode) {
       navigate({ to: role === "worker" ? "/business-consultant" : `/${role}` as "/business-consultant" });
     }
-  }, [ready, userId, role, navigate]);
+  }, [ready, userId, role, navigate, recoveryMode]);
+
+  if (recoveryMode) {
+    return (
+      <div className="min-h-screen bg-background">
+        <div className="mx-auto flex min-h-screen max-w-md flex-col px-6 py-12">
+          <div className="mb-12">
+            <h1 className="text-3xl">SIM-Kit Ops</h1>
+            <p className="mt-1 font-mono text-[11px] uppercase tracking-widest text-stone">Field Operations</p>
+          </div>
+          <SetNewPasswordForm onDone={() => { setRecoveryMode(false); refresh(); }} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -50,6 +75,59 @@ function AuthPage() {
 
         {tab === "login" ? <LoginForm onDone={refresh} /> : <SignupForm onDone={() => setTab("login")} />}
       </div>
+    </div>
+  );
+}
+
+function SetNewPasswordForm({ onDone }: { onDone: () => void }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [done, setDone] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (password !== confirm) { toast.error("Passwords do not match"); return; }
+    if (password.length < 6) { toast.error("Password must be at least 6 characters"); return; }
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) throw error;
+      setDone(true);
+      toast.success("Password updated successfully");
+      setTimeout(onDone, 1500);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update password");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-xl font-bold text-text-primary">Set New Password</h2>
+        <p className="mt-1 text-sm text-text-secondary">Choose a new password for your account.</p>
+      </div>
+      {done ? (
+        <div className="rounded-[6px] border border-lime/30 bg-lime/5 px-4 py-4 text-sm text-lime">
+          Password updated! Signing you in…
+        </div>
+      ) : (
+        <form onSubmit={submit} className="space-y-5">
+          <div>
+            <Label>New Password</Label>
+            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="Min. 6 characters" />
+          </div>
+          <div>
+            <Label>Confirm New Password</Label>
+            <Input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required placeholder="Repeat password" />
+          </div>
+          <Button type="submit" className="w-full" disabled={loading}>
+            {loading ? "Updating…" : "Set New Password"}
+          </Button>
+        </form>
+      )}
     </div>
   );
 }
