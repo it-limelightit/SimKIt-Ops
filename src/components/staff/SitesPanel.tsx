@@ -121,6 +121,7 @@ export function SitesPanel() {
 
   const [form, setForm] = useState({
     name: "",
+    company_name: "",
     city: "",
     address: "",
     workers: [] as string[],
@@ -147,7 +148,7 @@ export function SitesPanel() {
     const [s, w] = await Promise.all([
       supabase
         .from("sites")
-        .select("id,name,city,address,assigned_worker_id,assigned_at,task_notes,appt_date,appt_time")
+        .select("id,name,company_name,city,address,assigned_worker_id,assigned_at,task_notes,appt_date,appt_time,consultant_stage")
         .order("created_at", { ascending: false }),
       supabase.from("profiles").select("id,name,mobile,is_active").order("created_at"),
     ]);
@@ -194,6 +195,7 @@ export function SitesPanel() {
 
     const { error } = await supabase.from("sites").insert({
       name: form.name,
+      company_name: form.company_name || form.name,
       city: form.city || null,
       address: form.address || null,
       assigned_worker_id: form.workers[0] || null,
@@ -219,6 +221,7 @@ export function SitesPanel() {
     setEditingSite(s);
     setForm({
       name: s.name,
+      company_name: s.company_name ?? s.name,
       city: s.city ?? "",
       address: s.address ?? "",
       workers: workerIds,
@@ -228,7 +231,7 @@ export function SitesPanel() {
       c2_name: meta.c2_name,
       c2_mobile: meta.c2_mobile,
       c2_email: meta.c2_email,
-      status: meta.status,
+      status: s.consultant_stage || meta.status,
       appt_date: s.appt_date ?? "",
       appt_time: s.appt_time ?? "",
       create_drive_folder: !!meta.create_drive_folder,
@@ -269,10 +272,12 @@ export function SitesPanel() {
       .from("sites")
       .update({
         name: form.name,
+        company_name: form.company_name || form.name,
         city: form.city || null,
         address: form.address || null,
         assigned_worker_id: form.workers[0] || null,
         task_notes: taskNotes,
+        consultant_stage: null,
         appt_date: form.appt_date || null,
         appt_time: form.appt_time || null,
       } as never)
@@ -290,6 +295,7 @@ export function SitesPanel() {
   const resetForm = () => {
     setForm({
       name: "",
+      company_name: "",
       city: "",
       address: "",
       workers: [],
@@ -331,7 +337,10 @@ export function SitesPanel() {
   const updateSiteStatus = async (siteId: string, newStatus: string, currentTaskNotes: string | null) => {
     const meta = parseSiteMetadata(currentTaskNotes);
     const newNotes = serializeSiteMetadata(currentTaskNotes, { ...meta, status: newStatus || "" });
-    const { error } = await supabase.from("sites").update({ task_notes: newNotes } as never).eq("id", siteId);
+    const { error } = await supabase.from("sites").update({
+      task_notes: newNotes,
+      consultant_stage: newStatus === "Billing" || newStatus === "Completion" ? newStatus : null,
+    } as never).eq("id", siteId);
     if (error) toast.error(error.message);
     else await load();
   };
@@ -380,8 +389,16 @@ export function SitesPanel() {
           </div>
           <div className="grid gap-4 md:grid-cols-2">
             <div>
-              <Label>Site Name</Label>
+              <Label>Factory Name</Label>
               <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            </div>
+            <div>
+              <Label>Company Name</Label>
+              <Input
+                value={form.company_name}
+                onChange={(e) => setForm({ ...form, company_name: e.target.value })}
+                placeholder="Company that owns this factory"
+              />
             </div>
             <div><Label>City</Label><Input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></div>
 
@@ -444,6 +461,8 @@ export function SitesPanel() {
                   <option value="Verification">Verification</option>
                   <option value="Shipped">Shipped</option>
                   <option value="Running">Running</option>
+                  <option value="Billing">Billing</option>
+                  <option value="Completion">Completion</option>
                   <option value="Reject">Reject</option>
                 </Select>
               </div>
@@ -515,7 +534,10 @@ export function SitesPanel() {
 
       {/* ── Search & Filters ── */}
       {(() => {
-        const allMetas = sites.map((s) => parseSiteMetadata(s.task_notes));
+        const allMetas = sites.map((s) => ({
+          ...parseSiteMetadata(s.task_notes),
+          status: s.consultant_stage || parseSiteMetadata(s.task_notes).status,
+        }));
         const cities = Array.from(new Set(sites.map((s) => s.city).filter(Boolean))).sort();
         const statuses = Array.from(new Set(allMetas.map((m) => m.status).filter(Boolean))).sort();
         const assessors = Array.from(new Set(allMetas.map((m) => m.assessor_company).filter(Boolean))).sort();
@@ -593,7 +615,8 @@ export function SitesPanel() {
             ) : (() => {
                 const ORDER: Record<string, number> = {
                   "Running": 0, "Assessment & Visit": 1, "Concept": 2,
-                  "Installation": 3, "Verification": 4, "Shipped": 5, "Assigned": 6, "Reject": 7,
+                  "Installation": 3, "Verification": 4, "Shipped": 5, "Billing": 6,
+                  "Completion": 7, "Assigned": 8, "Reject": 9,
                 };
                 const q = search.toLowerCase().trim();
                 const filtered = [...sites]
@@ -602,14 +625,14 @@ export function SitesPanel() {
                     const assignedIds = getSiteWorkerIds(s);
                     if (q && ![s.name, meta.assessor_company, s.city].some((v) => (v ?? "").toLowerCase().includes(q))) return false;
                     if (filterCity && s.city !== filterCity) return false;
-                    if (filterStatus && meta.status !== filterStatus) return false;
+                    if (filterStatus && (s.consultant_stage || meta.status) !== filterStatus) return false;
                     if (filterAssessor && meta.assessor_company !== filterAssessor) return false;
                     if (filterBC && !assignedIds.includes(filterBC)) return false;
                     return true;
                   })
                   .sort((a, b) => {
-                    const aRank = ORDER[parseSiteMetadata(a.task_notes).status ?? ""] ?? 8;
-                    const bRank = ORDER[parseSiteMetadata(b.task_notes).status ?? ""] ?? 8;
+                    const aRank = ORDER[a.consultant_stage || parseSiteMetadata(a.task_notes).status || ""] ?? 10;
+                    const bRank = ORDER[b.consultant_stage || parseSiteMetadata(b.task_notes).status || ""] ?? 10;
                     return aRank - bRank;
                   });
                 if (filtered.length === 0) return (
@@ -617,6 +640,7 @@ export function SitesPanel() {
                 );
                 return filtered.map((s) => {
               const meta = parseSiteMetadata(s.task_notes);
+              const displayedStatus = s.consultant_stage || meta.status;
               const assignedIds = getSiteWorkerIds(s);
               return (
                 <tr key={s.id} className="border-b border-border last:border-0 hover:bg-surface-raised/30 transition-colors">
@@ -660,13 +684,14 @@ export function SitesPanel() {
                   <td className="px-4 py-3">
                     <div className="flex flex-col gap-1">
                       <select
-                        value={meta.status || ""}
+                        value={displayedStatus || ""}
                         onChange={(e) => updateSiteStatus(s.id, e.target.value, s.task_notes)}
                         className={`appearance-none rounded-[4px] px-2 py-1 font-mono text-[10px] uppercase tracking-wider font-bold border outline-none cursor-pointer transition-all ${
-                          meta.status === "Running" ? "bg-mint-dim text-mint border-mint/20"
-                          : meta.status === "Reject" ? "bg-coral-dim text-coral border-coral/20"
-                          : meta.status === "Shipped" ? "bg-violet/10 text-violet border-violet/20"
-                          : !meta.status ? "bg-surface text-text-dim border-border"
+                          displayedStatus === "Running" || displayedStatus === "Completion" ? "bg-mint-dim text-mint border-mint/20"
+                          : displayedStatus === "Reject" ? "bg-coral-dim text-coral border-coral/20"
+                          : displayedStatus === "Shipped" ? "bg-violet/10 text-violet border-violet/20"
+                          : displayedStatus === "Billing" ? "bg-lime/10 text-lime border-lime/20"
+                          : !displayedStatus ? "bg-surface text-text-dim border-border"
                           : "bg-warning/8 text-warning border-warning/20"
                         }`}
                       >
@@ -678,6 +703,8 @@ export function SitesPanel() {
                         <option value="Verification">Verification</option>
                         <option value="Shipped">Shipped</option>
                         <option value="Running">Running</option>
+                        <option value="Billing">Billing</option>
+                        <option value="Completion">Completion</option>
                         <option value="Reject">Reject</option>
                       </select>
                       {meta.visit_status && (

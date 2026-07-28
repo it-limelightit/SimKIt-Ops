@@ -346,6 +346,8 @@ export type Database = {
           assigned_at: string | null
           assigned_worker_id: string | null
           city: string | null
+          company_name: string | null
+          consultant_stage: string | null
           created_at: string
           created_by: string | null
           id: string
@@ -362,6 +364,8 @@ export type Database = {
           assigned_at?: string | null
           assigned_worker_id?: string | null
           city?: string | null
+          company_name?: string | null
+          consultant_stage?: string | null
           created_at?: string
           created_by?: string | null
           id?: string
@@ -378,6 +382,8 @@ export type Database = {
           assigned_at?: string | null
           assigned_worker_id?: string | null
           city?: string | null
+          company_name?: string | null
+          consultant_stage?: string | null
           created_at?: string
           created_by?: string | null
           id?: string
@@ -421,6 +427,10 @@ export type Database = {
         Returns: boolean
       }
       is_staff: { Args: { _user_id: string }; Returns: boolean }
+      set_consultant_site_stage: {
+        Args: { _site_id: string; _stage: string }
+        Returns: undefined
+      }
     }
     Enums: {
       app_role: "worker" | "supervisor" | "owner"

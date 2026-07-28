@@ -9,6 +9,7 @@ import { CommissioningTab } from "@/components/business-consultant/Commissioning
 import { LogOut, Check, CheckCircle2, MapPin, Calendar, Clock, BookOpen } from "lucide-react";
 import { parseTaskNotes } from "@/components/staff/TasksPanel";
 import { parseSiteMetadata } from "@/components/staff/SitesPanel";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/business-consultant")({
   ssr: false,
@@ -16,7 +17,7 @@ export const Route = createFileRoute("/business-consultant")({
   component: BusinessConsultantPage,
 });
 
-type Site = { id: string; name: string; city: string | null; address: string | null; assigned_at: string | null; appt_date: string | null; appt_time: string | null; task_notes: string | null };
+type Site = { id: string; name: string; city: string | null; address: string | null; assigned_at: string | null; appt_date: string | null; appt_time: string | null; task_notes: string | null; consultant_stage: string | null };
 
 function BusinessConsultantPage() {
   const navigate = useNavigate();
@@ -56,7 +57,7 @@ function BusinessConsultantPage() {
     if (!userId) return;
     const { data, error } = await supabase
       .from("sites")
-      .select("id,name,city,address,assigned_at,appt_date,appt_time,task_notes")
+      .select("id,name,city,address,assigned_at,appt_date,appt_time,task_notes,consultant_stage")
       .or(`assigned_worker_id.eq.${userId},task_notes.ilike.%"${userId}"%`)
       .order("assigned_at", { ascending: false });
     
@@ -171,6 +172,21 @@ function BusinessConsultantPage() {
 
   const { phase: activePhase, cleanNotes } = parseTaskNotes(site?.task_notes ?? null);
   const meta = parseSiteMetadata(site?.task_notes ?? null);
+  const displayedStatus = site?.consultant_stage || meta.status;
+
+  const updateConsultantStage = async (stage: "Billing" | "Completion") => {
+    if (!site) return;
+    const { error } = await supabase.rpc("set_consultant_site_stage", {
+      _site_id: site.id,
+      _stage: stage,
+    });
+    if (error) {
+      toast.error("Could not update the site stage: " + error.message);
+      return;
+    }
+    toast.success(`Site moved to ${stage}`);
+    await fetchSites();
+  };
 
   useEffect(() => {
     if (activePhase && (activePhase === "assessment" || activePhase === "installation" || activePhase === "commissioning")) {
@@ -280,8 +296,8 @@ function BusinessConsultantPage() {
             <div className="font-mono text-[10px] uppercase tracking-widest text-lime font-bold">
               Details of the Factory
             </div>
-            <Badge tone={meta.status === "Running" ? "success" : meta.status === "Stopped" ? "danger" : "warning"}>
-              {meta.status}
+            <Badge tone={displayedStatus === "Running" || displayedStatus === "Completion" ? "success" : displayedStatus === "Stopped" ? "danger" : "warning"}>
+              {displayedStatus}
             </Badge>
           </div>
           
@@ -336,6 +352,23 @@ function BusinessConsultantPage() {
               <Clock size={14} className="text-lime shrink-0" />
               <span>Time: {site.appt_time ? site.appt_time.slice(0, 5) : "No time set"}</span>
             </div>
+          </div>
+          <div className="pt-3 border-t border-border">
+            <Label className="text-lime">Update Manager Workflow</Label>
+            <Select
+              value={site.consultant_stage ?? ""}
+              onChange={(e) => {
+                const stage = e.target.value;
+                if (stage === "Billing" || stage === "Completion") void updateConsultantStage(stage);
+              }}
+            >
+              <option value="">Select when reached…</option>
+              <option value="Billing">Billing</option>
+              <option value="Completion">Completion</option>
+            </Select>
+            <p className="mt-1.5 text-[10px] font-mono text-text-dim">
+              This update appears on the manager’s Sites screen immediately.
+            </p>
           </div>
           {cleanNotes && (
             <div className="pt-3 border-t border-border flex gap-2 text-sm text-text-secondary">
@@ -393,7 +426,13 @@ function BusinessConsultantPage() {
         {tab === "commissioning" && (
           submittedPhases.has("commissioning")
             ? null
-            : <CommissioningTab siteId={site.id} workerId={userId!} onSubmit={() => setThankYou(true)} />
+            : <CommissioningTab
+                siteId={site.id}
+                workerId={userId!}
+                onSubmit={() => {
+                  void updateConsultantStage("Billing").then(() => setThankYou(true));
+                }}
+              />
         )}
       </main>
 
@@ -408,7 +447,9 @@ function BusinessConsultantPage() {
           <p className="mt-4 text-lg text-text-primary max-w-md font-sans">
             All phases have been successfully submitted. Your work on <strong>{site.name}</strong> is complete.
           </p>
-          <p className="mt-2 text-sm text-text-secondary font-mono">Your manager will review the submission shortly.</p>
+          <p className="mt-2 text-sm text-text-secondary font-mono">
+            The site is now in Billing and is visible to your manager.
+          </p>
           <Button className="mt-10" onClick={() => { setThankYou(false); setView("dashboard"); void fetchSites(); }}>
             Go back to Dashboard
           </Button>
@@ -420,6 +461,8 @@ function BusinessConsultantPage() {
 
 function siteStatusStyle(status: string) {
   switch (status) {
+    case "Completion":    return { bg: "bg-mint-dim", text: "text-mint", border: "border-mint/20" };
+    case "Billing":       return { bg: "bg-lime/10", text: "text-lime", border: "border-lime/20" };
     case "Running":       return { bg: "bg-mint-dim", text: "text-mint", border: "border-mint/20" };
     case "Reject":        return { bg: "bg-coral-dim", text: "text-coral", border: "border-coral/20" };
     case "Shipped":       return { bg: "bg-violet/10", text: "text-violet", border: "border-violet/20" };
