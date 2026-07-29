@@ -61,9 +61,11 @@ const STATUS_OPTIONS: ManagementStatus[] = [
 ];
 
 function managementStatus(status: string, visitStatus: string): ManagementStatus {
-  if (status === "Completion") return "Completed";
+  if (status === "Completion" || status === "Completed & Billed") return "Completed";
   if (status === "Reject") return "Rejected";
-  if (status === "Billing") return "Awaiting Confirmation";
+  if (status === "Billing" || status === "Awaiting NPC Confirmation") {
+    return "Awaiting Confirmation";
+  }
   if (status === "Verification" || status === "Shipped" || visitStatus === "Visit Complete") {
     return "Submitted";
   }

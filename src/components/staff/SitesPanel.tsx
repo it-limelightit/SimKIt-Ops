@@ -454,6 +454,10 @@ export function SitesPanel() {
                 <Label>Factory Status</Label>
                 <Select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
                   <option value="">— None —</option>
+                  <option value="Pending Assessment">Pending Assessment</option>
+                  <option value="Pending Installation">Pending Installation</option>
+                  <option value="Awaiting NPC Confirmation">Awaiting NPC Confirmation</option>
+                  <option value="Completed & Billed">Completed &amp; Billed</option>
                   <option value="Assigned">Assigned</option>
                   <option value="Assessment & Visit">Assessment &amp; Visit</option>
                   <option value="Concept">Concept</option>
@@ -614,9 +618,11 @@ export function SitesPanel() {
               <tr><td colSpan={6} className="px-4 py-10 text-center text-text-dim italic">No sites created yet.</td></tr>
             ) : (() => {
                 const ORDER: Record<string, number> = {
-                  "Running": 0, "Assessment & Visit": 1, "Concept": 2,
-                  "Installation": 3, "Verification": 4, "Shipped": 5, "Billing": 6,
-                  "Completion": 7, "Assigned": 8, "Reject": 9,
+                  "Pending Assessment": 0, "Assigned": 1, "Assessment & Visit": 2,
+                  "Concept": 3, "Pending Installation": 4, "Installation": 5,
+                  "Verification": 6, "Shipped": 7, "Running": 8,
+                  "Awaiting NPC Confirmation": 9, "Billing": 10,
+                  "Completed & Billed": 11, "Completion": 12, "Reject": 13,
                 };
                 const q = search.toLowerCase().trim();
                 const filtered = [...sites]
@@ -670,12 +676,21 @@ export function SitesPanel() {
                   </td>
                   <td className="px-4 py-3 text-text-primary font-medium">{s.city || "—"}</td>
                   <td className="px-4 py-3 text-xs">
-                    {meta.c1_name ? (
+                    {meta.c1_name || meta.c1_mobile || meta.c1_email ? (
                       <div>
-                        <div className="font-semibold text-text-primary">{meta.c1_name}</div>
-                        <a href={`tel:${meta.c1_mobile}`} className="text-lime hover:underline flex items-center gap-1 mt-0.5 font-mono text-[10px]">
-                          <Phone size={10} /> {meta.c1_mobile}
-                        </a>
+                        {meta.c1_name && (
+                          <div className="font-semibold text-text-primary">{meta.c1_name}</div>
+                        )}
+                        {meta.c1_mobile && (
+                          <a href={`tel:${meta.c1_mobile}`} className="text-lime hover:underline flex items-center gap-1 mt-0.5 font-mono text-[10px]">
+                            <Phone size={10} /> {meta.c1_mobile}
+                          </a>
+                        )}
+                        {meta.c1_email && (
+                          <a href={`mailto:${meta.c1_email}`} className="text-text-secondary hover:text-lime block mt-0.5 font-mono text-[10px]">
+                            {meta.c1_email}
+                          </a>
+                        )}
                       </div>
                     ) : (
                       <span className="text-text-dim">—</span>
@@ -687,7 +702,7 @@ export function SitesPanel() {
                         value={displayedStatus || ""}
                         onChange={(e) => updateSiteStatus(s.id, e.target.value, s.task_notes)}
                         className={`appearance-none rounded-[4px] px-2 py-1 font-mono text-[10px] uppercase tracking-wider font-bold border outline-none cursor-pointer transition-all ${
-                          displayedStatus === "Running" || displayedStatus === "Completion" ? "bg-mint-dim text-mint border-mint/20"
+                          displayedStatus === "Running" || displayedStatus === "Completion" || displayedStatus === "Completed & Billed" ? "bg-mint-dim text-mint border-mint/20"
                           : displayedStatus === "Reject" ? "bg-coral-dim text-coral border-coral/20"
                           : displayedStatus === "Shipped" ? "bg-violet/10 text-violet border-violet/20"
                           : displayedStatus === "Billing" ? "bg-lime/10 text-lime border-lime/20"
@@ -696,6 +711,10 @@ export function SitesPanel() {
                         }`}
                       >
                         <option value="">— None —</option>
+                        <option value="Pending Assessment">Pending Assessment</option>
+                        <option value="Pending Installation">Pending Installation</option>
+                        <option value="Awaiting NPC Confirmation">Awaiting NPC Confirmation</option>
+                        <option value="Completed & Billed">Completed &amp; Billed</option>
                         <option value="Assigned">Assigned</option>
                         <option value="Assessment &amp; Visit">Assessment &amp; Visit</option>
                         <option value="Concept">Concept</option>
