@@ -8,19 +8,13 @@ import {
   Clock3,
   Download,
   Factory,
+  FileText,
   Search,
   UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
 
 type ViewMode = "company" | "consultant";
-type ManagementStatus =
-  | "Pending"
-  | "Completed"
-  | "Awaiting Confirmation"
-  | "Submitted"
-  | "Rejected"
-  | "In Progress";
 
 type Consultant = {
   id: string;
@@ -46,48 +40,57 @@ type FactoryRow = {
   city: string;
   consultantIds: string[];
   consultantNames: string[];
-  status: ManagementStatus;
-  rawStatus: string;
+  status: string;
   createdAt: string;
 };
 
-const STATUS_OPTIONS: ManagementStatus[] = [
-  "Pending",
-  "Completed",
-  "Awaiting Confirmation",
-  "Submitted",
-  "Rejected",
-  "In Progress",
-];
+const STATUS_OPTIONS = [
+  "Completed/Billed from our end",
+  "Completed but bill pending",
+  "Pending Installation",
+  "Pending Assessment",
+  "Completed but awaiting NPC confirmation",
+  "Assigned",
+  "Assessment & Visit",
+  "Concept",
+  "Installation",
+  "Verification",
+  "Shipped",
+  "Running",
+  "Billing",
+  "Completion",
+  "Reject",
+] as const;
 
-function managementStatus(status: string, visitStatus: string): ManagementStatus {
-  if (status === "Completion" || status === "Completed & Billed") return "Completed";
-  if (status === "Reject") return "Rejected";
-  if (status === "Billing" || status === "Awaiting NPC Confirmation") {
-    return "Awaiting Confirmation";
+const isCompletedStatus = (status: string) =>
+  status === "Completion" || status === "Completed/Billed from our end";
+const isPendingStatus = (status: string) =>
+  ["Pending Installation", "Pending Assessment", "Assigned", "Concept"].includes(status);
+const isAwaitingStatus = (status: string) =>
+  ["Completed but bill pending", "Completed but awaiting NPC confirmation", "Billing"].includes(
+    status,
+  );
+
+function statusStyle(status: string) {
+  if (isCompletedStatus(status)) return "border-mint/25 bg-mint-dim text-mint";
+  if (isAwaitingStatus(status)) return "border-warning/25 bg-warning/10 text-warning";
+  if (status === "Reject") return "border-coral/25 bg-coral-dim text-coral";
+  if (["Verification", "Shipped"].includes(status)) {
+    return "border-violet/25 bg-violet/10 text-violet";
   }
-  if (status === "Verification" || status === "Shipped" || visitStatus === "Visit Complete") {
-    return "Submitted";
+  if (["Assessment & Visit", "Installation", "Running"].includes(status)) {
+    return "border-[#3B82F6]/25 bg-[#3B82F6]/10 text-[#60A5FA]";
   }
-  if (!status || status === "Assigned") return "Pending";
-  return "In Progress";
+  return "border-border bg-surface-raised text-text-secondary";
 }
 
-function statusStyle(status: ManagementStatus) {
-  switch (status) {
-    case "Completed":
-      return "border-mint/25 bg-mint-dim text-mint";
-    case "Awaiting Confirmation":
-      return "border-warning/25 bg-warning/10 text-warning";
-    case "Submitted":
-      return "border-violet/25 bg-violet/10 text-violet";
-    case "Rejected":
-      return "border-coral/25 bg-coral-dim text-coral";
-    case "In Progress":
-      return "border-[#3B82F6]/25 bg-[#3B82F6]/10 text-[#60A5FA]";
-    default:
-      return "border-border bg-surface-raised text-text-secondary";
-  }
+function groupReportRows(rows: FactoryRow[], key: (row: FactoryRow) => string) {
+  const groups = new Map<string, FactoryRow[]>();
+  rows.forEach((row) => {
+    const groupName = key(row) || "Unspecified";
+    groups.set(groupName, [...(groups.get(groupName) ?? []), row]);
+  });
+  return Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b));
 }
 
 export function ReportsPanel() {
@@ -95,6 +98,7 @@ export function ReportsPanel() {
   const [sites, setSites] = useState<SiteRecord[]>([]);
   const [consultants, setConsultants] = useState<Consultant[]>([]);
   const [loading, setLoading] = useState(true);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [filters, setFilters] = useState({
     search: "",
     from: "",
@@ -155,7 +159,7 @@ export function ReportsPanel() {
             : site.assigned_worker_id
               ? [site.assigned_worker_id]
               : [];
-        const rawStatus = site.consultant_stage || meta.status || "";
+        const rawStatus = site.consultant_stage || meta.status || "Unspecified";
         return {
           id: site.id,
           companyName: site.company_name?.trim() || site.name,
@@ -166,8 +170,7 @@ export function ReportsPanel() {
             (id: string) =>
               consultantMap.get(id)?.name || consultantMap.get(id)?.mobile || "Unknown",
           ),
-          status: managementStatus(rawStatus, meta.visit_status),
-          rawStatus,
+          status: rawStatus,
           createdAt: site.created_at,
         };
       }),
@@ -207,9 +210,9 @@ export function ReportsPanel() {
     () => ({
       total: filteredRows.length,
       companies: new Set(filteredRows.map((row) => row.companyName)).size,
-      completed: filteredRows.filter((row) => row.status === "Completed").length,
-      pending: filteredRows.filter((row) => row.status === "Pending").length,
-      awaiting: filteredRows.filter((row) => row.status === "Awaiting Confirmation").length,
+      completed: filteredRows.filter((row) => isCompletedStatus(row.status)).length,
+      pending: filteredRows.filter((row) => isPendingStatus(row.status)).length,
+      awaiting: filteredRows.filter((row) => isAwaitingStatus(row.status)).length,
     }),
     [filteredRows],
   );
@@ -248,14 +251,13 @@ export function ReportsPanel() {
 
   const exportCsv = () => {
     const lines = [
-      ["Company", "Factory", "City", "Business Consultant", "Status", "System Status", "Created"],
+      ["Company", "Factory", "City", "Business Associate", "Status", "Created"],
       ...filteredRows.map((row) => [
         row.companyName,
         row.factoryName,
         row.city,
         row.consultantNames.join(" | ") || "Unassigned",
         row.status,
-        row.rawStatus,
         row.createdAt,
       ]),
     ].map((line) => line.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(","));
@@ -268,6 +270,209 @@ export function ReportsPanel() {
     URL.revokeObjectURL(url);
   };
 
+  const exportPdf = async () => {
+    if (filteredRows.length === 0) {
+      toast.error("There are no report rows to export.");
+      return;
+    }
+    setExportingPdf(true);
+    try {
+      const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+        import("jspdf"),
+        import("jspdf-autotable"),
+      ]);
+      const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const lime: [number, number, number] = [200, 255, 74];
+      const ink: [number, number, number] = [18, 18, 29];
+      const muted: [number, number, number] = [104, 101, 119];
+      const soft: [number, number, number] = [244, 245, 239];
+      const generatedAt = new Intl.DateTimeFormat("en-IN", {
+        dateStyle: "long",
+        timeStyle: "short",
+      }).format(new Date());
+
+      const addBrand = (section?: string) => {
+        doc.setFillColor(...ink);
+        doc.rect(0, 0, pageWidth, 14, "F");
+        doc.setFillColor(...lime);
+        doc.roundedRect(12, 4, 6, 6, 1.2, 1.2, "F");
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(9);
+        doc.setTextColor(240, 236, 227);
+        doc.text("SIM-KIT OPS", 22, 9);
+        if (section) {
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(175, 172, 184);
+          doc.text(section.toUpperCase(), pageWidth - 12, 9, { align: "right" });
+        }
+      };
+
+      const addSectionPage = (number: string, title: string, description: string) => {
+        doc.addPage();
+        doc.setFillColor(...ink);
+        doc.rect(0, 0, pageWidth, pageHeight, "F");
+        doc.setFillColor(...lime);
+        doc.rect(0, 0, 7, pageHeight, "F");
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(15);
+        doc.setTextColor(...lime);
+        doc.text(number, 24, 56);
+        doc.setFontSize(34);
+        doc.setTextColor(240, 236, 227);
+        doc.text(title.toUpperCase(), 24, 77);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(12);
+        doc.setTextColor(155, 151, 166);
+        doc.text(description, 24, 90);
+      };
+
+      const addGroupedTables = (section: string, groups: Array<[string, FactoryRow[]]>) => {
+        doc.addPage();
+        addBrand(section);
+        let y = 25;
+        groups.forEach(([groupName, groupRows], index) => {
+          if (index > 0 && y > 146) {
+            doc.addPage();
+            addBrand(section);
+            y = 25;
+          }
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(14);
+          doc.setTextColor(...ink);
+          doc.text(groupName, 12, y);
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(8);
+          doc.setTextColor(...muted);
+          doc.text(
+            `${groupRows.length} ${groupRows.length === 1 ? "factory" : "factories"}`,
+            pageWidth - 12,
+            y,
+            { align: "right" },
+          );
+
+          autoTable(doc, {
+            startY: y + 5,
+            margin: { left: 12, right: 12, top: 20, bottom: 14 },
+            head: [["Company", "Factory", "City", "Business Associate", "Status"]],
+            body: groupRows.map((row) => [
+              row.companyName,
+              row.factoryName,
+              row.city,
+              row.consultantNames.join(", ") || "Unassigned",
+              row.status,
+            ]),
+            theme: "grid",
+            styles: {
+              font: "helvetica",
+              fontSize: 8,
+              cellPadding: 2.5,
+              lineColor: [225, 226, 220],
+              lineWidth: 0.2,
+              textColor: ink,
+              overflow: "linebreak",
+            },
+            headStyles: { fillColor: ink, textColor: [240, 236, 227], fontStyle: "bold" },
+            alternateRowStyles: { fillColor: soft },
+            columnStyles: {
+              0: { cellWidth: 58 },
+              1: { cellWidth: 65 },
+              2: { cellWidth: 31 },
+              3: { cellWidth: 61 },
+              4: { cellWidth: 47 },
+            },
+            didDrawPage: () => addBrand(section),
+          });
+          y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 12;
+        });
+      };
+
+      // Cover and executive summary.
+      doc.setFillColor(...ink);
+      doc.rect(0, 0, pageWidth, pageHeight, "F");
+      doc.setFillColor(...lime);
+      doc.rect(0, 0, 8, pageHeight, "F");
+      doc.roundedRect(24, 24, 8, 8, 1.5, 1.5, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.setTextColor(...lime);
+      doc.text("SIM-KIT OPS / MANAGEMENT REPORT", 38, 30);
+      doc.setFontSize(34);
+      doc.setTextColor(240, 236, 227);
+      doc.text("FACTORY OPERATIONS", 24, 67);
+      doc.text("REPORT", 24, 82);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(155, 151, 166);
+      doc.text(`Generated ${generatedAt}`, 24, 95);
+
+      const metrics = [
+        ["FACTORIES", summary.total],
+        ["COMPANIES", summary.companies],
+        ["COMPLETED", summary.completed],
+        ["PENDING", summary.pending],
+        ["AWAITING", summary.awaiting],
+      ] as const;
+      metrics.forEach(([label, value], index) => {
+        const x = 24 + index * 51;
+        doc.setFillColor(29, 29, 43);
+        doc.roundedRect(x, 122, 45, 35, 2, 2, "F");
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(19);
+        doc.setTextColor(index === 2 ? 61 : 240, index === 2 ? 255 : 236, index === 2 ? 192 : 227);
+        doc.text(String(value), x + 5, 138);
+        doc.setFontSize(7);
+        doc.setTextColor(155, 151, 166);
+        doc.text(label, x + 5, 149);
+      });
+
+      const cityGroups = groupReportRows(filteredRows, (row) => row.city);
+      const orderedStatusGroups = STATUS_OPTIONS.map(
+        (status) =>
+          [status, filteredRows.filter((row) => row.status === status)] as [string, FactoryRow[]],
+      ).filter(([, groupRows]) => groupRows.length > 0);
+      const knownStatuses = new Set<string>(STATUS_OPTIONS);
+      const otherStatusGroups = groupReportRows(
+        filteredRows.filter((row) => !knownStatuses.has(row.status)),
+        (row) => row.status,
+      );
+      const statusGroups = [...orderedStatusGroups, ...otherStatusGroups];
+      const associateGroups = consultantGroups.map(
+        ([, group]) => [group.name, group.rows] as [string, FactoryRow[]],
+      );
+
+      addSectionPage("01", "City pages", "Factory operations grouped geographically by city.");
+      addGroupedTables("City breakdown", cityGroups);
+      addSectionPage("02", "Status pages", "Factories grouped by their current management status.");
+      addGroupedTables("Status breakdown", statusGroups);
+      addSectionPage(
+        "03",
+        "Business associate pages",
+        "Assignments and workload grouped by business associate.",
+      );
+      addGroupedTables("Business associate breakdown", associateGroups);
+
+      const totalPages = doc.getNumberOfPages();
+      for (let page = 1; page <= totalPages; page += 1) {
+        doc.setPage(page);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7);
+        doc.setTextColor(125, 122, 137);
+        doc.text("CONFIDENTIAL - INTERNAL OPERATIONS", 12, pageHeight - 7);
+        doc.text(`${page} / ${totalPages}`, pageWidth - 12, pageHeight - 7, { align: "right" });
+      }
+
+      doc.save(`sim-kit-factory-report-${new Date().toISOString().slice(0, 10)}.pdf`);
+      toast.success("PDF report exported successfully.");
+    } catch (error) {
+      console.error(error);
+      toast.error("Could not create the PDF report.");
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
   return (
     <div className="space-y-7">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -277,9 +482,15 @@ export function ReportsPanel() {
           </p>
           <h1 className="mt-2 text-4xl uppercase tracking-tight font-extrabold">Factory Reports</h1>
         </div>
-        <Button onClick={exportCsv} variant="secondary">
-          <Download size={16} strokeWidth={1.5} /> Export CSV
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => void exportPdf()} disabled={exportingPdf}>
+            <FileText size={16} strokeWidth={1.5} />
+            {exportingPdf ? "Building PDF…" : "Export PDF"}
+          </Button>
+          <Button onClick={exportCsv} variant="secondary">
+            <Download size={16} strokeWidth={1.5} /> Export CSV
+          </Button>
+        </div>
       </header>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
@@ -499,8 +710,8 @@ function GroupedView({
   return (
     <div className="space-y-4">
       {groups.map((group) => {
-        const completed = group.rows.filter((row) => row.status === "Completed").length;
-        const awaiting = group.rows.filter((row) => row.status === "Awaiting Confirmation").length;
+        const completed = group.rows.filter((row) => isCompletedStatus(row.status)).length;
+        const awaiting = group.rows.filter((row) => isAwaitingStatus(row.status)).length;
         return (
           <section
             key={group.name}

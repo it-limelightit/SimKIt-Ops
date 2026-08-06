@@ -14,6 +14,18 @@ export type Database = {
   }
   public: {
     Tables: {
+      inventory_materials: {
+        Row: { id: string; material_name: string; quantity: number; unit: string; state: string; location: string | null; estimated_arrival: string | null; tracking_number: string | null; notes: string | null; created_by: string | null; created_at: string; updated_at: string }
+        Insert: { id?: string; material_name: string; quantity?: number; unit?: string; state?: string; location?: string | null; estimated_arrival?: string | null; tracking_number?: string | null; notes?: string | null; created_by?: string | null; created_at?: string; updated_at?: string }
+        Update: { id?: string; material_name?: string; quantity?: number; unit?: string; state?: string; location?: string | null; estimated_arrival?: string | null; tracking_number?: string | null; notes?: string | null; created_by?: string | null; created_at?: string; updated_at?: string }
+        Relationships: []
+      }
+      inventory_parcels: {
+        Row: { id: string; parcel_name: string; tracking_number: string; carrier: string | null; status: string; location: string | null; estimated_arrival: string | null; notes: string | null; created_by: string | null; created_at: string; updated_at: string }
+        Insert: { id?: string; parcel_name: string; tracking_number: string; carrier?: string | null; status?: string; location?: string | null; estimated_arrival?: string | null; notes?: string | null; created_by?: string | null; created_at?: string; updated_at?: string }
+        Update: { id?: string; parcel_name?: string; tracking_number?: string; carrier?: string | null; status?: string; location?: string | null; estimated_arrival?: string | null; notes?: string | null; created_by?: string | null; created_at?: string; updated_at?: string }
+        Relationships: []
+      }
       assessment: {
         Row: {
           data: Json

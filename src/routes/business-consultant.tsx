@@ -6,10 +6,11 @@ import { Badge, Button, ProgressBar, Skeleton, Select, Label, Card } from "@/com
 import { AssessmentTab } from "@/components/business-consultant/AssessmentTab";
 import { InstallationTab } from "@/components/business-consultant/InstallationTab";
 import { CommissioningTab } from "@/components/business-consultant/CommissioningTab";
-import { LogOut, Check, CheckCircle2, MapPin, Calendar, Clock, BookOpen } from "lucide-react";
+import { LogOut, Check, CheckCircle2, MapPin, Calendar, Clock, BookOpen, Boxes } from "lucide-react";
 import { parseTaskNotes } from "@/components/staff/TasksPanel";
 import { parseSiteMetadata } from "@/components/staff/SitesPanel";
 import { toast } from "sonner";
+import { InventoryPanel } from "@/components/inventory/InventoryPanel";
 
 export const Route = createFileRoute("/business-consultant")({
   ssr: false,
@@ -23,7 +24,7 @@ function BusinessConsultantPage() {
   const navigate = useNavigate();
   const { ready, userId, email, role, profile, signOut } = useAuth();
   
-  const [view, setView] = useState<"dashboard" | "submission">("dashboard");
+  const [view, setView] = useState<"dashboard" | "submission" | "inventory">("dashboard");
   const [sitesList, setSitesList] = useState<Site[]>([]);
   const [sitesWithProgress, setSitesWithProgress] = useState<Array<Site & {
     aPct: number;
@@ -233,10 +234,18 @@ function BusinessConsultantPage() {
 
   if (view === "dashboard") {
     return (
-      <Shell onSignOut={signOut} profileName={profile?.name ?? undefined} onGoToDashboard={() => setView("dashboard")}>
+      <Shell onSignOut={signOut} profileName={profile?.name ?? undefined} onGoToDashboard={() => setView("dashboard")} onGoToInventory={() => setView("inventory")}>
         <div className="mt-8">
           <ConsultantDashboard sites={sitesWithProgress} onSelectSite={selectSiteFromDashboard} />
         </div>
+      </Shell>
+    );
+  }
+
+  if (view === "inventory") {
+    return (
+      <Shell onSignOut={signOut} profileName={profile?.name ?? undefined} onGoToDashboard={() => setView("dashboard")} onGoToInventory={() => setView("inventory")} inventoryActive>
+        <div className="py-9"><InventoryPanel /></div>
       </Shell>
     );
   }
@@ -585,13 +594,17 @@ function Shell({
   onSignOut, 
   profileName,
   showDashboardBtn,
-  onGoToDashboard
+  onGoToDashboard,
+  onGoToInventory,
+  inventoryActive,
 }: { 
   children: React.ReactNode; 
   onSignOut: () => void; 
   profileName?: string;
   showDashboardBtn?: boolean;
   onGoToDashboard?: () => void;
+  onGoToInventory?: () => void;
+  inventoryActive?: boolean;
 }) {
   return (
     <div className="min-h-screen bg-background text-text-primary font-sans antialiased">
@@ -605,6 +618,11 @@ function Shell({
             <span>SIM-KIT OPS</span>
           </button>
           <div className="flex items-center gap-3">
+            {onGoToInventory && (
+              <Button variant={inventoryActive ? "primary" : "ghost"} onClick={onGoToInventory} className="py-1 px-3 text-xs">
+                <Boxes size={14} /><span className="hidden sm:inline">Inventory</span>
+              </Button>
+            )}
             {showDashboardBtn && (
               <Button variant="secondary" onClick={onGoToDashboard} className="py-1 px-3 text-xs">
                 <span>Dashboard</span>

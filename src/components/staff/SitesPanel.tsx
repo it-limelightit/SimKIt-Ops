@@ -2,10 +2,29 @@ import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button, Card, Input, Label, Select, Badge } from "@/components/ui-kit";
 import { toast } from "sonner";
-import { Plus, X, Edit, Phone, Calendar, Clock, Folder, ExternalLink, ChevronDown, Check } from "lucide-react";
+import {
+  Plus,
+  X,
+  Edit,
+  Phone,
+  Calendar,
+  Clock,
+  Folder,
+  ExternalLink,
+  ChevronDown,
+  Check,
+} from "lucide-react";
 import { parseSiteMetadata, serializeSiteMetadata } from "@/lib/site-metadata";
 
 export { parseSiteMetadata, serializeSiteMetadata };
+
+const FACTORY_STATUS_OPTIONS = [
+  "Completed/Billed from our end",
+  "Completed but bill pending",
+  "Pending Installation",
+  "Pending Assessment",
+  "Completed but awaiting NPC confirmation",
+] as const;
 
 // ── Multi-select BC dropdown ──────────────────────────────────────────────────
 function BCMultiSelect({
@@ -33,9 +52,7 @@ function BCMultiSelect({
   };
 
   const toggle = (id: string) => {
-    setDraft((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
+    setDraft((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
   const displayNames = allBCs
@@ -46,7 +63,10 @@ function BCMultiSelect({
     <div ref={ref} className="relative min-w-[160px]">
       <button
         type="button"
-        onClick={() => { setDraft(selectedIds); setOpen((v) => !v); }}
+        onClick={() => {
+          setDraft(selectedIds);
+          setOpen((v) => !v);
+        }}
         className="flex items-center justify-between w-full gap-2 rounded-[6px] border border-border bg-surface px-2 py-1.5 text-xs text-text-primary hover:border-lime transition-colors"
       >
         <span className="truncate max-w-[140px]">
@@ -62,32 +82,36 @@ function BCMultiSelect({
       {open && (
         <div className="absolute z-50 mt-1 w-max min-w-full rounded-[6px] border border-border bg-surface shadow-lg">
           <div className="max-h-52 overflow-y-auto">
-          {allBCs.length === 0 ? (
-            <div className="px-3 py-2 text-xs text-text-dim italic">No BCs available</div>
-          ) : (
-            allBCs.map((w) => {
-              const checked = draft.includes(w.id);
-              return (
-                <button
-                  key={w.id}
-                  type="button"
-                  onClick={() => toggle(w.id)}
-                  className="flex items-center gap-2 w-full px-3 py-2 text-xs text-left hover:bg-surface-raised transition-colors"
-                >
-                  <span className={`flex items-center justify-center h-3.5 w-3.5 rounded-[3px] border shrink-0 ${checked ? "bg-lime border-lime" : "border-border"}`}>
-                    {checked && <Check size={10} strokeWidth={3} className="text-black" />}
-                  </span>
-                  <span className="text-text-primary">{w.name ?? w.mobile}</span>
-                </button>
-              );
-            })
-          )}
+            {allBCs.length === 0 ? (
+              <div className="px-3 py-2 text-xs text-text-dim italic">No BCs available</div>
+            ) : (
+              allBCs.map((w) => {
+                const checked = draft.includes(w.id);
+                return (
+                  <button
+                    key={w.id}
+                    type="button"
+                    onClick={() => toggle(w.id)}
+                    className="flex items-center gap-2 w-full px-3 py-2 text-xs text-left hover:bg-surface-raised transition-colors"
+                  >
+                    <span
+                      className={`flex items-center justify-center h-3.5 w-3.5 rounded-[3px] border shrink-0 ${checked ? "bg-lime border-lime" : "border-border"}`}
+                    >
+                      {checked && <Check size={10} strokeWidth={3} className="text-black" />}
+                    </span>
+                    <span className="text-text-primary">{w.name ?? w.mobile}</span>
+                  </button>
+                );
+              })
+            )}
           </div>
           {/* Save / Clear footer */}
           <div className="flex items-center justify-between border-t border-border px-3 py-2 gap-2">
             <button
               type="button"
-              onClick={() => { setDraft([]); }}
+              onClick={() => {
+                setDraft([]);
+              }}
               className="text-[10px] text-coral hover:text-coral/70 transition-colors flex items-center gap-1"
             >
               <X size={10} /> Clear
@@ -108,6 +132,7 @@ function BCMultiSelect({
 
 // ── Main panel ────────────────────────────────────────────────────────────────
 export function SitesPanel() {
+  const formRevealRef = useRef<HTMLDivElement>(null);
   const [sites, setSites] = useState<any[]>([]);
   const [businessConsultants, setBusinessConsultants] = useState<any[]>([]);
   const [creating, setCreating] = useState(false);
@@ -148,7 +173,9 @@ export function SitesPanel() {
     const [s, w] = await Promise.all([
       supabase
         .from("sites")
-        .select("id,name,company_name,city,address,assigned_worker_id,assigned_at,task_notes,appt_date,appt_time,consultant_stage")
+        .select(
+          "id,name,company_name,city,address,assigned_worker_id,assigned_at,task_notes,appt_date,appt_time,consultant_stage",
+        )
         .order("created_at", { ascending: false }),
       supabase.from("profiles").select("id,name,mobile,is_active").order("created_at"),
     ]);
@@ -161,6 +188,18 @@ export function SitesPanel() {
   useEffect(() => {
     void load();
   }, []);
+
+  useEffect(() => {
+    if (!creating && !editingSite) return;
+    const frame = window.requestAnimationFrame(() => {
+      formRevealRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      const firstField = formRevealRef.current?.querySelector<HTMLInputElement>(
+        "input:not([disabled]), select:not([disabled]), textarea:not([disabled])",
+      );
+      firstField?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [creating, editingSite]);
 
   // Returns the full list of assigned BC IDs for a site row
   const getSiteWorkerIds = (s: any): string[] => {
@@ -215,9 +254,12 @@ export function SitesPanel() {
 
   const startEdit = (s: any) => {
     const meta = parseSiteMetadata(s.task_notes);
-    const workerIds = meta.worker_ids?.length > 0
-      ? meta.worker_ids
-      : s.assigned_worker_id ? [s.assigned_worker_id] : [];
+    const workerIds =
+      meta.worker_ids?.length > 0
+        ? meta.worker_ids
+        : s.assigned_worker_id
+          ? [s.assigned_worker_id]
+          : [];
     setEditingSite(s);
     setForm({
       name: s.name,
@@ -319,7 +361,11 @@ export function SitesPanel() {
     });
   };
 
-  const assignMultiple = async (siteId: string, workerIds: string[], currentTaskNotes: string | null) => {
+  const assignMultiple = async (
+    siteId: string,
+    workerIds: string[],
+    currentTaskNotes: string | null,
+  ) => {
     const meta = parseSiteMetadata(currentTaskNotes);
     const newNotes = serializeSiteMetadata(currentTaskNotes, { ...meta, worker_ids: workerIds });
     await supabase
@@ -334,19 +380,31 @@ export function SitesPanel() {
     await load();
   };
 
-  const updateSiteStatus = async (siteId: string, newStatus: string, currentTaskNotes: string | null) => {
+  const updateSiteStatus = async (
+    siteId: string,
+    newStatus: string,
+    currentTaskNotes: string | null,
+  ) => {
     const meta = parseSiteMetadata(currentTaskNotes);
     const newNotes = serializeSiteMetadata(currentTaskNotes, { ...meta, status: newStatus || "" });
-    const { error } = await supabase.from("sites").update({
-      task_notes: newNotes,
-      consultant_stage: newStatus === "Billing" || newStatus === "Completion" ? newStatus : null,
-    } as never).eq("id", siteId);
+    const { error } = await supabase
+      .from("sites")
+      .update({
+        task_notes: newNotes,
+        consultant_stage: newStatus === "Billing" || newStatus === "Completion" ? newStatus : null,
+      } as never)
+      .eq("id", siteId);
     if (error) toast.error(error.message);
     else await load();
   };
 
   const deleteSite = async (siteId: string) => {
-    if (!window.confirm("Are you sure you want to delete this site? All associated forms, appointments, and progress data will be permanently removed.")) return;
+    if (
+      !window.confirm(
+        "Are you sure you want to delete this site? All associated forms, appointments, and progress data will be permanently removed.",
+      )
+    )
+      return;
     try {
       await Promise.all([
         supabase.from("assessment").delete().eq("site_id", siteId),
@@ -371,169 +429,333 @@ export function SitesPanel() {
     <div className="space-y-8">
       <div className="flex items-end justify-between">
         <div>
-          <p className="font-mono text-[10px] uppercase tracking-widest text-lime/80 font-bold">Manage</p>
+          <p className="font-mono text-[10px] uppercase tracking-widest text-lime/80 font-bold">
+            Manage
+          </p>
           <h1 className="mt-2 text-4xl uppercase tracking-tight font-extrabold">Sites</h1>
         </div>
-        <Button onClick={() => { resetForm(); setCreating(true); setEditingSite(null); }}>
+        <Button
+          onClick={() => {
+            resetForm();
+            setCreating(true);
+            setEditingSite(null);
+          }}
+        >
           <Plus size={16} strokeWidth={1.5} /> New Site
         </Button>
       </div>
 
       {(creating || editingSite) && (
-        <Card className="border-l-[3px] border-lime relative">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-xl uppercase font-bold tracking-tight text-lime">{editingSite ? "Edit Site Details" : "New Site Details"}</h2>
-            <button onClick={() => { setCreating(false); setEditingSite(null); }}>
-              <X size={18} strokeWidth={1.5} />
-            </button>
-          </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div>
-              <Label>Factory Name</Label>
-              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        <div ref={formRevealRef} className="scroll-mt-6">
+          <Card className="border-l-[3px] border-lime relative">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-xl uppercase font-bold tracking-tight text-lime">
+                {editingSite ? "Edit Site Details" : "New Site Details"}
+              </h2>
+              <button
+                onClick={() => {
+                  setCreating(false);
+                  setEditingSite(null);
+                }}
+              >
+                <X size={18} strokeWidth={1.5} />
+              </button>
             </div>
-            <div>
-              <Label>Company Name</Label>
-              <Input
-                value={form.company_name}
-                onChange={(e) => setForm({ ...form, company_name: e.target.value })}
-                placeholder="Company that owns this factory"
-              />
-            </div>
-            <div><Label>City</Label><Input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></div>
-
-            <div className="md:col-span-2"><Label>Address</Label><Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
-
-            <div>
-              <Label>Appointment Date</Label>
-              <div className="relative flex items-center">
-                <Input type="date" className="pr-10" value={form.appt_date} onChange={(e) => setForm({ ...form, appt_date: e.target.value })} />
-                <Calendar className="absolute right-3 text-text-primary pointer-events-none z-0" size={16} strokeWidth={1.5} />
-              </div>
-            </div>
-            <div>
-              <Label>Appointment Time</Label>
-              <div className="relative flex items-center">
-                <Input type="time" className="pr-10" value={form.appt_time} onChange={(e) => setForm({ ...form, appt_time: e.target.value })} />
-                <Clock className="absolute right-3 text-text-primary pointer-events-none z-0" size={16} strokeWidth={1.5} />
-              </div>
-            </div>
-
-            <div className="border-t border-border pt-4 md:col-span-2">
-              <h4 className="text-sm font-bold uppercase tracking-wider text-lime mb-3">Primary Contact</h4>
-              <div className="grid gap-4 md:grid-cols-3">
-                <div><Label>Contact Name</Label><Input value={form.c1_name} onChange={(e) => setForm({ ...form, c1_name: e.target.value })} /></div>
-                <div><Label>Contact Mobile</Label><Input value={form.c1_mobile} onChange={(e) => setForm({ ...form, c1_mobile: e.target.value })} /></div>
-                <div><Label>Contact Email</Label><Input value={form.c1_email} onChange={(e) => setForm({ ...form, c1_email: e.target.value })} /></div>
-              </div>
-            </div>
-
-            <div className="border-t border-border pt-4 md:col-span-2">
-              <h4 className="text-sm font-bold uppercase tracking-wider text-lime mb-3">Secondary Contact</h4>
-              <div className="grid gap-4 md:grid-cols-3">
-                <div><Label>Contact Name</Label><Input value={form.c2_name} onChange={(e) => setForm({ ...form, c2_name: e.target.value })} /></div>
-                <div><Label>Contact Mobile</Label><Input value={form.c2_mobile} onChange={(e) => setForm({ ...form, c2_mobile: e.target.value })} /></div>
-                <div><Label>Contact Email</Label><Input value={form.c2_email} onChange={(e) => setForm({ ...form, c2_email: e.target.value })} /></div>
-              </div>
-            </div>
-
-            <div className="border-t border-border pt-4 md:col-span-2">
-              <h4 className="text-sm font-bold uppercase tracking-wider text-lime mb-3">Assessor</h4>
-              <div className="grid gap-4 md:grid-cols-2">
-                <div><Label>Company Name</Label><Input value={form.assessor_company} onChange={(e) => setForm({ ...form, assessor_company: e.target.value })} placeholder="Company name" /></div>
-                <div><Label>Phone</Label><Input value={form.assessor_phone} onChange={(e) => setForm({ ...form, assessor_phone: e.target.value })} placeholder="Phone number" /></div>
-                <div><Label>City</Label><Input value={form.assessor_city} onChange={(e) => setForm({ ...form, assessor_city: e.target.value })} placeholder="City" /></div>
-                <div><Label>Contact Number</Label><Input value={form.assessor_number} onChange={(e) => setForm({ ...form, assessor_number: e.target.value })} placeholder="Contact number" /></div>
-                <div><Label>Email</Label><Input value={form.assessor_email} onChange={(e) => setForm({ ...form, assessor_email: e.target.value })} placeholder="Email address" /></div>
-                <div><Label>Address</Label><Input value={form.assessor_address} onChange={(e) => setForm({ ...form, assessor_address: e.target.value })} placeholder="Address (optional)" /></div>
-              </div>
-            </div>
-
-            <div className="border-t border-border pt-4 md:col-span-2 grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 md:grid-cols-2">
               <div>
-                <Label>Factory Status</Label>
-                <Select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-                  <option value="">— None —</option>
-                  <option value="Pending Assessment">Pending Assessment</option>
-                  <option value="Pending Installation">Pending Installation</option>
-                  <option value="Awaiting NPC Confirmation">Awaiting NPC Confirmation</option>
-                  <option value="Completed & Billed">Completed &amp; Billed</option>
-                  <option value="Assigned">Assigned</option>
-                  <option value="Assessment & Visit">Assessment &amp; Visit</option>
-                  <option value="Concept">Concept</option>
-                  <option value="Installation">Installation</option>
-                  <option value="Verification">Verification</option>
-                  <option value="Shipped">Shipped</option>
-                  <option value="Running">Running</option>
-                  <option value="Billing">Billing</option>
-                  <option value="Completion">Completion</option>
-                  <option value="Reject">Reject</option>
-                </Select>
+                <Label>Factory Name</Label>
+                <Input
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                />
               </div>
               <div>
-                <Label>Assign Business Consultants</Label>
-                <div className="mt-1 border border-border rounded-[6px] divide-y divide-border max-h-44 overflow-y-auto">
-                  {businessConsultants.length === 0 ? (
-                    <p className="px-3 py-2 text-xs text-text-dim italic">No active BCs available</p>
-                  ) : businessConsultants.map((w) => {
-                    const checked = form.workers.includes(w.id);
-                    return (
-                      <label key={w.id} className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-surface-raised transition-colors">
-                        <span className={`flex items-center justify-center h-4 w-4 rounded-[3px] border shrink-0 transition-colors ${checked ? "bg-lime border-lime" : "border-border bg-surface"}`}>
-                          {checked && <Check size={10} strokeWidth={3} className="text-black" />}
-                        </span>
-                        <input
-                          type="checkbox"
-                          className="sr-only"
-                          checked={checked}
-                          onChange={() => {
-                            const next = checked
-                              ? form.workers.filter((id) => id !== w.id)
-                              : [...form.workers, w.id];
-                            setForm({ ...form, workers: next });
-                          }}
-                        />
-                        <span className="text-sm text-text-primary">{w.name ?? w.mobile}</span>
-                      </label>
-                    );
-                  })}
+                <Label>Company Name</Label>
+                <Input
+                  value={form.company_name}
+                  onChange={(e) => setForm({ ...form, company_name: e.target.value })}
+                  placeholder="Company that owns this factory"
+                />
+              </div>
+              <div>
+                <Label>City</Label>
+                <Input
+                  value={form.city}
+                  onChange={(e) => setForm({ ...form, city: e.target.value })}
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <Label>Address</Label>
+                <Input
+                  value={form.address}
+                  onChange={(e) => setForm({ ...form, address: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <Label>Appointment Date</Label>
+                <div className="relative flex items-center">
+                  <Input
+                    type="date"
+                    className="pr-10"
+                    value={form.appt_date}
+                    onChange={(e) => setForm({ ...form, appt_date: e.target.value })}
+                  />
+                  <Calendar
+                    className="absolute right-3 text-text-primary pointer-events-none z-0"
+                    size={16}
+                    strokeWidth={1.5}
+                  />
                 </div>
-                {form.workers.length > 0 && (
-                  <p className="mt-1 text-[10px] font-mono text-lime/70">
-                    {form.workers.length} BC{form.workers.length > 1 ? "s" : ""} selected
-                  </p>
+              </div>
+              <div>
+                <Label>Appointment Time</Label>
+                <div className="relative flex items-center">
+                  <Input
+                    type="time"
+                    className="pr-10"
+                    value={form.appt_time}
+                    onChange={(e) => setForm({ ...form, appt_time: e.target.value })}
+                  />
+                  <Clock
+                    className="absolute right-3 text-text-primary pointer-events-none z-0"
+                    size={16}
+                    strokeWidth={1.5}
+                  />
+                </div>
+              </div>
+
+              <div className="border-t border-border pt-4 md:col-span-2">
+                <h4 className="text-sm font-bold uppercase tracking-wider text-lime mb-3">
+                  Primary Contact
+                </h4>
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div>
+                    <Label>Contact Name</Label>
+                    <Input
+                      value={form.c1_name}
+                      onChange={(e) => setForm({ ...form, c1_name: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label>Contact Mobile</Label>
+                    <Input
+                      value={form.c1_mobile}
+                      onChange={(e) => setForm({ ...form, c1_mobile: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label>Contact Email</Label>
+                    <Input
+                      value={form.c1_email}
+                      onChange={(e) => setForm({ ...form, c1_email: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t border-border pt-4 md:col-span-2">
+                <h4 className="text-sm font-bold uppercase tracking-wider text-lime mb-3">
+                  Secondary Contact
+                </h4>
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div>
+                    <Label>Contact Name</Label>
+                    <Input
+                      value={form.c2_name}
+                      onChange={(e) => setForm({ ...form, c2_name: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label>Contact Mobile</Label>
+                    <Input
+                      value={form.c2_mobile}
+                      onChange={(e) => setForm({ ...form, c2_mobile: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label>Contact Email</Label>
+                    <Input
+                      value={form.c2_email}
+                      onChange={(e) => setForm({ ...form, c2_email: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t border-border pt-4 md:col-span-2">
+                <h4 className="text-sm font-bold uppercase tracking-wider text-lime mb-3">
+                  Assessor
+                </h4>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <Label>Company Name</Label>
+                    <Input
+                      value={form.assessor_company}
+                      onChange={(e) => setForm({ ...form, assessor_company: e.target.value })}
+                      placeholder="Company name"
+                    />
+                  </div>
+                  <div>
+                    <Label>Phone</Label>
+                    <Input
+                      value={form.assessor_phone}
+                      onChange={(e) => setForm({ ...form, assessor_phone: e.target.value })}
+                      placeholder="Phone number"
+                    />
+                  </div>
+                  <div>
+                    <Label>City</Label>
+                    <Input
+                      value={form.assessor_city}
+                      onChange={(e) => setForm({ ...form, assessor_city: e.target.value })}
+                      placeholder="City"
+                    />
+                  </div>
+                  <div>
+                    <Label>Contact Number</Label>
+                    <Input
+                      value={form.assessor_number}
+                      onChange={(e) => setForm({ ...form, assessor_number: e.target.value })}
+                      placeholder="Contact number"
+                    />
+                  </div>
+                  <div>
+                    <Label>Email</Label>
+                    <Input
+                      value={form.assessor_email}
+                      onChange={(e) => setForm({ ...form, assessor_email: e.target.value })}
+                      placeholder="Email address"
+                    />
+                  </div>
+                  <div>
+                    <Label>Address</Label>
+                    <Input
+                      value={form.assessor_address}
+                      onChange={(e) => setForm({ ...form, assessor_address: e.target.value })}
+                      placeholder="Address (optional)"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t border-border pt-4 md:col-span-2 grid gap-4 md:grid-cols-2">
+                <div>
+                  <Label>Factory Status</Label>
+                  <Select
+                    value={form.status}
+                    onChange={(e) => setForm({ ...form, status: e.target.value })}
+                  >
+                    <option value="">— None —</option>
+                    {FACTORY_STATUS_OPTIONS.map((status) => (
+                      <option key={status} value={status}>
+                        {status}
+                      </option>
+                    ))}
+                    <option value="Assigned">Assigned</option>
+                    <option value="Assessment & Visit">Assessment &amp; Visit</option>
+                    <option value="Concept">Concept</option>
+                    <option value="Installation">Installation</option>
+                    <option value="Verification">Verification</option>
+                    <option value="Shipped">Shipped</option>
+                    <option value="Running">Running</option>
+                    <option value="Billing">Billing</option>
+                    <option value="Completion">Completion</option>
+                    <option value="Reject">Reject</option>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Assign Business Consultants</Label>
+                  <div className="mt-1 border border-border rounded-[6px] divide-y divide-border max-h-44 overflow-y-auto">
+                    {businessConsultants.length === 0 ? (
+                      <p className="px-3 py-2 text-xs text-text-dim italic">
+                        No active BCs available
+                      </p>
+                    ) : (
+                      businessConsultants.map((w) => {
+                        const checked = form.workers.includes(w.id);
+                        return (
+                          <label
+                            key={w.id}
+                            className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-surface-raised transition-colors"
+                          >
+                            <span
+                              className={`flex items-center justify-center h-4 w-4 rounded-[3px] border shrink-0 transition-colors ${checked ? "bg-lime border-lime" : "border-border bg-surface"}`}
+                            >
+                              {checked && (
+                                <Check size={10} strokeWidth={3} className="text-black" />
+                              )}
+                            </span>
+                            <input
+                              type="checkbox"
+                              className="sr-only"
+                              checked={checked}
+                              onChange={() => {
+                                const next = checked
+                                  ? form.workers.filter((id) => id !== w.id)
+                                  : [...form.workers, w.id];
+                                setForm({ ...form, workers: next });
+                              }}
+                            />
+                            <span className="text-sm text-text-primary">{w.name ?? w.mobile}</span>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                  {form.workers.length > 0 && (
+                    <p className="mt-1 text-[10px] font-mono text-lime/70">
+                      {form.workers.length} BC{form.workers.length > 1 ? "s" : ""} selected
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="border-t border-border pt-4 md:col-span-2 grid gap-4 md:grid-cols-2">
+                <div className="flex items-center gap-2 mt-6">
+                  <input
+                    type="checkbox"
+                    id="create_drive_folder"
+                    checked={form.create_drive_folder}
+                    onChange={(e) => setForm({ ...form, create_drive_folder: e.target.checked })}
+                    className="rounded border-border bg-surface text-lime focus:ring-lime h-4 w-4"
+                  />
+                  <label
+                    htmlFor="create_drive_folder"
+                    className="cursor-pointer text-sm font-medium text-text-primary"
+                  >
+                    Google Drive Link
+                  </label>
+                </div>
+                {form.create_drive_folder && (
+                  <div>
+                    <Label>Google Drive Folder Link</Label>
+                    <Input
+                      placeholder="https://drive.google.com/drive/folders/..."
+                      value={form.drive_folder_link}
+                      onChange={(e) => setForm({ ...form, drive_folder_link: e.target.value })}
+                    />
+                  </div>
                 )}
               </div>
             </div>
-
-            <div className="border-t border-border pt-4 md:col-span-2 grid gap-4 md:grid-cols-2">
-              <div className="flex items-center gap-2 mt-6">
-                <input
-                  type="checkbox"
-                  id="create_drive_folder"
-                  checked={form.create_drive_folder}
-                  onChange={(e) => setForm({ ...form, create_drive_folder: e.target.checked })}
-                  className="rounded border-border bg-surface text-lime focus:ring-lime h-4 w-4"
-                />
-                <label htmlFor="create_drive_folder" className="cursor-pointer text-sm font-medium text-text-primary">Google Drive Link</label>
-              </div>
-              {form.create_drive_folder && (
-                <div>
-                  <Label>Google Drive Folder Link</Label>
-                  <Input
-                    placeholder="https://drive.google.com/drive/folders/..."
-                    value={form.drive_folder_link}
-                    onChange={(e) => setForm({ ...form, drive_folder_link: e.target.value })}
-                  />
-                </div>
-              )}
+            <div className="mt-6 flex justify-end gap-3">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setCreating(false);
+                  setEditingSite(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button onClick={editingSite ? updateSite : create}>
+                {editingSite ? "Save Details" : "Create Site"}
+              </Button>
             </div>
-          </div>
-          <div className="mt-6 flex justify-end gap-3">
-            <Button variant="secondary" onClick={() => { setCreating(false); setEditingSite(null); }}>Cancel</Button>
-            <Button onClick={editingSite ? updateSite : create}>{editingSite ? "Save Details" : "Create Site"}</Button>
-          </div>
-        </Card>
+          </Card>
+        </div>
       )}
 
       {/* ── Search & Filters ── */}
@@ -544,7 +766,9 @@ export function SitesPanel() {
         }));
         const cities = Array.from(new Set(sites.map((s) => s.city).filter(Boolean))).sort();
         const statuses = Array.from(new Set(allMetas.map((m) => m.status).filter(Boolean))).sort();
-        const assessors = Array.from(new Set(allMetas.map((m) => m.assessor_company).filter(Boolean))).sort();
+        const assessors = Array.from(
+          new Set(allMetas.map((m) => m.assessor_company).filter(Boolean)),
+        ).sort();
         const hasFilters = search || filterCity || filterStatus || filterAssessor || filterBC;
         return (
           <div className="space-y-3">
@@ -558,14 +782,23 @@ export function SitesPanel() {
                   className="w-full rounded-[6px] border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-dim focus:border-lime focus:outline-none transition-colors pr-8"
                 />
                 {search && (
-                  <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-text-dim hover:text-text-primary">
+                  <button
+                    onClick={() => setSearch("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-text-dim hover:text-text-primary"
+                  >
                     <X size={14} />
                   </button>
                 )}
               </div>
               {hasFilters && (
                 <button
-                  onClick={() => { setSearch(""); setFilterCity(""); setFilterStatus(""); setFilterAssessor(""); setFilterBC(""); }}
+                  onClick={() => {
+                    setSearch("");
+                    setFilterCity("");
+                    setFilterStatus("");
+                    setFilterAssessor("");
+                    setFilterBC("");
+                  }}
                   className="text-xs font-mono text-coral hover:text-coral/70 transition-colors whitespace-nowrap flex items-center gap-1"
                 >
                   <X size={12} /> Clear all
@@ -576,7 +809,12 @@ export function SitesPanel() {
               {[
                 { label: "City", value: filterCity, set: setFilterCity, options: cities },
                 { label: "Status", value: filterStatus, set: setFilterStatus, options: statuses },
-                { label: "Assessor", value: filterAssessor, set: setFilterAssessor, options: assessors },
+                {
+                  label: "Assessor",
+                  value: filterAssessor,
+                  set: setFilterAssessor,
+                  options: assessors,
+                },
               ].map(({ label, value, set, options }) => (
                 <select
                   key={label}
@@ -585,7 +823,11 @@ export function SitesPanel() {
                   className={`rounded-[6px] border px-2.5 py-1.5 text-xs font-mono focus:outline-none transition-colors cursor-pointer ${value ? "border-lime bg-lime/5 text-lime" : "border-border bg-surface text-text-secondary"}`}
                 >
                   <option value="">All {label}s</option>
-                  {options.map((o) => <option key={o} value={o}>{o}</option>)}
+                  {options.map((o) => (
+                    <option key={o} value={o}>
+                      {o}
+                    </option>
+                  ))}
                 </select>
               ))}
               <select
@@ -594,7 +836,11 @@ export function SitesPanel() {
                 className={`rounded-[6px] border px-2.5 py-1.5 text-xs font-mono focus:outline-none transition-colors cursor-pointer ${filterBC ? "border-lime bg-lime/5 text-lime" : "border-border bg-surface text-text-secondary"}`}
               >
                 <option value="">All BCs</option>
-                {businessConsultants.map((w) => <option key={w.id} value={w.id}>{w.name ?? w.mobile}</option>)}
+                {businessConsultants.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name ?? w.mobile}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -615,154 +861,224 @@ export function SitesPanel() {
           </thead>
           <tbody>
             {sites.length === 0 ? (
-              <tr><td colSpan={6} className="px-4 py-10 text-center text-text-dim italic">No sites created yet.</td></tr>
-            ) : (() => {
+              <tr>
+                <td colSpan={6} className="px-4 py-10 text-center text-text-dim italic">
+                  No sites created yet.
+                </td>
+              </tr>
+            ) : (
+              (() => {
                 const ORDER: Record<string, number> = {
-                  "Pending Assessment": 0, "Assigned": 1, "Assessment & Visit": 2,
-                  "Concept": 3, "Pending Installation": 4, "Installation": 5,
-                  "Verification": 6, "Shipped": 7, "Running": 8,
-                  "Awaiting NPC Confirmation": 9, "Billing": 10,
-                  "Completed & Billed": 11, "Completion": 12, "Reject": 13,
+                  "Pending Assessment": 0,
+                  Assigned: 1,
+                  "Assessment & Visit": 2,
+                  Concept: 3,
+                  "Pending Installation": 4,
+                  Installation: 5,
+                  Verification: 6,
+                  Shipped: 7,
+                  Running: 8,
+                  "Completed but awaiting NPC confirmation": 9,
+                  Billing: 10,
+                  "Completed but bill pending": 11,
+                  "Completed/Billed from our end": 12,
+                  Completion: 13,
+                  Reject: 14,
                 };
                 const q = search.toLowerCase().trim();
                 const filtered = [...sites]
                   .filter((s) => {
                     const meta = parseSiteMetadata(s.task_notes);
                     const assignedIds = getSiteWorkerIds(s);
-                    if (q && ![s.name, meta.assessor_company, s.city].some((v) => (v ?? "").toLowerCase().includes(q))) return false;
+                    if (
+                      q &&
+                      ![s.name, meta.assessor_company, s.city].some((v) =>
+                        (v ?? "").toLowerCase().includes(q),
+                      )
+                    )
+                      return false;
                     if (filterCity && s.city !== filterCity) return false;
-                    if (filterStatus && (s.consultant_stage || meta.status) !== filterStatus) return false;
+                    if (filterStatus && (s.consultant_stage || meta.status) !== filterStatus)
+                      return false;
                     if (filterAssessor && meta.assessor_company !== filterAssessor) return false;
                     if (filterBC && !assignedIds.includes(filterBC)) return false;
                     return true;
                   })
                   .sort((a, b) => {
-                    const aRank = ORDER[a.consultant_stage || parseSiteMetadata(a.task_notes).status || ""] ?? 10;
-                    const bRank = ORDER[b.consultant_stage || parseSiteMetadata(b.task_notes).status || ""] ?? 10;
+                    const aRank =
+                      ORDER[a.consultant_stage || parseSiteMetadata(a.task_notes).status || ""] ??
+                      10;
+                    const bRank =
+                      ORDER[b.consultant_stage || parseSiteMetadata(b.task_notes).status || ""] ??
+                      10;
                     return aRank - bRank;
                   });
-                if (filtered.length === 0) return (
-                  <tr><td colSpan={6} className="px-4 py-10 text-center text-text-dim italic">No sites match your search or filters.</td></tr>
-                );
+                if (filtered.length === 0)
+                  return (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-10 text-center text-text-dim italic">
+                        No sites match your search or filters.
+                      </td>
+                    </tr>
+                  );
                 return filtered.map((s) => {
-              const meta = parseSiteMetadata(s.task_notes);
-              const displayedStatus = s.consultant_stage || meta.status;
-              const assignedIds = getSiteWorkerIds(s);
-              return (
-                <tr key={s.id} className="border-b border-border last:border-0 hover:bg-surface-raised/30 transition-colors">
-                  <td className="px-4 py-3">
-                    <div className="font-semibold text-text-primary">{s.name}</div>
-                    <div className="text-xs text-text-secondary mt-0.5 truncate max-w-[200px]">{s.address || "—"}</div>
-                    {(meta.assessor_company || meta.assessor_phone) && (
-                      <div className="mt-1.5 flex items-center gap-3 flex-wrap">
-                        {meta.assessor_company && (
-                          <span className="text-xs font-bold text-violet tracking-wide">{meta.assessor_company}</span>
+                  const meta = parseSiteMetadata(s.task_notes);
+                  const displayedStatus = s.consultant_stage || meta.status;
+                  const assignedIds = getSiteWorkerIds(s);
+                  return (
+                    <tr
+                      key={s.id}
+                      className="border-b border-border last:border-0 hover:bg-surface-raised/30 transition-colors"
+                    >
+                      <td className="px-4 py-3">
+                        <div className="font-semibold text-text-primary">{s.name}</div>
+                        <div className="text-xs text-text-secondary mt-0.5 truncate max-w-[200px]">
+                          {s.address || "—"}
+                        </div>
+                        {(meta.assessor_company || meta.assessor_phone) && (
+                          <div className="mt-1.5 flex items-center gap-3 flex-wrap">
+                            {meta.assessor_company && (
+                              <span className="text-xs font-bold text-violet tracking-wide">
+                                {meta.assessor_company}
+                              </span>
+                            )}
+                            {meta.assessor_phone && (
+                              <a
+                                href={`tel:${meta.assessor_phone}`}
+                                className="text-xs font-mono font-semibold text-text-primary hover:text-violet transition-colors flex items-center gap-1"
+                              >
+                                <Phone size={11} className="text-violet" />
+                                {meta.assessor_phone}
+                              </a>
+                            )}
+                          </div>
                         )}
-                        {meta.assessor_phone && (
-                          <a href={`tel:${meta.assessor_phone}`} className="text-xs font-mono font-semibold text-text-primary hover:text-violet transition-colors flex items-center gap-1">
-                            <Phone size={11} className="text-violet" />{meta.assessor_phone}
-                          </a>
+                        {meta.drive_folder_link && (
+                          <button
+                            onClick={() => window.open(meta.drive_folder_link, "_blank")}
+                            className="text-xs text-lime hover:underline flex items-center gap-1 mt-1 font-mono text-left"
+                          >
+                            <Folder size={12} className="inline mr-1" /> Open Drive Folder{" "}
+                            <ExternalLink size={10} className="inline ml-1" />
+                          </button>
                         )}
-                      </div>
-                    )}
-                    {meta.drive_folder_link && (
-                      <button
-                        onClick={() => window.open(meta.drive_folder_link, "_blank")}
-                        className="text-xs text-lime hover:underline flex items-center gap-1 mt-1 font-mono text-left"
-                      >
-                        <Folder size={12} className="inline mr-1" /> Open Drive Folder <ExternalLink size={10} className="inline ml-1" />
-                      </button>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-text-primary font-medium">{s.city || "—"}</td>
-                  <td className="px-4 py-3 text-xs">
-                    {meta.c1_name || meta.c1_mobile || meta.c1_email ? (
-                      <div>
-                        {meta.c1_name && (
-                          <div className="font-semibold text-text-primary">{meta.c1_name}</div>
+                      </td>
+                      <td className="px-4 py-3 text-text-primary font-medium">{s.city || "—"}</td>
+                      <td className="px-4 py-3 text-xs">
+                        {meta.c1_name || meta.c1_mobile || meta.c1_email ? (
+                          <div>
+                            {meta.c1_name && (
+                              <div className="font-semibold text-text-primary">{meta.c1_name}</div>
+                            )}
+                            {meta.c1_mobile && (
+                              <a
+                                href={`tel:${meta.c1_mobile}`}
+                                className="text-lime hover:underline flex items-center gap-1 mt-0.5 font-mono text-[10px]"
+                              >
+                                <Phone size={10} /> {meta.c1_mobile}
+                              </a>
+                            )}
+                            {meta.c1_email && (
+                              <a
+                                href={`mailto:${meta.c1_email}`}
+                                className="text-text-secondary hover:text-lime block mt-0.5 font-mono text-[10px]"
+                              >
+                                {meta.c1_email}
+                              </a>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-text-dim">—</span>
                         )}
-                        {meta.c1_mobile && (
-                          <a href={`tel:${meta.c1_mobile}`} className="text-lime hover:underline flex items-center gap-1 mt-0.5 font-mono text-[10px]">
-                            <Phone size={10} /> {meta.c1_mobile}
-                          </a>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col gap-1">
+                          <select
+                            value={displayedStatus || ""}
+                            onChange={(e) => updateSiteStatus(s.id, e.target.value, s.task_notes)}
+                            className={`appearance-none rounded-[4px] px-2 py-1 font-mono text-[10px] uppercase tracking-wider font-bold border outline-none cursor-pointer transition-all ${
+                              displayedStatus === "Running" ||
+                              displayedStatus === "Completion" ||
+                              displayedStatus === "Completed/Billed from our end"
+                                ? "bg-mint-dim text-mint border-mint/20"
+                                : displayedStatus === "Reject"
+                                  ? "bg-coral-dim text-coral border-coral/20"
+                                  : displayedStatus === "Shipped"
+                                    ? "bg-violet/10 text-violet border-violet/20"
+                                    : displayedStatus === "Billing"
+                                      ? "bg-lime/10 text-lime border-lime/20"
+                                      : !displayedStatus
+                                        ? "bg-surface text-text-dim border-border"
+                                        : "bg-warning/8 text-warning border-warning/20"
+                            }`}
+                          >
+                            <option value="">— None —</option>
+                            {FACTORY_STATUS_OPTIONS.map((status) => (
+                              <option key={status} value={status}>
+                                {status}
+                              </option>
+                            ))}
+                            <option value="Assigned">Assigned</option>
+                            <option value="Assessment &amp; Visit">Assessment &amp; Visit</option>
+                            <option value="Concept">Concept</option>
+                            <option value="Installation">Installation</option>
+                            <option value="Verification">Verification</option>
+                            <option value="Shipped">Shipped</option>
+                            <option value="Running">Running</option>
+                            <option value="Billing">Billing</option>
+                            <option value="Completion">Completion</option>
+                            <option value="Reject">Reject</option>
+                          </select>
+                          {meta.visit_status && (
+                            <span
+                              className={`font-mono text-[9px] uppercase tracking-wider ${
+                                meta.visit_status === "Visit Complete"
+                                  ? "text-mint"
+                                  : meta.visit_status === "Installation Done"
+                                    ? "text-violet"
+                                    : "text-warning"
+                              }`}
+                            >
+                              {meta.visit_status}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <BCMultiSelect
+                          allBCs={businessConsultants}
+                          selectedIds={assignedIds}
+                          onChange={(ids) => assignMultiple(s.id, ids, s.task_notes)}
+                        />
+                        {assignedIds.length > 1 && (
+                          <p className="mt-1 font-mono text-[9px] text-lime/60">
+                            {assignedIds.length} BCs assigned
+                          </p>
                         )}
-                        {meta.c1_email && (
-                          <a href={`mailto:${meta.c1_email}`} className="text-text-secondary hover:text-lime block mt-0.5 font-mono text-[10px]">
-                            {meta.c1_email}
-                          </a>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-text-dim">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-col gap-1">
-                      <select
-                        value={displayedStatus || ""}
-                        onChange={(e) => updateSiteStatus(s.id, e.target.value, s.task_notes)}
-                        className={`appearance-none rounded-[4px] px-2 py-1 font-mono text-[10px] uppercase tracking-wider font-bold border outline-none cursor-pointer transition-all ${
-                          displayedStatus === "Running" || displayedStatus === "Completion" || displayedStatus === "Completed & Billed" ? "bg-mint-dim text-mint border-mint/20"
-                          : displayedStatus === "Reject" ? "bg-coral-dim text-coral border-coral/20"
-                          : displayedStatus === "Shipped" ? "bg-violet/10 text-violet border-violet/20"
-                          : displayedStatus === "Billing" ? "bg-lime/10 text-lime border-lime/20"
-                          : !displayedStatus ? "bg-surface text-text-dim border-border"
-                          : "bg-warning/8 text-warning border-warning/20"
-                        }`}
-                      >
-                        <option value="">— None —</option>
-                        <option value="Pending Assessment">Pending Assessment</option>
-                        <option value="Pending Installation">Pending Installation</option>
-                        <option value="Awaiting NPC Confirmation">Awaiting NPC Confirmation</option>
-                        <option value="Completed & Billed">Completed &amp; Billed</option>
-                        <option value="Assigned">Assigned</option>
-                        <option value="Assessment &amp; Visit">Assessment &amp; Visit</option>
-                        <option value="Concept">Concept</option>
-                        <option value="Installation">Installation</option>
-                        <option value="Verification">Verification</option>
-                        <option value="Shipped">Shipped</option>
-                        <option value="Running">Running</option>
-                        <option value="Billing">Billing</option>
-                        <option value="Completion">Completion</option>
-                        <option value="Reject">Reject</option>
-                      </select>
-                      {meta.visit_status && (
-                        <span className={`font-mono text-[9px] uppercase tracking-wider ${
-                          meta.visit_status === "Visit Complete" ? "text-mint"
-                          : meta.visit_status === "Installation Done" ? "text-violet"
-                          : "text-warning"
-                        }`}>{meta.visit_status}</span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <BCMultiSelect
-                      allBCs={businessConsultants}
-                      selectedIds={assignedIds}
-                      onChange={(ids) => assignMultiple(s.id, ids, s.task_notes)}
-                    />
-                    {assignedIds.length > 1 && (
-                      <p className="mt-1 font-mono text-[9px] text-lime/60">{assignedIds.length} BCs assigned</p>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <Button variant="secondary" className="p-1 px-2.5 text-xs" onClick={() => startEdit(s)}>
-                        <Edit size={12} /> Edit
-                      </Button>
-                      <Button
-                        variant="danger"
-                        className="py-1 px-2.5 text-xs"
-                        onClick={() => deleteSite(s.id)}
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })
-            })()}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            variant="secondary"
+                            className="p-1 px-2.5 text-xs"
+                            onClick={() => startEdit(s)}
+                          >
+                            <Edit size={12} /> Edit
+                          </Button>
+                          <Button
+                            variant="danger"
+                            className="py-1 px-2.5 text-xs"
+                            onClick={() => deleteSite(s.id)}
+                          >
+                            Delete
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                });
+              })()
+            )}
           </tbody>
         </table>
       </div>
