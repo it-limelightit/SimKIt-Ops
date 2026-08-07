@@ -15,6 +15,7 @@ import {
   ChevronRight,
   ClipboardList,
   XCircle,
+  Wrench,
 } from "lucide-react";
 
 type Appt = {
@@ -244,12 +245,18 @@ export function Overview() {
     return stage.includes("drop") || stage.includes("reject");
   };
 
+  const isSiteInstalled = (row: SiteRow) => {
+    const stage = (row.consultant_stage || row.meta.status || "").toLowerCase();
+    return stage.includes("installed") || row.progress.i === 100;
+  };
+
   const getCanonicalStatus = (row: SiteRow): string => {
     const meta = row.meta;
 
     if (meta.status === "Dropped / Rejected" || meta.status === "Reject") return "Dropped / Rejected";
     if (meta.status === "Submitted" || row.consultant_stage === "Completion" || row.consultant_stage === "Billing") return "Submitted";
     if (meta.status === "Certification Pending") return "Certification Pending";
+    if (meta.status === "Installed") return "Installed";
     if (meta.status === "In Assessment") return "In Assessment";
     if (meta.status === "Unsubmitted") return "Unsubmitted";
     if (meta.status === "Pending Assignment") return "Pending Assignment";
@@ -260,6 +267,7 @@ export function Overview() {
     if (isSiteSubmitted(row)) {
       return isSiteCertification(row) ? "Submitted" : "Certification Pending";
     }
+    if (isSiteInstalled(row)) return "Installed";
     if (isSiteAssessment(row)) return "In Assessment";
     return "Unsubmitted";
   };
@@ -281,6 +289,7 @@ export function Overview() {
   const countSubmitted = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Submitted").length;
   const countUnsubmitted = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Unsubmitted").length;
   const countCertification = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Certification Pending").length;
+  const countInstalled = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Installed").length;
   const countAssessment = filteredForCounts.filter((r) => getCanonicalStatus(r) === "In Assessment").length;
   const countDropped = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Dropped / Rejected").length;
 
@@ -295,6 +304,8 @@ export function Overview() {
         return status === "Unsubmitted";
       case "certification":
         return status === "Certification Pending";
+      case "installed":
+        return status === "Installed";
       case "pending":
         return status === "Pending Assignment";
       case "assessment":
@@ -500,6 +511,15 @@ export function Overview() {
       icon: ClipboardList,
       badgeStyle: "text-teal-600 bg-teal-50 border-teal-200",
       dotStyle: "bg-teal-500",
+    },
+    {
+      id: "installed",
+      label: "Installed",
+      value: countInstalled,
+      desc: "Installation phase completed",
+      icon: Wrench,
+      badgeStyle: "text-cyan-600 bg-cyan-50 border-cyan-200",
+      dotStyle: "bg-cyan-500",
     },
     {
       id: "dropped",
