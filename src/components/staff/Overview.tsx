@@ -15,8 +15,6 @@ import {
   ChevronRight,
   ClipboardList,
   XCircle,
-  Sun,
-  Moon,
 } from "lucide-react";
 
 type Appt = {
@@ -118,26 +116,6 @@ export function Overview() {
   const [rawCommissionings, setRawCommissionings] = useState<any[]>([]);
   const [rawProfiles, setRawProfiles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-
-  // Initialize theme from localStorage or default to "light" for the requested white theme
-  const [themeMode, setThemeMode] = useState<"light" | "dark">(() => {
-    if (typeof window !== "undefined") {
-      const stored = localStorage.getItem("themeMode");
-      return (stored === "dark" || stored === "light") ? stored : "light";
-    }
-    return "light";
-  });
-
-  // Apply root theme class on mount and when theme changes
-  useEffect(() => {
-    const root = document.documentElement;
-    if (themeMode === "light") {
-      root.classList.add("light-theme");
-    } else {
-      root.classList.remove("light-theme");
-    }
-    localStorage.setItem("themeMode", themeMode);
-  }, [themeMode]);
 
   // Filter States
   const [selectedKpi, setSelectedKpi] = useState<string>("assigned");
@@ -532,22 +510,6 @@ export function Overview() {
           <p className="font-mono text-[11px] uppercase tracking-widest text-text-secondary">Dashboard</p>
           <h1 className="mt-2 text-4xl text-text-primary font-syne uppercase tracking-tight font-extrabold">Overview</h1>
         </div>
-        <button
-          onClick={() => setThemeMode(themeMode === "light" ? "dark" : "light")}
-          className="flex items-center gap-2 px-4 py-2 border rounded-full font-mono text-xs font-bold transition-all duration-200 bg-surface hover:bg-surface-raised border-border text-text-primary shadow cursor-pointer self-start sm:self-auto"
-        >
-          {themeMode === "light" ? (
-            <>
-              <Moon size={14} className="text-lime" />
-              <span>DARK MODE</span>
-            </>
-          ) : (
-            <>
-              <Sun size={14} className="text-lime" />
-              <span>LIGHT MODE</span>
-            </>
-          )}
-        </button>
       </header>
 
       {/* Main semantic variables-based analytics dashboard */}

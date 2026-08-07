@@ -72,7 +72,7 @@ export function Button({
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "ghost" | "danger" }) {
   let v = "";
   if (variant === "primary") {
-    v = "bg-lime text-black font-semibold hover:brightness-110 hover:scale-[1.02] active:scale-[0.98]";
+    v = "bg-lime text-primary-foreground font-semibold hover:brightness-110 hover:scale-[1.02] active:scale-[0.98]";
   } else if (variant === "secondary") {
     v = "bg-transparent border-[1.5px] border-border-bright text-text-primary hover:border-lime/40 hover:text-lime hover:scale-[1.02] active:scale-[0.98]";
   } else if (variant === "danger") {

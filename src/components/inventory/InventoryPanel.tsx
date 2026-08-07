@@ -1407,7 +1407,7 @@ function MaterialRow({
                           <div className="flex flex-col items-center z-10">
                             <div className={`h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-bold ${
                               ["Preparing", "In transit", "Delivered"].includes(matchedParcel.status)
-                                ? "bg-lime text-black"
+                                ? "bg-lime text-bg"
                                 : "bg-surface border border-border text-text-dim"
                             }`}>✓</div>
                             <span className="text-[9px] font-mono uppercase mt-1 text-text-secondary">Prepared</span>
@@ -1431,7 +1431,7 @@ function MaterialRow({
                           <div className="flex flex-col items-center z-10">
                             <div className={`h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-bold ${
                               matchedParcel.status === "Delivered"
-                                ? "bg-mint text-black"
+                                ? "bg-mint text-bg"
                                 : "bg-surface border border-border text-text-dim"
                             }`}>✓</div>
                             <span className="text-[9px] font-mono uppercase mt-1 text-text-secondary">Delivered</span>
@@ -1532,7 +1532,7 @@ function TabButton({
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-2 rounded-[6px] px-4 py-2 text-xs transition ${active ? "bg-lime text-black" : "text-text-secondary hover:text-text-primary"}`}
+      className={`flex items-center gap-2 rounded-[6px] px-4 py-2 text-xs font-semibold transition ${active ? "bg-lime text-primary-foreground" : "text-text-secondary hover:text-text-primary"}`}
     >
       <Icon size={15} />
       {children}

@@ -19,11 +19,12 @@ import { parseSiteMetadata, serializeSiteMetadata } from "@/lib/site-metadata";
 export { parseSiteMetadata, serializeSiteMetadata };
 
 const FACTORY_STATUS_OPTIONS = [
-  "Completed/Billed from our end",
-  "Completed but bill pending",
-  "Pending Installation",
-  "Pending Assessment",
-  "Completed but awaiting NPC confirmation",
+  "Submitted",
+  "Unsubmitted",
+  "Certification Pending",
+  "Pending Assignment",
+  "In Assessment",
+  "Dropped / Rejected",
 ] as const;
 
 // ── Multi-select BC dropdown ──────────────────────────────────────────────────
@@ -97,7 +98,7 @@ function BCMultiSelect({
                     <span
                       className={`flex items-center justify-center h-3.5 w-3.5 rounded-[3px] border shrink-0 ${checked ? "bg-lime border-lime" : "border-border"}`}
                     >
-                      {checked && <Check size={10} strokeWidth={3} className="text-black" />}
+                      {checked && <Check size={10} strokeWidth={3} className="text-bg" />}
                     </span>
                     <span className="text-text-primary">{w.name ?? w.mobile}</span>
                   </button>
@@ -293,6 +294,31 @@ export function SitesPanel() {
 
   const create = async () => {
     if (!form.name) return toast.error("Name required");
+    
+    let consultantStage: string | null = null;
+    let metaStatus: string = "";
+    let formWorkers = [...form.workers];
+    if (form.status === "Dropped / Rejected") {
+      consultantStage = null;
+      metaStatus = "Reject";
+    } else if (form.status === "Submitted") {
+      consultantStage = "Completion";
+      metaStatus = "Completion";
+    } else if (form.status === "In Assessment") {
+      consultantStage = null;
+      metaStatus = "Assessment";
+    } else if (form.status === "Pending Assignment") {
+      consultantStage = null;
+      metaStatus = "";
+      formWorkers = [];
+    } else if (form.status === "Unsubmitted") {
+      consultantStage = null;
+      metaStatus = "Running";
+    } else if (form.status === "Certification Pending") {
+      consultantStage = null;
+      metaStatus = "Running";
+    }
+
     const meta = {
       c1_name: form.c1_name,
       c1_mobile: form.c1_mobile,
@@ -300,11 +326,11 @@ export function SitesPanel() {
       c2_name: form.c2_name,
       c2_mobile: form.c2_mobile,
       c2_email: form.c2_email,
-      status: form.status,
+      status: metaStatus,
       create_drive_folder: form.create_drive_folder,
       drive_folder_name: form.name,
       drive_folder_link: form.create_drive_folder ? form.drive_folder_link : "",
-      worker_ids: form.workers,
+      worker_ids: formWorkers,
       assessor_company: form.assessor_company,
       assessor_phone: form.assessor_phone,
       assessor_city: form.assessor_city,
@@ -319,8 +345,9 @@ export function SitesPanel() {
       company_name: form.company_name || form.name,
       city: form.city || null,
       address: form.address || null,
-      assigned_worker_id: form.workers[0] || null,
+      assigned_worker_id: formWorkers[0] || null,
       task_notes: taskNotes,
+      consultant_stage: consultantStage,
       appt_date: form.appt_date || null,
       appt_time: form.appt_time || null,
     } as never);
@@ -355,7 +382,7 @@ export function SitesPanel() {
       c2_name: meta.c2_name,
       c2_mobile: meta.c2_mobile,
       c2_email: meta.c2_email,
-      status: s.consultant_stage || meta.status,
+      status: getCanonicalStatus(s),
       appt_date: s.appt_date ?? "",
       appt_time: s.appt_time ?? "",
       create_drive_folder: !!meta.create_drive_folder,
@@ -371,6 +398,31 @@ export function SitesPanel() {
 
   const updateSite = async () => {
     if (!editingSite) return;
+
+    let consultantStage: string | null = null;
+    let metaStatus: string = "";
+    let formWorkers = [...form.workers];
+    if (form.status === "Dropped / Rejected") {
+      consultantStage = null;
+      metaStatus = "Reject";
+    } else if (form.status === "Submitted") {
+      consultantStage = "Completion";
+      metaStatus = "Completion";
+    } else if (form.status === "In Assessment") {
+      consultantStage = null;
+      metaStatus = "Assessment";
+    } else if (form.status === "Pending Assignment") {
+      consultantStage = null;
+      metaStatus = "";
+      formWorkers = [];
+    } else if (form.status === "Unsubmitted") {
+      consultantStage = null;
+      metaStatus = "Running";
+    } else if (form.status === "Certification Pending") {
+      consultantStage = null;
+      metaStatus = "Running";
+    }
+
     const meta = {
       c1_name: form.c1_name,
       c1_mobile: form.c1_mobile,
@@ -378,11 +430,11 @@ export function SitesPanel() {
       c2_name: form.c2_name,
       c2_mobile: form.c2_mobile,
       c2_email: form.c2_email,
-      status: form.status,
+      status: metaStatus,
       create_drive_folder: form.create_drive_folder,
       drive_folder_name: form.name,
       drive_folder_link: form.create_drive_folder ? form.drive_folder_link : "",
-      worker_ids: form.workers,
+      worker_ids: formWorkers,
       assessor_company: form.assessor_company,
       assessor_phone: form.assessor_phone,
       assessor_city: form.assessor_city,
@@ -399,9 +451,9 @@ export function SitesPanel() {
         company_name: form.company_name || form.name,
         city: form.city || null,
         address: form.address || null,
-        assigned_worker_id: form.workers[0] || null,
+        assigned_worker_id: formWorkers[0] || null,
         task_notes: taskNotes,
-        consultant_stage: null,
+        consultant_stage: consultantStage,
         appt_date: form.appt_date || null,
         appt_time: form.appt_time || null,
       } as never)
@@ -468,14 +520,52 @@ export function SitesPanel() {
     currentTaskNotes: string | null,
   ) => {
     const meta = parseSiteMetadata(currentTaskNotes);
-    const newNotes = serializeSiteMetadata(currentTaskNotes, { ...meta, status: newStatus || "" });
+    
+    let consultantStage: string | null = null;
+    let metaStatus: string = "";
+    let updatedWorkers: string[] | undefined = undefined;
+    
+    if (newStatus === "Dropped / Rejected") {
+      consultantStage = null;
+      metaStatus = "Reject";
+    } else if (newStatus === "Submitted") {
+      consultantStage = "Completion";
+      metaStatus = "Completion";
+    } else if (newStatus === "In Assessment") {
+      consultantStage = null;
+      metaStatus = "Assessment";
+    } else if (newStatus === "Pending Assignment") {
+      consultantStage = null;
+      metaStatus = "";
+      updatedWorkers = [];
+    } else if (newStatus === "Unsubmitted") {
+      consultantStage = null;
+      metaStatus = "Running";
+    } else if (newStatus === "Certification Pending") {
+      consultantStage = null;
+      metaStatus = "Running";
+    }
+
+    const newNotes = serializeSiteMetadata(currentTaskNotes, { 
+      ...meta, 
+      status: metaStatus,
+      ...(updatedWorkers !== undefined ? { worker_ids: updatedWorkers } : {})
+    });
+
+    const updatePayload: any = {
+      task_notes: newNotes,
+      consultant_stage: consultantStage,
+    };
+
+    if (updatedWorkers !== undefined) {
+      updatePayload.assigned_worker_id = null;
+    }
+
     const { error } = await supabase
       .from("sites")
-      .update({
-        task_notes: newNotes,
-        consultant_stage: newStatus === "Billing" || newStatus === "Completion" ? newStatus : null,
-      } as never)
+      .update(updatePayload as never)
       .eq("id", siteId);
+
     if (error) toast.error(error.message);
     else await load();
   };
@@ -735,16 +825,6 @@ export function SitesPanel() {
                         {status}
                       </option>
                     ))}
-                    <option value="Assigned">Assigned</option>
-                    <option value="Assessment & Visit">Assessment &amp; Visit</option>
-                    <option value="Concept">Concept</option>
-                    <option value="Installation">Installation</option>
-                    <option value="Verification">Verification</option>
-                    <option value="Shipped">Shipped</option>
-                    <option value="Running">Running</option>
-                    <option value="Billing">Billing</option>
-                    <option value="Completion">Completion</option>
-                    <option value="Reject">Reject</option>
                   </Select>
                 </div>
                 <div>
@@ -766,7 +846,7 @@ export function SitesPanel() {
                               className={`flex items-center justify-center h-4 w-4 rounded-[3px] border shrink-0 transition-colors ${checked ? "bg-lime border-lime" : "border-border bg-surface"}`}
                             >
                               {checked && (
-                                <Check size={10} strokeWidth={3} className="text-black" />
+                                <Check size={10} strokeWidth={3} className="text-bg" />
                               )}
                             </span>
                             <input
@@ -1012,6 +1092,7 @@ export function SitesPanel() {
                   );
                 return filtered.map((s) => {
                   const meta = parseSiteMetadata(s.task_notes);
+                  const canonicalStatus = getCanonicalStatus(s);
                   const displayedStatus = s.consultant_stage || meta.status;
                   const assignedIds = getSiteWorkerIds(s);
                   return (
@@ -1083,22 +1164,20 @@ export function SitesPanel() {
                       <td className="px-4 py-3">
                         <div className="flex flex-col gap-1">
                           <select
-                            value={displayedStatus || ""}
+                            value={canonicalStatus || ""}
                             onChange={(e) => updateSiteStatus(s.id, e.target.value, s.task_notes)}
                             className={`appearance-none rounded-[4px] px-2 py-1 font-mono text-[10px] uppercase tracking-wider font-bold border outline-none cursor-pointer transition-all ${
-                              displayedStatus === "Running" ||
-                              displayedStatus === "Completion" ||
-                              displayedStatus === "Completed/Billed from our end"
+                              canonicalStatus === "Submitted"
                                 ? "bg-mint-dim text-mint border-mint/20"
-                                : displayedStatus === "Reject"
+                                : canonicalStatus === "Dropped / Rejected"
                                   ? "bg-coral-dim text-coral border-coral/20"
-                                  : displayedStatus === "Shipped"
+                                  : canonicalStatus === "Certification Pending"
                                     ? "bg-violet/10 text-violet border-violet/20"
-                                    : displayedStatus === "Billing"
-                                      ? "bg-lime/10 text-lime border-lime/20"
-                                      : !displayedStatus
-                                        ? "bg-surface text-text-dim border-border"
-                                        : "bg-warning/8 text-warning border-warning/20"
+                                    : canonicalStatus === "Pending Assignment"
+                                      ? "bg-warning/8 text-warning border-warning/20"
+                                      : canonicalStatus === "In Assessment"
+                                        ? "bg-lime/10 text-lime border-lime/20"
+                                        : "bg-surface text-text-dim border-border"
                             }`}
                           >
                             <option value="">— None —</option>
@@ -1107,16 +1186,6 @@ export function SitesPanel() {
                                 {status}
                               </option>
                             ))}
-                            <option value="Assigned">Assigned</option>
-                            <option value="Assessment &amp; Visit">Assessment &amp; Visit</option>
-                            <option value="Concept">Concept</option>
-                            <option value="Installation">Installation</option>
-                            <option value="Verification">Verification</option>
-                            <option value="Shipped">Shipped</option>
-                            <option value="Running">Running</option>
-                            <option value="Billing">Billing</option>
-                            <option value="Completion">Completion</option>
-                            <option value="Reject">Reject</option>
                           </select>
                           {meta.visit_status && (
                             <span

@@ -682,7 +682,7 @@ function ViewButton({
       type="button"
       onClick={onClick}
       className={`flex flex-1 items-center justify-center gap-2 rounded-[6px] px-4 py-2.5 text-xs font-bold uppercase tracking-wider transition-colors ${
-        active ? "bg-lime text-black" : "text-text-secondary hover:text-text-primary"
+        active ? "bg-lime text-primary-foreground" : "text-text-secondary hover:text-text-primary"
       }`}
     >
       <Icon size={15} /> {label}

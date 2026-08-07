@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useAuth } from "@/lib/auth-store";
-import { LayoutDashboard, MapPin, Users, BarChart3, LogOut, Activity, Menu, X, Folder, PanelLeftClose, PanelLeftOpen, Boxes } from "lucide-react";
+import { LayoutDashboard, MapPin, Users, BarChart3, LogOut, Activity, Menu, X, Folder, PanelLeftClose, PanelLeftOpen, Boxes, Sun, Moon } from "lucide-react";
 import { Button } from "../ui-kit";
 
 export function StaffShell({
@@ -17,6 +17,34 @@ export function StaffShell({
   const [collapsed, setCollapsed] = useState(false);
   const base = `/${role}`;
   const displayRole = "manager";
+
+  const [themeMode, setThemeMode] = useState<"light" | "dark">("light");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("themeMode");
+      const initial = (stored === "dark" || stored === "light") ? stored : "light";
+      setThemeMode(initial);
+      const root = document.documentElement;
+      if (initial === "light") {
+        root.classList.add("light-theme");
+      } else {
+        root.classList.remove("light-theme");
+      }
+    }
+  }, []);
+
+  const toggleTheme = () => {
+    const next = themeMode === "light" ? "dark" : "light";
+    setThemeMode(next);
+    const root = document.documentElement;
+    if (next === "light") {
+      root.classList.add("light-theme");
+    } else {
+      root.classList.remove("light-theme");
+    }
+    localStorage.setItem("themeMode", next);
+  };
 
   const items = [
     { to: `${base}`, label: "Overview", icon: LayoutDashboard },
@@ -36,13 +64,22 @@ export function StaffShell({
           <span className="flex h-5 w-5 items-center justify-center rounded-[4px] bg-lime text-bg text-[10px] font-extrabold font-mono">⬡</span>
           <span>SIM-KIT OPS</span>
         </Link>
-        <button
-          onClick={() => setIsOpen(!isOpen)}
-          className="p-2 text-text-secondary hover:text-text-primary"
-          aria-label="Toggle menu"
-        >
-          {isOpen ? <X size={20} strokeWidth={2} /> : <Menu size={20} strokeWidth={2} />}
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={toggleTheme}
+            className="p-2 text-text-secondary hover:text-lime transition-colors"
+            title={themeMode === "light" ? "Switch to Dark Mode" : "Switch to Light Mode"}
+          >
+            {themeMode === "light" ? <Moon size={18} strokeWidth={2} /> : <Sun size={18} strokeWidth={2} />}
+          </button>
+          <button
+            onClick={() => setIsOpen(!isOpen)}
+            className="p-2 text-text-secondary hover:text-text-primary"
+            aria-label="Toggle menu"
+          >
+            {isOpen ? <X size={20} strokeWidth={2} /> : <Menu size={20} strokeWidth={2} />}
+          </button>
+        </div>
       </header>
 
       {/* Mobile Drawer (Menu Overlay) */}
@@ -133,20 +170,29 @@ export function StaffShell({
             );
           })}
         </nav>
-        <div className={`border-t border-border py-4 bg-surface-raised/30 flex items-center ${collapsed ? "justify-center px-2" : "justify-between px-4"}`}>
+        <div className={`border-t border-border py-4 bg-surface-raised/30 flex items-center ${collapsed ? "justify-center px-2 flex-col gap-2" : "justify-between px-4"}`}>
           {!collapsed && (
             <div className="flex flex-col min-w-0">
               <div className="font-mono text-[8px] uppercase tracking-wider text-text-secondary font-bold truncate">User</div>
               <div className="text-xs font-semibold text-text-primary truncate">{profile?.name ?? "—"}</div>
             </div>
           )}
-          <button
-            onClick={signOut}
-            className="text-text-secondary hover:text-coral transition-colors p-1.5 cursor-pointer"
-            title="Sign out"
-          >
-            <LogOut size={16} strokeWidth={2} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={toggleTheme}
+              className="text-text-secondary hover:text-lime transition-colors p-1.5 cursor-pointer"
+              title={themeMode === "light" ? "Switch to Dark Mode" : "Switch to Light Mode"}
+            >
+              {themeMode === "light" ? <Moon size={16} strokeWidth={2} /> : <Sun size={16} strokeWidth={2} />}
+            </button>
+            <button
+              onClick={signOut}
+              className="text-text-secondary hover:text-coral transition-colors p-1.5 cursor-pointer"
+              title="Sign out"
+            >
+              <LogOut size={16} strokeWidth={2} />
+            </button>
+          </div>
         </div>
       </aside>
 
