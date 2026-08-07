@@ -19,7 +19,7 @@ import { MediaUploader } from "@/components/MediaUploader";
 import { usePhaseData } from "@/lib/use-phase-data";
 import { useAuth } from "@/lib/auth-store";
 import { advanceSiteVisitStatus } from "@/lib/site-metadata";
-import { Plus, Trash2, Users, Wrench } from "lucide-react";
+import { Plus, Trash2, Users, Wrench, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
 
 type Props = { siteId: string; workerId: string; hiddenSections?: string[]; onSubmit?: () => void };
 
@@ -690,6 +690,38 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
         </Card>
       )}
 
+      {/* 12. Factory Operations Form */}
+      {shouldShow("Factory Operations") && (
+        <Card className="border-l-[3px] border-lime relative">
+          <div className="section-number-ghost">12</div>
+          <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSection("Factory Operations")}>
+            <SectionTitle num={12}>Factory Operations Form</SectionTitle>
+            <span className="font-mono text-[10px] text-lime bg-lime-dim/50 px-2 py-0.5 border border-lime/20 rounded-[4px] font-bold">
+              {expandedSections["Factory Operations"] ? "COLLAPSE ▲" : "EXPAND ▼"}
+            </span>
+          </div>
+
+          {expandedSections["Factory Operations"] && (
+            <div className="mt-6 space-y-6 animate-in fade-in duration-200">
+              <FactoryOperationsCardContent data={data} patch={patch} />
+              <CompleteJobRow
+                checked={!!data.factory_operations_done}
+                onToggle={() => patch({ factory_operations_done: !data.factory_operations_done })}
+                validate={() => {
+                  const shifts = data.factory_op_shifts ?? [];
+                  const hasOverlap = checkShiftOverlap(shifts);
+                  if (hasOverlap) {
+                    toast.error("Please resolve the shift overlap before completing this section.");
+                    return false;
+                  }
+                  return true;
+                }}
+              />
+            </div>
+          )}
+        </Card>
+      )}
+
       <div className="mt-8 flex justify-end">
         <Button
           onClick={async () => {
@@ -700,6 +732,11 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
 
             if (shouldShow("Explanation") && !data.explanation_notes?.trim()) {
               toast.error("Please fill in Explanation Notes.");
+              return;
+            }
+
+            if (shouldShow("Factory Operations") && !data.factory_operations_done) {
+              toast.error("Please complete the Factory Operations Form.");
               return;
             }
 
@@ -881,3 +918,635 @@ function MachinesCardContent({ siteId, onChange }: { siteId: string; onChange: (
     </div>
   );
 }
+
+// === Factory Operations Form Component ===
+
+interface FactoryOperationsCardContentProps {
+  data: Record<string, any>;
+  patch: (delta: Partial<Record<string, any>>) => void;
+}
+
+const COMMON_DOWNTIME_REASONS = [
+  "Machine Breakdown",
+  "Power Failure",
+  "Material Shortage",
+  "Die / Mould Change",
+  "Planned Preventive Maintenance",
+  "Setup & Changeover",
+  "Tool Breakage / Tool Change",
+  "Quality Rejection / Rework",
+  "Operator Absence",
+  "Electrical Fault",
+  "Hydraulic / Pneumatic Failure",
+  "Lubrication Issue",
+  "Cooling System Failure",
+  "PLC / Sensor Fault",
+  "Raw Material Quality Issue",
+  "Safety Issue / Accident",
+  "Shift Changeover",
+  "Material Jam / Choking",
+  "Vendor / External Delay",
+  "Machine Warm-up"
+];
+
+function checkShiftOverlap(shifts: any[]): boolean {
+  const parsedShifts = (shifts ?? [])
+    .filter(s => s && s.startTime && s.endTime)
+    .map(s => {
+      const [sh, sm] = s.startTime.split(":").map(Number);
+      const [eh, em] = s.endTime.split(":").map(Number);
+      const start = sh * 60 + sm;
+      const end = eh * 60 + em;
+      
+      if (end <= start) {
+        // Crosses midnight
+        return [
+          { start, end: 1440 },
+          { start: 0, end }
+        ];
+      } else {
+        return [{ start, end }];
+      }
+    });
+
+  for (let i = 0; i < parsedShifts.length; i++) {
+    for (let j = i + 1; j < parsedShifts.length; j++) {
+      const intervalsI = parsedShifts[i];
+      const intervalsJ = parsedShifts[j];
+      
+      for (const intI of intervalsI) {
+        for (const intJ of intervalsJ) {
+          const maxStart = Math.max(intI.start, intJ.start);
+          const minEnd = Math.min(intI.end, intJ.end);
+          if (maxStart < minEnd) {
+            return true; // Overlap detected!
+          }
+        }
+      }
+    }
+  }
+  return false;
+}
+
+function FactoryOperationsCardContent({ data, patch }: FactoryOperationsCardContentProps) {
+  // Initialize dynamic lists
+  const machines = data.factory_op_machines ?? [""];
+  const owners = data.factory_op_owners ?? [{ name: "", email: "", contact: "" }];
+  const operators = data.factory_op_operators ?? [{ name: "", email: "", contact: "" }];
+  const technicians = data.factory_op_technicians ?? [{ name: "", email: "", contact: "" }];
+  const shifts = data.factory_op_shifts ?? [{ name: "", type: "General", startTime: "", endTime: "" }];
+  
+  // Downtime Reasons
+  const downtimeReasons = data.factory_op_downtime_reasons ?? ["Setup & Changeover", "Operator Absence", "Lubrication Issue"];
+  const customReasons = data.factory_op_downtime_custom_reasons ?? [];
+  const allReasons = [...COMMON_DOWNTIME_REASONS, ...customReasons];
+
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [customReasonInput, setCustomReasonInput] = useState("");
+  const [showCustomInput, setShowCustomInput] = useState(false);
+
+  // Overlap status
+  const hasOverlap = checkShiftOverlap(shifts);
+
+  const handleMachineChange = (index: number, val: string) => {
+    const updated = [...machines];
+    updated[index] = val;
+    patch({ factory_op_machines: updated });
+  };
+
+  const addMachine = () => {
+    patch({ factory_op_machines: [...machines, ""] });
+  };
+
+  const removeMachine = (index: number) => {
+    const updated = machines.filter((_: any, i: number) => i !== index);
+    patch({ factory_op_machines: updated.length > 0 ? updated : [""] });
+  };
+
+  const handleOwnerChange = (index: number, key: string, val: string) => {
+    const updated = [...owners];
+    updated[index] = { ...updated[index], [key]: val };
+    patch({ factory_op_owners: updated });
+  };
+
+  const addOwner = () => {
+    patch({ factory_op_owners: [...owners, { name: "", email: "", contact: "" }] });
+  };
+
+  const removeOwner = (index: number) => {
+    const updated = owners.filter((_: any, i: number) => i !== index);
+    patch({ factory_op_owners: updated.length > 0 ? updated : [{ name: "", email: "", contact: "" }] });
+  };
+
+  const handleOperatorChange = (index: number, key: string, val: string) => {
+    const updated = [...operators];
+    updated[index] = { ...updated[index], [key]: val };
+    patch({ factory_op_operators: updated });
+  };
+
+  const addOperator = () => {
+    patch({ factory_op_operators: [...operators, { name: "", email: "", contact: "" }] });
+  };
+
+  const removeOperator = (index: number) => {
+    const updated = operators.filter((_: any, i: number) => i !== index);
+    patch({ factory_op_operators: updated.length > 0 ? updated : [{ name: "", email: "", contact: "" }] });
+  };
+
+  const handleTechnicianChange = (index: number, key: string, val: string) => {
+    const updated = [...technicians];
+    updated[index] = { ...updated[index], [key]: val };
+    patch({ factory_op_technicians: updated });
+  };
+
+  const addTechnician = () => {
+    patch({ factory_op_technicians: [...technicians, { name: "", email: "", contact: "" }] });
+  };
+
+  const removeTechnician = (index: number) => {
+    const updated = technicians.filter((_: any, i: number) => i !== index);
+    patch({ factory_op_technicians: updated.length > 0 ? updated : [{ name: "", email: "", contact: "" }] });
+  };
+
+  const handleShiftChange = (index: number, key: string, val: string) => {
+    const updated = [...shifts];
+    updated[index] = { ...updated[index], [key]: val };
+    patch({ factory_op_shifts: updated });
+  };
+
+  const addShift = () => {
+    patch({ factory_op_shifts: [...shifts, { name: "", type: "General", startTime: "", endTime: "" }] });
+  };
+
+  const removeShift = (index: number) => {
+    const updated = shifts.filter((_: any, i: number) => i !== index);
+    patch({ factory_op_shifts: updated.length > 0 ? updated : [{ name: "", type: "General", startTime: "", endTime: "" }] });
+  };
+
+  const toggleReason = (reason: string) => {
+    let updated;
+    if (downtimeReasons.includes(reason)) {
+      updated = downtimeReasons.filter((r: string) => r !== reason);
+    } else {
+      updated = [...downtimeReasons, reason];
+    }
+    patch({ factory_op_downtime_reasons: updated });
+  };
+
+  const addCustomReason = () => {
+    if (!customReasonInput.trim()) return;
+    const val = customReasonInput.trim();
+    if (!customReasons.includes(val)) {
+      const nextCustom = [...customReasons, val];
+      const nextReasons = [...downtimeReasons, val];
+      patch({
+        factory_op_downtime_custom_reasons: nextCustom,
+        factory_op_downtime_reasons: nextReasons
+      });
+    }
+    setCustomReasonInput("");
+    setShowCustomInput(false);
+  };
+
+  return (
+    <div className="space-y-8 animate-in fade-in duration-200">
+      {/* A. Factory Details */}
+      <div className="space-y-4">
+        <div className="font-mono text-[11px] font-bold text-lime uppercase tracking-widest border-b border-border pb-1">
+          Factory Details
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <Label>Factory Name</Label>
+            <Input
+              value={data.factory_op_name ?? ""}
+              onChange={(e) => patch({ factory_op_name: e.target.value })}
+              placeholder="Enter Factory Name"
+            />
+          </div>
+          <div>
+            <Label>Full Address</Label>
+            <Textarea
+              rows={2}
+              value={data.factory_op_address ?? ""}
+              onChange={(e) => patch({ factory_op_address: e.target.value })}
+              placeholder="Enter Full Address"
+            />
+          </div>
+        </div>
+        <div className="space-y-2 mt-2">
+          <Label>Machine Names</Label>
+          {machines.map((m: string, i: number) => (
+            <div key={i} className="flex gap-2 items-center">
+              <Input
+                value={m}
+                onChange={(e) => handleMachineChange(i, e.target.value)}
+                placeholder={`Machine Name ${i + 1}`}
+                className="flex-1"
+              />
+              {machines.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removeMachine(i)}
+                  className="text-text-secondary hover:text-coral transition-colors p-1"
+                >
+                  <Trash2 size={16} />
+                </button>
+              )}
+            </div>
+          ))}
+          <div className="mt-1">
+            <Button
+              type="button"
+              variant="secondary"
+              className="py-1 px-3 text-xs"
+              onClick={addMachine}
+            >
+              <Plus size={12} /> Add Machine Name
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* B. Owner Information */}
+      <div className="space-y-4">
+        <div className="font-mono text-[11px] font-bold text-lime uppercase tracking-widest border-b border-border pb-1">
+          Owner Information
+        </div>
+        {owners.map((owner: any, i: number) => (
+          <div key={i} className="p-4 border border-border rounded-[8px] bg-surface-raised/10 space-y-3 relative">
+            <div className="flex justify-between items-center">
+              <span className="font-mono text-[10px] text-text-secondary">Owner {i + 1}</span>
+              {owners.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removeOwner(i)}
+                  className="text-text-secondary hover:text-coral transition-colors"
+                >
+                  <Trash2 size={15} />
+                </button>
+              )}
+            </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              <div>
+                <Label>Owner Name</Label>
+                <Input
+                  value={owner.name ?? ""}
+                  onChange={(e) => handleOwnerChange(i, "name", e.target.value)}
+                  placeholder="Name"
+                />
+              </div>
+              <div>
+                <Label>Email</Label>
+                <Input
+                  type="email"
+                  value={owner.email ?? ""}
+                  onChange={(e) => handleOwnerChange(i, "email", e.target.value)}
+                  placeholder="Email"
+                />
+              </div>
+              <div>
+                <Label>Contact No</Label>
+                <Input
+                  type="tel"
+                  value={owner.contact ?? ""}
+                  onChange={(e) => handleOwnerChange(i, "contact", e.target.value)}
+                  placeholder="Contact Number"
+                />
+              </div>
+            </div>
+          </div>
+        ))}
+        <Button
+          type="button"
+          variant="secondary"
+          className="py-1.5 px-4 text-xs"
+          onClick={addOwner}
+        >
+          <Plus size={14} /> Add Owner
+        </Button>
+      </div>
+
+      {/* C. Operator Detail */}
+      <div className="space-y-4">
+        <div className="font-mono text-[11px] font-bold text-lime uppercase tracking-widest border-b border-border pb-1">
+          Operator Details
+        </div>
+        {operators.map((op: any, i: number) => (
+          <div key={i} className="p-4 border border-border rounded-[8px] bg-surface-raised/10 space-y-3 relative">
+            <div className="flex justify-between items-center">
+              <span className="font-mono text-[10px] text-text-secondary">Operator {i + 1}</span>
+              {operators.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removeOperator(i)}
+                  className="text-text-secondary hover:text-coral transition-colors"
+                >
+                  <Trash2 size={15} />
+                </button>
+              )}
+            </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              <div>
+                <Label>Operator Name</Label>
+                <Input
+                  value={op.name ?? ""}
+                  onChange={(e) => handleOperatorChange(i, "name", e.target.value)}
+                  placeholder="Name"
+                />
+              </div>
+              <div>
+                <Label>Email</Label>
+                <Input
+                  type="email"
+                  value={op.email ?? ""}
+                  onChange={(e) => handleOperatorChange(i, "email", e.target.value)}
+                  placeholder="Email"
+                />
+              </div>
+              <div>
+                <Label>Contact No</Label>
+                <Input
+                  type="tel"
+                  value={op.contact ?? ""}
+                  onChange={(e) => handleOperatorChange(i, "contact", e.target.value)}
+                  placeholder="Contact Number"
+                />
+              </div>
+            </div>
+          </div>
+        ))}
+        <Button
+          type="button"
+          variant="secondary"
+          className="py-1.5 px-4 text-xs"
+          onClick={addOperator}
+        >
+          <Plus size={14} /> Add Operator
+        </Button>
+      </div>
+
+      {/* D. Technician Contact */}
+      <div className="space-y-4">
+        <div className="font-mono text-[11px] font-bold text-lime uppercase tracking-widest border-b border-border pb-1">
+          Technician Contacts
+        </div>
+        {technicians.map((tech: any, i: number) => (
+          <div key={i} className="p-4 border border-border rounded-[8px] bg-surface-raised/10 space-y-3 relative">
+            <div className="flex justify-between items-center">
+              <span className="font-mono text-[10px] text-text-secondary">Technician {i + 1}</span>
+              {technicians.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removeTechnician(i)}
+                  className="text-text-secondary hover:text-coral transition-colors"
+                >
+                  <Trash2 size={15} />
+                </button>
+              )}
+            </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              <div>
+                <Label>Technician Name</Label>
+                <Input
+                  value={tech.name ?? ""}
+                  onChange={(e) => handleTechnicianChange(i, "name", e.target.value)}
+                  placeholder="Name"
+                />
+              </div>
+              <div>
+                <Label>Email</Label>
+                <Input
+                  type="email"
+                  value={tech.email ?? ""}
+                  onChange={(e) => handleTechnicianChange(i, "email", e.target.value)}
+                  placeholder="Email"
+                />
+              </div>
+              <div>
+                <Label>Contact No</Label>
+                <Input
+                  type="tel"
+                  value={tech.contact ?? ""}
+                  onChange={(e) => handleTechnicianChange(i, "contact", e.target.value)}
+                  placeholder="Contact Number"
+                />
+              </div>
+            </div>
+          </div>
+        ))}
+        <Button
+          type="button"
+          variant="secondary"
+          className="py-1.5 px-4 text-xs"
+          onClick={addTechnician}
+        >
+          <Plus size={14} /> Add Technician
+        </Button>
+      </div>
+
+      {/* E. Shift Panel */}
+      <div className="space-y-4">
+        <div className="font-mono text-[11px] font-bold text-lime uppercase tracking-widest border-b border-border pb-1">
+          Shift Panel
+        </div>
+        {hasOverlap && (
+          <div className="flex items-center gap-2 p-3 bg-coral-dim border border-coral/30 rounded-[6px] text-coral text-xs">
+            <AlertTriangle size={15} className="shrink-0" />
+            <span>Shift timings overlap or collide. Please check your start and end times.</span>
+          </div>
+        )}
+        {shifts.map((shift: any, i: number) => (
+          <div key={i} className="p-4 border border-border rounded-[8px] bg-surface-raised/10 space-y-3 relative">
+            <div className="flex justify-between items-center">
+              <span className="font-mono text-[10px] text-text-secondary">Shift {i + 1}</span>
+              {shifts.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removeShift(i)}
+                  className="text-text-secondary hover:text-coral transition-colors"
+                >
+                  <Trash2 size={15} />
+                </button>
+              )}
+            </div>
+            <div className="grid gap-3 md:grid-cols-4">
+              <div>
+                <Label>Shift Name</Label>
+                <Input
+                  value={shift.name ?? ""}
+                  onChange={(e) => handleShiftChange(i, "name", e.target.value)}
+                  placeholder="e.g. Day Shift"
+                />
+              </div>
+              <div>
+                <Label>Shift Type</Label>
+                <Select
+                  value={shift.type ?? "General"}
+                  onChange={(e) => handleShiftChange(i, "type", e.target.value)}
+                >
+                  <option value="Morning">Morning</option>
+                  <option value="Night">Night</option>
+                  <option value="Afternoon">Afternoon</option>
+                  <option value="General">General</option>
+                  <option value="Rotation">Rotation</option>
+                </Select>
+              </div>
+              <div>
+                <Label>Start Time</Label>
+                <Input
+                  type="time"
+                  value={shift.startTime ?? ""}
+                  onChange={(e) => handleShiftChange(i, "startTime", e.target.value)}
+                />
+              </div>
+              <div>
+                <Label>End Time</Label>
+                <Input
+                  type="time"
+                  value={shift.endTime ?? ""}
+                  onChange={(e) => handleShiftChange(i, "endTime", e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+        ))}
+        <Button
+          type="button"
+          variant="secondary"
+          className="py-1.5 px-4 text-xs"
+          onClick={addShift}
+        >
+          <Plus size={14} /> Add Shift
+        </Button>
+      </div>
+
+      {/* F. Downtime Reason Selection */}
+      <div className="space-y-4">
+        <div className="font-mono text-[11px] font-bold text-lime uppercase tracking-widest border-b border-border pb-1">
+          Downtime Reason Selection
+        </div>
+        <div className="space-y-3">
+          <Label>Common Reasons (Select all that apply)</Label>
+          <div className="flex flex-wrap gap-2 py-1">
+            {allReasons.map((reason: string) => {
+              const isChecked = downtimeReasons.includes(reason);
+              return (
+                <button
+                  key={reason}
+                  type="button"
+                  onClick={() => toggleReason(reason)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[6px] border text-xs font-mono font-medium transition-all duration-150 ${
+                    isChecked
+                      ? "border-lime bg-lime-dim/40 text-lime"
+                      : "border-border hover:border-border-bright text-text-secondary bg-surface-raised/20"
+                  }`}
+                >
+                  {isChecked && <span className="h-1.5 w-1.5 rounded-full bg-lime" />}
+                  <span>{reason}</span>
+                </button>
+              );
+            })}
+          </div>
+          
+          <div className="flex flex-col sm:flex-row gap-4 pt-2">
+            <div className="flex-1">
+              {showCustomInput ? (
+                <div className="flex gap-2 max-w-md">
+                  <Input
+                    value={customReasonInput}
+                    onChange={(e) => setCustomReasonInput(e.target.value)}
+                    placeholder="Enter custom downtime reason"
+                    className="text-xs"
+                  />
+                  <Button
+                    type="button"
+                    className="py-1 px-3 text-xs"
+                    onClick={addCustomReason}
+                  >
+                    Add
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="py-1 px-2 text-xs"
+                    onClick={() => {
+                      setShowCustomInput(false);
+                      setCustomReasonInput("");
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="py-1 px-3 text-xs"
+                  onClick={() => setShowCustomInput(true)}
+                >
+                  <Plus size={12} /> Custom Add Downtime Reason
+                </Button>
+              )}
+            </div>
+            
+            <div className="w-full sm:w-64">
+              <Label>Ideal Threshold Time (Minutes)</Label>
+              <Input
+                type="number"
+                value={data.factory_op_downtime_threshold ?? ""}
+                onChange={(e) => patch({ factory_op_downtime_threshold: e.target.value ? Number(e.target.value) : "" })}
+                placeholder="e.g. 15"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* G. Electricity Board Radio Group */}
+      <div className="space-y-3">
+        <div className="font-mono text-[11px] font-bold text-lime uppercase tracking-widest border-b border-border pb-1">
+          Electricity Board
+        </div>
+        <div className="flex flex-wrap gap-4 py-1">
+          {["PGVCL", "UGVCL", "MGVCL", "Torrent", "DGVCL"].map((board) => {
+            const isChecked = (data.factory_op_electricity_board ?? "") === board;
+            return (
+              <label
+                key={board}
+                className={`flex items-center gap-2 cursor-pointer select-none py-1.5 px-4 rounded-[6px] border text-xs font-mono font-bold transition-all duration-150 ${
+                  isChecked
+                    ? "border-lime bg-lime-dim/50 text-lime"
+                    : "border-border hover:border-border-bright text-text-secondary"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="electricity_board"
+                  value={board}
+                  checked={isChecked}
+                  onChange={() => patch({ factory_op_electricity_board: board })}
+                  className="sr-only"
+                />
+                <span className={`inline-block h-3.5 w-3.5 rounded-full border-2 transition-all flex items-center justify-center ${
+                  isChecked ? "border-lime bg-lime" : "border-text-dim"
+                }`}>
+                  {isChecked && <span className="h-1.5 w-1.5 rounded-full bg-bg" />}
+                </span>
+                <span>{board}</span>
+              </label>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* H. Business Profile Header */}
+      <div className="pt-6 border-t border-border text-center">
+        <h4 className="font-syne text-[15px] font-extrabold uppercase tracking-widest text-text-secondary">
+          Business Profile
+        </h4>
+      </div>
+    </div>
+  );
+}
+

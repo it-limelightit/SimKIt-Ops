@@ -16,6 +16,7 @@ import {
   ClipboardList,
   XCircle,
   Wrench,
+  Truck,
 } from "lucide-react";
 
 type Appt = {
@@ -48,6 +49,7 @@ type SiteRow = {
     c1_mobile: string;
     c1_email: string;
   };
+  logisticsStatus: string;
 };
 
 const ASSESSMENT_KEYS = [
@@ -116,6 +118,7 @@ export function Overview() {
   const [rawInstallations, setRawInstallations] = useState<any[]>([]);
   const [rawCommissionings, setRawCommissionings] = useState<any[]>([]);
   const [rawProfiles, setRawProfiles] = useState<any[]>([]);
+  const [rawMaterials, setRawMaterials] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Filter States
@@ -135,7 +138,7 @@ export function Overview() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [sitesRes, assessmentsRes, installationsRes, commissioningsRes, profilesRes] = await Promise.all([
+      const [sitesRes, assessmentsRes, installationsRes, commissioningsRes, profilesRes, materialsRes] = await Promise.all([
         supabase
           .from("sites")
           .select("id,name,city,assigned_worker_id,assigned_at,appt_date,appt_time,created_at,task_notes,consultant_stage")
@@ -144,6 +147,7 @@ export function Overview() {
         supabase.from("installation").select("data,updated_at,site_id"),
         supabase.from("commissioning").select("data,updated_at,site_id"),
         supabase.from("profiles").select("id,name,mobile,is_active").order("created_at"),
+        supabase.from("inventory_materials").select("state,notes,submitted,material_name"),
       ]);
 
       setRawSites(sitesRes.data ?? []);
@@ -151,6 +155,7 @@ export function Overview() {
       setRawInstallations(installationsRes.data ?? []);
       setRawCommissionings(commissioningsRes.data ?? []);
       setRawProfiles(profilesRes.data ?? []);
+      setRawMaterials(materialsRes.data ?? []);
     } catch (err) {
       console.error("Error fetching overview metrics:", err);
     } finally {
@@ -167,6 +172,18 @@ export function Overview() {
   rawProfiles.forEach((p) => {
     profileNameMap.set(p.id, p.name || p.mobile || "—");
   });
+
+  const getLogisticsStatus = (m: any): string => {
+    try {
+      if (m.notes && m.notes.startsWith("{")) {
+        const parsed = JSON.parse(m.notes);
+        if (parsed.logistics_status) {
+          return parsed.logistics_status;
+        }
+      }
+    } catch (e) {}
+    return m.state === "In transit" ? "Transit" : (m.state || "Pending");
+  };
 
   const aMap = new Map<string, any>(rawAssessments.map((r) => [r.site_id, r]));
   const iMap = new Map<string, any>(rawInstallations.map((r) => [r.site_id, r]));
@@ -200,6 +217,14 @@ export function Overview() {
       }
     }
 
+    const matchingMaterial = rawMaterials.find(
+      (m) =>
+        m.submitted &&
+        (m.material_name.toLowerCase().trim() === (site.company_name || "").toLowerCase().trim() ||
+          m.material_name.toLowerCase().trim() === site.name.toLowerCase().trim())
+    );
+    const logisticsStatus = matchingMaterial ? getLogisticsStatus(matchingMaterial) : "Pending";
+
     return {
       id: site.id,
       name: site.name,
@@ -218,6 +243,7 @@ export function Overview() {
         c1_mobile: meta.c1_mobile || "",
         c1_email: meta.c1_email || "",
       },
+      logisticsStatus,
     };
   });
 
@@ -291,6 +317,7 @@ export function Overview() {
   const countCertification = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Certification Pending").length;
   const countInstalled = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Installed").length;
   const countAssessment = filteredForCounts.filter((r) => getCanonicalStatus(r) === "In Assessment").length;
+  const countDispatched = filteredForCounts.filter((r) => r.logisticsStatus === "Delivered").length;
   const countDropped = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Dropped / Rejected").length;
 
   // Apply selected KPI filter to table
@@ -310,6 +337,8 @@ export function Overview() {
         return status === "Pending Assignment";
       case "assessment":
         return status === "In Assessment";
+      case "dispatched":
+        return row.logisticsStatus === "Delivered";
       case "dropped":
         return status === "Dropped / Rejected";
       default:
@@ -513,6 +542,15 @@ export function Overview() {
       dotStyle: "bg-teal-500",
     },
     {
+      id: "dispatched",
+      label: "Panel Dispatched",
+      value: countDispatched,
+      desc: "Panels delivered to site",
+      icon: Truck,
+      badgeStyle: "text-blue-600 bg-blue-50 border-blue-200",
+      dotStyle: "bg-blue-500",
+    },
+    {
       id: "installed",
       label: "Installed",
       value: countInstalled,
@@ -563,12 +601,20 @@ export function Overview() {
         </div>
 
         {/* KPI Cards Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {loading
-            ? Array.from({ length: 7 }).map((_, i) => (
-                <div key={i} className="h-32 bg-surface-raised rounded-xl animate-pulse" />
-              ))
-            : kpis.map((k) => {
+        {loading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="h-32 bg-surface-raised rounded-xl animate-pulse" />
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Top Row: Grouped Analytics */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {/* Card 1: Companies Assigned */}
+              {(() => {
+                const k = kpis.find(x => x.id === "assigned")!;
+                if (!k) return null;
                 const active = selectedKpi === k.id;
                 const Icon = k.icon;
                 const cardBorder = active
@@ -576,9 +622,8 @@ export function Overview() {
                   : "border-border bg-surface hover:border-border-bright hover:shadow-sm";
                 return (
                   <button
-                    key={k.id}
                     onClick={() => setSelectedKpi(k.id)}
-                    className={`flex flex-col justify-between w-full text-left p-5 border rounded-xl shadow-sm transition-all duration-200 group cursor-pointer ${cardBorder}`}
+                    className={`flex flex-col justify-between w-full text-left p-5 border rounded-xl shadow-sm transition-all duration-200 group cursor-pointer h-full min-h-[160px] ${cardBorder}`}
                   >
                     <div className="flex items-start justify-between w-full">
                       <div className={`p-2 rounded-lg border ${k.badgeStyle}`}>
@@ -599,8 +644,241 @@ export function Overview() {
                     </div>
                   </button>
                 );
-              })}
-        </div>
+              })()}
+
+              {/* Combined Box for Cards 2, 3, and 4 */}
+              <div className="lg:col-span-2 border border-border bg-surface/30 rounded-xl p-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                {/* Card 2: Submitted */}
+                {(() => {
+                  const k = kpis.find(x => x.id === "submitted")!;
+                  if (!k) return null;
+                  const active = selectedKpi === k.id;
+                  const Icon = k.icon;
+                  const cardBorder = active
+                    ? "border-lime ring-2 ring-lime/20 bg-surface-raised scale-[1.02]"
+                    : "border-border bg-surface hover:border-border-bright hover:shadow-sm";
+                  return (
+                    <button
+                      onClick={() => setSelectedKpi(k.id)}
+                      className={`flex flex-col justify-between w-full text-left p-5 border rounded-xl shadow-sm transition-all duration-200 group cursor-pointer h-full min-h-[140px] ${cardBorder}`}
+                    >
+                      <div className="flex items-start justify-between w-full">
+                        <div className={`p-2 rounded-lg border ${k.badgeStyle}`}>
+                          <Icon size={18} strokeWidth={2.5} />
+                        </div>
+                        <span className={`h-2.5 w-2.5 rounded-full ${k.dotStyle}`} />
+                      </div>
+                      <div className="mt-4">
+                        <div className="text-3xl font-extrabold text-text-primary tracking-tight">
+                          {k.value}
+                        </div>
+                        <div className="text-xs font-semibold mt-1 text-text-primary">
+                          {k.label}
+                        </div>
+                        <div className="text-[10px] mt-0.5 leading-snug text-text-secondary">
+                          {k.desc}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })()}
+
+                {/* Vertical stack for Cards 3 and 4 (reduced size) */}
+                <div className="flex flex-col gap-2 justify-between h-full">
+                  {[
+                    kpis.find(x => x.id === "unsubmitted")!,
+                    kpis.find(x => x.id === "certification")!
+                  ].filter(Boolean).map((k) => {
+                    const active = selectedKpi === k.id;
+                    const Icon = k.icon;
+                    const cardBorder = active
+                      ? "border-lime ring-2 ring-lime/20 bg-surface-raised scale-[1.01]"
+                      : "border-border bg-surface hover:border-border-bright hover:shadow-sm";
+                    return (
+                      <button
+                        key={k.id}
+                        onClick={() => setSelectedKpi(k.id)}
+                        className={`flex items-center justify-between w-full text-left px-4 py-2.5 border rounded-xl shadow-sm transition-all duration-200 group cursor-pointer flex-1 ${cardBorder}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={`p-1.5 rounded-lg border shrink-0 ${k.badgeStyle}`}>
+                            <Icon size={14} strokeWidth={2.5} />
+                          </div>
+                          <div>
+                            <div className="text-xs font-semibold text-text-primary">
+                              {k.label}
+                            </div>
+                            <div className="text-[9px] text-text-secondary leading-tight mt-0.5">
+                              {k.desc}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="text-xl font-black text-text-primary font-mono">
+                            {k.value}
+                          </div>
+                          <span className={`h-2 w-2 rounded-full ${k.dotStyle} shrink-0`} />
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Row: Grouped Analytics */}
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+              {/* Card 5: Pending Assignment */}
+              {(() => {
+                const k = kpis.find(x => x.id === "pending")!;
+                if (!k) return null;
+                const active = selectedKpi === k.id;
+                const Icon = k.icon;
+                const cardBorder = active
+                  ? "border-lime ring-2 ring-lime/20 bg-surface-raised scale-[1.02]"
+                  : "border-border bg-surface hover:border-border-bright hover:shadow-sm";
+                return (
+                  <button
+                    onClick={() => setSelectedKpi(k.id)}
+                    className={`flex flex-col justify-between w-full text-left p-5 border rounded-xl shadow-sm transition-all duration-200 group cursor-pointer h-full min-h-[160px] ${cardBorder}`}
+                  >
+                    <div className="flex items-start justify-between w-full">
+                      <div className={`p-2 rounded-lg border ${k.badgeStyle}`}>
+                        <Icon size={18} strokeWidth={2.5} />
+                      </div>
+                      <span className={`h-2.5 w-2.5 rounded-full ${k.dotStyle}`} />
+                    </div>
+                    <div className="mt-4">
+                      <div className="text-3xl font-extrabold text-text-primary tracking-tight font-mono">
+                        {k.value}
+                      </div>
+                      <div className="text-xs font-semibold mt-1 text-text-primary">
+                        {k.label}
+                      </div>
+                      <div className="text-[10px] mt-0.5 leading-snug text-text-secondary">
+                        {k.desc}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })()}
+
+              {/* Combined Box for In Assessment, Panel Dispatched, and Installed */}
+              <div className="lg:col-span-2 border border-border bg-surface/30 rounded-xl p-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                {/* Card 6: In Assessment */}
+                {(() => {
+                  const k = kpis.find(x => x.id === "assessment")!;
+                  if (!k) return null;
+                  const active = selectedKpi === k.id;
+                  const Icon = k.icon;
+                  const cardBorder = active
+                    ? "border-lime ring-2 ring-lime/20 bg-surface-raised scale-[1.02]"
+                    : "border-border bg-surface hover:border-border-bright hover:shadow-sm";
+                  return (
+                    <button
+                      onClick={() => setSelectedKpi(k.id)}
+                      className={`flex flex-col justify-between w-full text-left p-5 border rounded-xl shadow-sm transition-all duration-200 group cursor-pointer h-full min-h-[140px] ${cardBorder}`}
+                    >
+                      <div className="flex items-start justify-between w-full">
+                        <div className={`p-2 rounded-lg border ${k.badgeStyle}`}>
+                          <Icon size={18} strokeWidth={2.5} />
+                        </div>
+                        <span className={`h-2.5 w-2.5 rounded-full ${k.dotStyle}`} />
+                      </div>
+                      <div className="mt-4">
+                        <div className="text-3xl font-extrabold text-text-primary tracking-tight font-mono">
+                          {k.value}
+                        </div>
+                        <div className="text-xs font-semibold mt-1 text-text-primary">
+                          {k.label}
+                        </div>
+                        <div className="text-[10px] mt-0.5 leading-snug text-text-secondary">
+                          {k.desc}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })()}
+
+                {/* Vertical stack for Panel Dispatched and Installed (reduced size) */}
+                <div className="flex flex-col gap-2 justify-between h-full">
+                  {[
+                    kpis.find(x => x.id === "dispatched")!,
+                    kpis.find(x => x.id === "installed")!
+                  ].filter(Boolean).map((k) => {
+                    const active = selectedKpi === k.id;
+                    const Icon = k.icon;
+                    const cardBorder = active
+                      ? "border-lime ring-2 ring-lime/20 bg-surface-raised scale-[1.01]"
+                      : "border-border bg-surface hover:border-border-bright hover:shadow-sm";
+                    return (
+                      <button
+                        key={k.id}
+                        onClick={() => setSelectedKpi(k.id)}
+                        className={`flex items-center justify-between w-full text-left px-4 py-2.5 border rounded-xl shadow-sm transition-all duration-200 group cursor-pointer flex-1 ${cardBorder}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={`p-1.5 rounded-lg border shrink-0 ${k.badgeStyle}`}>
+                            <Icon size={14} strokeWidth={2.5} />
+                          </div>
+                          <div>
+                            <div className="text-xs font-semibold text-text-primary">
+                              {k.label}
+                            </div>
+                            <div className="text-[9px] text-text-secondary leading-tight mt-0.5">
+                              {k.desc}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="text-xl font-black text-text-primary font-mono">
+                            {k.value}
+                          </div>
+                          <span className={`h-2 w-2 rounded-full ${k.dotStyle} shrink-0`} />
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Card 8: Dropped / Rejected */}
+              {(() => {
+                const k = kpis.find(x => x.id === "dropped")!;
+                if (!k) return null;
+                const active = selectedKpi === k.id;
+                const Icon = k.icon;
+                const cardBorder = active
+                  ? "border-lime ring-2 ring-lime/20 bg-surface-raised scale-[1.02]"
+                  : "border-border bg-surface hover:border-border-bright hover:shadow-sm";
+                return (
+                  <button
+                    onClick={() => setSelectedKpi(k.id)}
+                    className={`flex flex-col justify-between w-full text-left p-5 border rounded-xl shadow-sm transition-all duration-200 group cursor-pointer h-full min-h-[160px] ${cardBorder}`}
+                  >
+                    <div className="flex items-start justify-between w-full">
+                      <div className={`p-2 rounded-lg border ${k.badgeStyle}`}>
+                        <Icon size={18} strokeWidth={2.5} />
+                      </div>
+                      <span className={`h-2.5 w-2.5 rounded-full ${k.dotStyle}`} />
+                    </div>
+                    <div className="mt-4">
+                      <div className="text-3xl font-extrabold text-text-primary tracking-tight font-mono">
+                        {k.value}
+                      </div>
+                      <div className="text-xs font-semibold mt-1 text-text-primary">
+                        {k.label}
+                      </div>
+                      <div className="text-[10px] mt-0.5 leading-snug text-text-secondary">
+                        {k.desc}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })()}
+            </div>
+          </div>
+        )}
 
         {/* Drill-down Table Section */}
         {selectedKpi && (

@@ -11,6 +11,8 @@ import { parseTaskNotes } from "@/components/staff/TasksPanel";
 import { parseSiteMetadata } from "@/components/staff/SitesPanel";
 import { toast } from "sonner";
 import { InventoryPanel } from "@/components/inventory/InventoryPanel";
+import { OrderTab } from "@/components/business-consultant/OrderTab";
+
 
 export const Route = createFileRoute("/business-consultant")({
   ssr: false,
@@ -18,7 +20,7 @@ export const Route = createFileRoute("/business-consultant")({
   component: BusinessConsultantPage,
 });
 
-type Site = { id: string; name: string; city: string | null; address: string | null; assigned_at: string | null; appt_date: string | null; appt_time: string | null; task_notes: string | null; consultant_stage: string | null };
+type Site = { id: string; name: string; company_name: string | null; city: string | null; address: string | null; assigned_at: string | null; appt_date: string | null; appt_time: string | null; task_notes: string | null; consultant_stage: string | null };
 
 function BusinessConsultantPage() {
   const navigate = useNavigate();
@@ -38,7 +40,7 @@ function BusinessConsultantPage() {
   const [site, setSite] = useState<Site | null | undefined>(undefined);
   
   const [queryError, setQueryError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"assessment" | "installation" | "commissioning">("assessment");
+  const [tab, setTab] = useState<"assessment" | "installation" | "commissioning" | "order">("assessment");
   const [progress, setProgress] = useState({ assessment: 0, installation: 0, commissioning: 0 });
   const [submittedPhases, setSubmittedPhases] = useState<Set<string>>(new Set());
   const [thankYou, setThankYou] = useState(false);
@@ -58,7 +60,7 @@ function BusinessConsultantPage() {
     if (!userId) return;
     const { data, error } = await supabase
       .from("sites")
-      .select("id,name,city,address,assigned_at,appt_date,appt_time,task_notes,consultant_stage")
+      .select("id,name,company_name,city,address,assigned_at,appt_date,appt_time,task_notes,consultant_stage")
       .or(`assigned_worker_id.eq.${userId},task_notes.ilike.%"${userId}"%`)
       .order("assigned_at", { ascending: false });
     
@@ -269,6 +271,7 @@ function BusinessConsultantPage() {
     { k: "assessment", label: "ASSESSMENT", pct: progress.assessment },
     { k: "installation", label: "INSTALLATION", pct: progress.installation },
     { k: "commissioning", label: "COMMISSIONING", pct: progress.commissioning },
+    { k: "order", label: "DEVICE ORDER", pct: 100 },
   ] as const;
 
   return (
@@ -391,7 +394,7 @@ function BusinessConsultantPage() {
         <div className="pt-4 border-t border-border">
           <p className="font-mono text-[10px] uppercase tracking-widest text-text-secondary font-bold mb-2">Phase Name</p>
           <h2 className="text-2xl uppercase tracking-tight font-extrabold text-text-primary font-syne">
-            {tab === "assessment" ? "Assessment Visit" : tab === "installation" ? "Installation Phase" : "Commissioning Phase"}
+            {tab === "assessment" ? "Assessment Visit" : tab === "installation" ? "Installation Phase" : tab === "commissioning" ? "Commissioning Phase" : "Device & Sensor Order"}
           </h2>
         </div>
 
@@ -442,6 +445,9 @@ function BusinessConsultantPage() {
                   void updateConsultantStage("Billing").then(() => setThankYou(true));
                 }}
               />
+        )}
+        {tab === "order" && (
+          <OrderTab site={site} workerId={userId!} />
         )}
       </main>
 
@@ -658,6 +664,7 @@ const ASSESSMENT_KEYS = [
   "machines_done",
   "mom_uploaded",
   "media_uploaded",
+  "factory_operations_done",
 ];
 const INSTALLATION_KEYS = ["delivery_confirmed", "coordination_done", "photos_uploaded"];
 const COMMISSIONING_KEYS = [

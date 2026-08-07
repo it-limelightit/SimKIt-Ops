@@ -1,0 +1,1 @@
+-- Archived Reference: Migration executed on remote Supabase instance.

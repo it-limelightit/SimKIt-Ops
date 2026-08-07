@@ -52,7 +52,7 @@ export function StaffShell({
     { to: `${base}/business-consultants`, label: "Business Consultants", icon: Users },
     { to: `${base}/performance`, label: "Performance", icon: Activity },
     { to: `${base}/drive-links`, label: "Links of Drive", icon: Folder },
-    { to: `${base}/inventory`, label: "Inventory", icon: Boxes },
+    { to: `${base}/inventory`, label: "Logistic", icon: Boxes },
     { to: `${base}/reports`, label: "Reports", icon: BarChart3 },
   ];
 

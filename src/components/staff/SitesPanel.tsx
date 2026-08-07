@@ -99,7 +99,7 @@ function BCMultiSelect({
                     <span
                       className={`flex items-center justify-center h-3.5 w-3.5 rounded-[3px] border shrink-0 ${checked ? "bg-lime border-lime" : "border-border"}`}
                     >
-                      {checked && <Check size={10} strokeWidth={3} className="text-bg" />}
+                      {checked && <Check size={10} strokeWidth={3} className="text-background" />}
                     </span>
                     <span className="text-text-primary">{w.name ?? w.mobile}</span>
                   </button>
@@ -178,6 +178,12 @@ export function SitesPanel() {
   const [filterStatus, setFilterStatus] = useState("");
   const [filterAssessor, setFilterAssessor] = useState("");
   const [filterBC, setFilterBC] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [clientUpdateTimes, setClientUpdateTimes] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, filterCity, filterStatus, filterAssessor, filterBC]);
 
   const [form, setForm] = useState({
     name: "",
@@ -209,7 +215,7 @@ export function SitesPanel() {
       supabase
         .from("sites")
         .select(
-          "id,name,company_name,city,address,assigned_worker_id,assigned_at,task_notes,appt_date,appt_time,consultant_stage",
+          "id,name,company_name,city,address,assigned_worker_id,assigned_at,task_notes,appt_date,appt_time,consultant_stage,created_at",
         )
         .order("created_at", { ascending: false }),
       supabase.from("profiles").select("id,name,mobile,is_active").order("created_at"),
@@ -314,6 +320,17 @@ export function SitesPanel() {
   const create = async () => {
     if (!form.name) return toast.error("Name required");
     
+    const targetName = (form.company_name || form.name).trim();
+    const { data: existing } = await supabase
+      .from("sites")
+      .select("id")
+      .ilike("company_name", targetName);
+
+    if (existing && existing.length > 0) {
+      toast.error("Company already found");
+      return;
+    }
+
     let consultantStage: string | null = null;
     let metaStatus: string = "";
     let formWorkers = [...form.workers];
@@ -421,6 +438,18 @@ export function SitesPanel() {
   const updateSite = async () => {
     if (!editingSite) return;
 
+    const targetName = (form.company_name || form.name).trim();
+    const { data: existing } = await supabase
+      .from("sites")
+      .select("id")
+      .ilike("company_name", targetName)
+      .neq("id", editingSite.id);
+
+    if (existing && existing.length > 0) {
+      toast.error("Company already found");
+      return;
+    }
+
     let consultantStage: string | null = null;
     let metaStatus: string = "";
     let formWorkers = [...form.workers];
@@ -487,6 +516,7 @@ export function SitesPanel() {
     if (error) toast.error(error.message);
     else {
       toast.success("Site updated");
+      setClientUpdateTimes(prev => ({ ...prev, [editingSite.id]: Date.now() }));
       setEditingSite(null);
       resetForm();
       await load();
@@ -536,6 +566,7 @@ export function SitesPanel() {
       } as never)
       .eq("id", siteId);
     toast.success("Assignment updated");
+    setClientUpdateTimes(prev => ({ ...prev, [siteId]: Date.now() }));
     await load();
   };
 
@@ -595,7 +626,10 @@ export function SitesPanel() {
       .eq("id", siteId);
 
     if (error) toast.error(error.message);
-    else await load();
+    else {
+      setClientUpdateTimes(prev => ({ ...prev, [siteId]: Date.now() }));
+      await load();
+    }
   };
 
   const deleteSite = async (siteId: string) => {
@@ -624,6 +658,61 @@ export function SitesPanel() {
       toast.error(err instanceof Error ? err.message : "Failed to delete site");
     }
   };
+
+  const allMetas = sites.map((s) => ({
+    ...parseSiteMetadata(s.task_notes),
+    status: s.consultant_stage || parseSiteMetadata(s.task_notes).status,
+  }));
+  const cities = Array.from(new Set(sites.map((s) => s.city).filter(Boolean))).sort();
+  const statuses = [
+    "Submitted",
+    "Unsubmitted",
+    "Certification Pending",
+    "Installed",
+    "Pending Assignment",
+    "In Assessment",
+    "Dropped / Rejected"
+  ];
+  const assessors = Array.from(
+    new Set(allMetas.map((m) => m.assessor_company).filter(Boolean)),
+  ).sort();
+  const hasFilters = !!(search || filterCity || filterStatus || filterAssessor || filterBC);
+
+  const q = search.toLowerCase().trim();
+  const filteredSites = [...sites]
+    .filter((s) => {
+      const meta = parseSiteMetadata(s.task_notes);
+      const assignedIds = getSiteWorkerIds(s);
+      if (
+        q &&
+        ![s.name, meta.assessor_company, s.city].some((v) =>
+          (v ?? "").toLowerCase().includes(q),
+        )
+      )
+        return false;
+      if (filterCity && s.city !== filterCity) return false;
+      const canonicalStatus = getCanonicalStatus(s);
+      if (filterStatus && canonicalStatus !== filterStatus) return false;
+      if (filterAssessor && meta.assessor_company !== filterAssessor) return false;
+      if (filterBC && !assignedIds.includes(filterBC)) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      const aTime = clientUpdateTimes[a.id] || 0;
+      const bTime = clientUpdateTimes[b.id] || 0;
+      if (aTime !== bTime) {
+        return bTime - aTime;
+      }
+      const aDate = new Date(a.created_at || 0).getTime();
+      const bDate = new Date(b.created_at || 0).getTime();
+      return bDate - aDate;
+    });
+
+  const ITEMS_PER_PAGE = 50;
+  const totalItems = filteredSites.length;
+  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const paginatedSites = filteredSites.slice(startIndex, startIndex + ITEMS_PER_PAGE);
 
   return (
     <div className="space-y-8">
@@ -874,7 +963,7 @@ export function SitesPanel() {
                               className={`flex items-center justify-center h-4 w-4 rounded-[3px] border shrink-0 transition-colors ${checked ? "bg-lime border-lime" : "border-border bg-surface"}`}
                             >
                               {checked && (
-                                <Check size={10} strokeWidth={3} className="text-bg" />
+                                <Check size={10} strokeWidth={3} className="text-background" />
                               )}
                             </span>
                             <input
@@ -949,180 +1038,110 @@ export function SitesPanel() {
       )}
 
       {/* ── Search & Filters ── */}
-      {(() => {
-        const allMetas = sites.map((s) => ({
-          ...parseSiteMetadata(s.task_notes),
-          status: s.consultant_stage || parseSiteMetadata(s.task_notes).status,
-        }));
-        const cities = Array.from(new Set(sites.map((s) => s.city).filter(Boolean))).sort();
-        const statuses = [
-          "Submitted",
-          "Unsubmitted",
-          "Certification Pending",
-          "Installed",
-          "Pending Assignment",
-          "In Assessment",
-          "Dropped / Rejected"
-        ];
-        const assessors = Array.from(
-          new Set(allMetas.map((m) => m.assessor_company).filter(Boolean)),
-        ).sort();
-        const hasFilters = search || filterCity || filterStatus || filterAssessor || filterBC;
-        return (
-          <div className="space-y-3">
-            <div className="flex flex-wrap gap-2 items-center">
-              <div className="relative flex-1 min-w-[200px]">
-                <input
-                  type="text"
-                  placeholder="Search by site name, assessor or city…"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full rounded-[6px] border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-dim focus:border-lime focus:outline-none transition-colors pr-8"
-                />
-                {search && (
-                  <button
-                    onClick={() => setSearch("")}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-text-dim hover:text-text-primary"
-                  >
-                    <X size={14} />
-                  </button>
-                )}
-              </div>
-              {hasFilters && (
-                <button
-                  onClick={() => {
-                    setSearch("");
-                    setFilterCity("");
-                    setFilterStatus("");
-                    setFilterAssessor("");
-                    setFilterBC("");
-                  }}
-                  className="text-xs font-mono text-coral hover:text-coral/70 transition-colors whitespace-nowrap flex items-center gap-1"
-                >
-                  <X size={12} /> Clear all
-                </button>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {[
-                { label: "City", value: filterCity, set: setFilterCity, options: cities },
-                { label: "Status", value: filterStatus, set: setFilterStatus, options: statuses },
-                {
-                  label: "Assessor",
-                  value: filterAssessor,
-                  set: setFilterAssessor,
-                  options: assessors,
-                },
-              ].map(({ label, value, set, options }) => (
-                <select
-                  key={label}
-                  value={value}
-                  onChange={(e) => set(e.target.value)}
-                  className={`rounded-[6px] border px-2.5 py-1.5 text-xs font-mono focus:outline-none transition-colors cursor-pointer ${value ? "border-lime bg-lime/5 text-lime" : "border-border bg-surface text-text-secondary"}`}
-                >
-                  <option value="">All {label}s</option>
-                  {options.map((o) => (
-                    <option key={o} value={o}>
-                      {o}
-                    </option>
-                  ))}
-                </select>
-              ))}
-              <select
-                value={filterBC}
-                onChange={(e) => setFilterBC(e.target.value)}
-                className={`rounded-[6px] border px-2.5 py-1.5 text-xs font-mono focus:outline-none transition-colors cursor-pointer ${filterBC ? "border-lime bg-lime/5 text-lime" : "border-border bg-surface text-text-secondary"}`}
+      <div className="space-y-3">
+        <div className="flex flex-wrap gap-2 items-center">
+          <div className="relative flex-1 min-w-[200px]">
+            <input
+              type="text"
+              placeholder="Search by site name, assessor or city…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full rounded-[6px] border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-dim focus:border-lime focus:outline-none transition-colors pr-8"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-dim hover:text-text-primary"
               >
-                <option value="">All BCs</option>
-                {businessConsultants.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.name ?? w.mobile}
-                  </option>
-                ))}
-              </select>
-            </div>
+                <X size={14} />
+              </button>
+            )}
           </div>
-        );
-      })()}
+          {hasFilters && (
+            <button
+              onClick={() => {
+                setSearch("");
+                setFilterCity("");
+                setFilterStatus("");
+                setFilterAssessor("");
+                setFilterBC("");
+              }}
+              className="text-xs font-mono text-coral hover:text-coral/70 transition-colors whitespace-nowrap flex items-center gap-1"
+            >
+              <X size={12} /> Clear all
+            </button>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {[
+            { label: "City", value: filterCity, set: setFilterCity, options: cities },
+            { label: "Status", value: filterStatus, set: setFilterStatus, options: statuses },
+            {
+              label: "Assessor",
+              value: filterAssessor,
+              set: setFilterAssessor,
+              options: assessors,
+            },
+          ].map(({ label, value, set, options }) => (
+            <select
+              key={label}
+              value={value}
+              onChange={(e) => set(e.target.value)}
+              className={`rounded-[6px] border px-2.5 py-1.5 text-xs font-mono focus:outline-none transition-colors cursor-pointer ${value ? "border-lime bg-lime/5 text-lime" : "border-border bg-surface text-text-secondary"}`}
+            >
+              <option value="">All {label}s</option>
+              {options.map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          ))}
+          <select
+            value={filterBC}
+            onChange={(e) => setFilterBC(e.target.value)}
+            className={`rounded-[6px] border px-2.5 py-1.5 text-xs font-mono focus:outline-none transition-colors cursor-pointer ${filterBC ? "border-lime bg-lime/5 text-lime" : "border-border bg-surface text-text-secondary"}`}
+          >
+            <option value="">All BCs</option>
+            {businessConsultants.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.name ?? w.mobile}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
 
-      <div className="overflow-x-auto border border-border bg-surface rounded-[10px]">
-        <table className="w-full text-sm">
-          <thead className="border-b border-border bg-surface-raised">
-            <tr className="text-left font-mono text-[9px] uppercase tracking-widest text-text-secondary">
-              <th className="px-4 py-3">Site / Factory</th>
-              <th className="px-4 py-3">Location</th>
-              <th className="px-4 py-3">Primary Contact</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">BC Assignment</th>
-              <th className="px-4 py-3 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sites.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-text-dim italic">
-                  No sites created yet.
-                </td>
+      <div className="border border-border bg-surface rounded-[10px] overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="border-b border-border bg-surface-raised">
+              <tr className="text-left font-mono text-[9px] uppercase tracking-widest text-text-secondary">
+                <th className="px-4 py-3">Site / Factory</th>
+                <th className="px-4 py-3">Location</th>
+                <th className="px-4 py-3">Primary Contact</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">BC Assignment</th>
+                <th className="px-4 py-3 text-right">Actions</th>
               </tr>
-            ) : (
-              (() => {
-                const ORDER: Record<string, number> = {
-                  "Pending Assessment": 0,
-                  Assigned: 1,
-                  "Assessment & Visit": 2,
-                  Concept: 3,
-                  "Pending Installation": 4,
-                  Installation: 5,
-                  Verification: 6,
-                  Shipped: 7,
-                  Running: 8,
-                  "Completed but awaiting NPC confirmation": 9,
-                  Billing: 10,
-                  "Completed but bill pending": 11,
-                  "Completed/Billed from our end": 12,
-                  Completion: 13,
-                  Reject: 14,
-                };
-                const q = search.toLowerCase().trim();
-                const filtered = [...sites]
-                  .filter((s) => {
-                    const meta = parseSiteMetadata(s.task_notes);
-                    const assignedIds = getSiteWorkerIds(s);
-                    if (
-                      q &&
-                      ![s.name, meta.assessor_company, s.city].some((v) =>
-                        (v ?? "").toLowerCase().includes(q),
-                      )
-                    )
-                      return false;
-                    if (filterCity && s.city !== filterCity) return false;
-                    const canonicalStatus = getCanonicalStatus(s);
-                    if (filterStatus && canonicalStatus !== filterStatus) return false;
-                    if (filterAssessor && meta.assessor_company !== filterAssessor) return false;
-                    if (filterBC && !assignedIds.includes(filterBC)) return false;
-                    return true;
-                  })
-                  .sort((a, b) => {
-                    const aRank =
-                      ORDER[a.consultant_stage || parseSiteMetadata(a.task_notes).status || ""] ??
-                      10;
-                    const bRank =
-                      ORDER[b.consultant_stage || parseSiteMetadata(b.task_notes).status || ""] ??
-                      10;
-                    return aRank - bRank;
-                  });
-                if (filtered.length === 0)
-                  return (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-10 text-center text-text-dim italic">
-                        No sites match your search or filters.
-                      </td>
-                    </tr>
-                  );
-                return filtered.map((s) => {
+            </thead>
+            <tbody>
+              {sites.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-10 text-center text-text-dim italic">
+                    No sites created yet.
+                  </td>
+                </tr>
+              ) : paginatedSites.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-10 text-center text-text-dim italic">
+                    No sites match your search or filters.
+                  </td>
+                </tr>
+              ) : (
+                paginatedSites.map((s) => {
                   const meta = parseSiteMetadata(s.task_notes);
                   const canonicalStatus = getCanonicalStatus(s);
-                  const displayedStatus = s.consultant_stage || meta.status;
                   const assignedIds = getSiteWorkerIds(s);
                   return (
                     <tr
@@ -1265,11 +1284,84 @@ export function SitesPanel() {
                       </td>
                     </tr>
                   );
-                });
-              })()
-            )}
-          </tbody>
-        </table>
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination Bar */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between border-t border-border bg-surface-raised px-4 py-3 sm:px-6">
+            <div className="flex flex-1 justify-between sm:hidden">
+              <Button
+                onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+                variant="secondary"
+                className="text-xs"
+              >
+                Previous
+              </Button>
+              <Button
+                onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                variant="secondary"
+                className="text-xs"
+              >
+                Next
+              </Button>
+            </div>
+            <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs text-text-secondary font-mono">
+                  Showing <span className="font-bold text-text-primary">{startIndex + 1}</span> to{" "}
+                  <span className="font-bold text-text-primary">
+                    {Math.min(startIndex + ITEMS_PER_PAGE, totalItems)}
+                  </span>{" "}
+                  of <span className="font-bold text-text-primary">{totalItems}</span> results
+                </p>
+              </div>
+              <div>
+                <nav className="isolate inline-flex -space-x-px rounded-[6px] shadow-sm gap-1" aria-label="Pagination">
+                  <Button
+                    onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                    disabled={currentPage === 1}
+                    variant="secondary"
+                    className="h-8 w-8 p-0 flex items-center justify-center border border-border bg-surface hover:bg-surface-raised"
+                  >
+                    &lt;
+                  </Button>
+                  
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+                    const isActive = page === currentPage;
+                    return (
+                      <button
+                        key={page}
+                        onClick={() => setCurrentPage(page)}
+                        className={`inline-flex items-center justify-center text-xs font-mono font-bold h-8 w-8 rounded-[6px] transition-all ${
+                          isActive
+                            ? "bg-lime text-background shadow-sm"
+                            : "border border-border bg-surface text-text-secondary hover:bg-surface-raised"
+                        }`}
+                      >
+                        {page}
+                      </button>
+                    );
+                  })}
+
+                  <Button
+                    onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                    disabled={currentPage === totalPages}
+                    variant="secondary"
+                    className="h-8 w-8 p-0 flex items-center justify-center border border-border bg-surface hover:bg-surface-raised"
+                  >
+                    &gt;
+                  </Button>
+                </nav>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
