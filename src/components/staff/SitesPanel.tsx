@@ -130,11 +130,44 @@ function BCMultiSelect({
   );
 }
 
+const ASSESSMENT_KEYS = [
+  "factory_call_done",
+  "third_party_call_done",
+  "appointment_saved",
+  "facility_visit_done",
+  "explanation_saved",
+  "contacts_done",
+  "floor_visit_done",
+  "business_profile_saved",
+  "machines_done",
+  "mom_uploaded",
+  "media_uploaded",
+];
+const INSTALLATION_KEYS = ["delivery_confirmed", "coordination_done", "photos_uploaded"];
+const COMMISSIONING_KEYS = [
+  "coordination_done",
+  "visit_done",
+  "connection_done",
+  "configure_done",
+  "testing_done",
+  "screenshots_uploaded",
+  "certificate_sent",
+  "final_mom_uploaded",
+];
+
+function pctKeys(data: any, keys: string[]) {
+  if (!data) return 0;
+  return Math.round((keys.filter((k) => !!data[k]).length / keys.length) * 100);
+}
+
 // ── Main panel ────────────────────────────────────────────────────────────────
 export function SitesPanel() {
   const formRevealRef = useRef<HTMLDivElement>(null);
   const [sites, setSites] = useState<any[]>([]);
   const [businessConsultants, setBusinessConsultants] = useState<any[]>([]);
+  const [assessments, setAssessments] = useState<any[]>([]);
+  const [installations, setInstallations] = useState<any[]>([]);
+  const [commissionings, setCommissionings] = useState<any[]>([]);
   const [creating, setCreating] = useState(false);
   const [editingSite, setEditingSite] = useState<any | null>(null);
 
@@ -170,7 +203,7 @@ export function SitesPanel() {
   });
 
   const load = async () => {
-    const [s, w] = await Promise.all([
+    const [s, w, aRes, iRes, cRes] = await Promise.all([
       supabase
         .from("sites")
         .select(
@@ -178,11 +211,17 @@ export function SitesPanel() {
         )
         .order("created_at", { ascending: false }),
       supabase.from("profiles").select("id,name,mobile,is_active").order("created_at"),
+      supabase.from("assessment").select("data,updated_at,site_id"),
+      supabase.from("installation").select("data,updated_at,site_id"),
+      supabase.from("commissioning").select("data,updated_at,site_id"),
     ]);
     if (s.error) toast.error("Error loading sites: " + s.error.message);
     if (w.error) toast.error("Error loading profiles: " + w.error.message);
     setSites(s.data ?? []);
     setBusinessConsultants((w.data ?? []).filter((x: any) => x.is_active));
+    setAssessments(aRes.data ?? []);
+    setInstallations(iRes.data ?? []);
+    setCommissionings(cRes.data ?? []);
   };
 
   useEffect(() => {
@@ -207,6 +246,49 @@ export function SitesPanel() {
     if (meta.worker_ids?.length > 0) return meta.worker_ids;
     if (s.assigned_worker_id) return [s.assigned_worker_id];
     return [];
+  };
+
+  const aMap = new Map<string, any>(assessments.map((r) => [r.site_id, r]));
+  const iMap = new Map<string, any>(installations.map((r) => [r.site_id, r]));
+  const cMap = new Map<string, any>(commissionings.map((r) => [r.site_id, r]));
+
+  const isSiteSubmitted = (site: any) => {
+    if (site.consultant_stage === "Completion" || site.consultant_stage === "Billing") return true;
+    const ar = aMap.get(site.id);
+    return !!ar?.data?.assessment_phase_submitted;
+  };
+
+  const isSiteCertification = (site: any) => {
+    if (site.consultant_stage === "Completion" || site.consultant_stage === "Billing") return true;
+    const cr = cMap.get(site.id);
+    return !!cr?.data?.certificate_sent;
+  };
+
+  const isSiteDropped = (site: any) => {
+    const meta = parseSiteMetadata(site.task_notes);
+    const stage = (site.consultant_stage || meta.status || "").toLowerCase();
+    return stage.includes("drop") || stage.includes("reject");
+  };
+
+  const isSiteAssessment = (site: any) => {
+    const meta = parseSiteMetadata(site.task_notes);
+    const stage = (site.consultant_stage || meta.status || "").toLowerCase();
+    const ar = aMap.get(site.id);
+    const aP = ar?.data?.assessment_phase_submitted ? 100 : pctKeys(ar?.data, ASSESSMENT_KEYS);
+    const hasStartedAssessment = aP > 0 && aP < 100;
+    return stage.includes("assessment") || hasStartedAssessment;
+  };
+
+  const getCanonicalStatus = (site: any): string => {
+    if (isSiteDropped(site)) return "Dropped / Rejected";
+    if (site.consultant_stage === "Completion" || site.consultant_stage === "Billing") return "Submitted";
+    const workerIds = getSiteWorkerIds(site);
+    if (workerIds.length === 0) return "Pending Assignment";
+    if (isSiteSubmitted(site)) {
+      return isSiteCertification(site) ? "Submitted" : "Certification Pending";
+    }
+    if (isSiteAssessment(site)) return "In Assessment";
+    return "Unsubmitted";
   };
 
   const create = async () => {
@@ -765,7 +847,14 @@ export function SitesPanel() {
           status: s.consultant_stage || parseSiteMetadata(s.task_notes).status,
         }));
         const cities = Array.from(new Set(sites.map((s) => s.city).filter(Boolean))).sort();
-        const statuses = Array.from(new Set(allMetas.map((m) => m.status).filter(Boolean))).sort();
+        const statuses = [
+          "Submitted",
+          "Unsubmitted",
+          "Certification Pending",
+          "Pending Assignment",
+          "In Assessment",
+          "Dropped / Rejected"
+        ];
         const assessors = Array.from(
           new Set(allMetas.map((m) => m.assessor_company).filter(Boolean)),
         ).sort();
@@ -898,8 +987,8 @@ export function SitesPanel() {
                     )
                       return false;
                     if (filterCity && s.city !== filterCity) return false;
-                    if (filterStatus && (s.consultant_stage || meta.status) !== filterStatus)
-                      return false;
+                    const canonicalStatus = getCanonicalStatus(s);
+                    if (filterStatus && canonicalStatus !== filterStatus) return false;
                     if (filterAssessor && meta.assessor_company !== filterAssessor) return false;
                     if (filterBC && !assignedIds.includes(filterBC)) return false;
                     return true;

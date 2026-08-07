@@ -67,6 +67,37 @@
   --primary-fg:    #08080F;   /* black on lime buttons */
 }
 
+:root.light-theme {
+  /* Base */
+  --bg:            #FAF9F5;   /* warm off-white main background */
+  --surface:       #FFFFFF;   /* white card surface */
+  --surface-raised: #F5F4F0;  /* elevated card / modal */
+  --border:        #E5E5E0;   /* subtle light border */
+  --border-bright: #D4D4CE;   /* hover border */
+
+  /* Text */
+  --text-primary:  #1C1917;   /* warm dark stone / black text */
+  --text-secondary:#78716C;   /* stone-500 text */
+  --text-dim:      #A8A29E;   /* stone-400 placeholder */
+
+  /* Electric Accents */
+  --lime:          #1C1917;   /* dark/black primary accent in light mode for ultra-premium look */
+  --lime-dim:      #F5F5F4;   /* light stone bg */
+  --coral:         #DC2626;   /* red-650 */
+  --coral-dim:     #FEF2F2;
+  --violet:        #7C3AED;   /* violet-650 */
+  --violet-dim:    #F5F3FF;
+  --mint:          #059669;   /* emerald-650 */
+  --mint-dim:      #ECFDF5;
+
+  /* Functional */
+  --success:       #059669;
+  --warning:       #D97706;   /* amber-650 */
+  --danger:        #DC2626;
+  --primary:       #1C1917;
+  --primary-fg:    #FFFFFF;
+}
+
 @layer base {
   * {
     border-color: var(--color-border);
@@ -207,7 +238,12 @@ input[type="time"] {
   color-scheme: dark;
   font-family: var(--font-mono);
   font-size: 14px;
-  color: #ffffff; /* White text color */
+  color: var(--text-primary);
+}
+
+:root.light-theme input[type="date"],
+:root.light-theme input[type="time"] {
+  color-scheme: light;
 }
 
 input[type="date"]::-webkit-calendar-picker-indicator,
@@ -223,3 +259,10 @@ input[type="time"]::-webkit-calendar-picker-indicator {
   cursor: pointer;
   z-index: 10;
 }
+
+/* Fix dropdown select options for visibility in both light and dark themes */
+select option {
+  background-color: var(--surface) !important;
+  color: var(--text-primary) !important;
+}
+

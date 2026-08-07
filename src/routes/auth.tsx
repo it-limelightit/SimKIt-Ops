@@ -37,9 +37,8 @@ function AuthPage() {
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`relative -mb-px px-5 py-3 text-sm transition-colors ${
-                tab === t ? "text-foreground" : "text-muted-foreground"
-              }`}
+              className={`relative -mb-px px-5 py-3 text-sm transition-colors ${tab === t ? "text-foreground" : "text-muted-foreground"
+                }`}
             >
               {t === "login" ? "Login" : "Sign Up"}
               {tab === t && <span className="absolute -bottom-px left-0 right-0 h-[2px] bg-primary" />}
@@ -231,7 +230,10 @@ function SignupForm({ onDone }: { onDone: () => void }) {
         email: f.email,
         password: f.password,
         options: {
-          emailRedirectTo: window.location.origin,
+          emailRedirectTo:
+            window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+              ? window.location.origin
+              : undefined,
           data: { name: f.name, mobile: f.mobile, whatsapp: f.whatsapp, role },
         },
       });
@@ -264,11 +266,10 @@ function SignupForm({ onDone }: { onDone: () => void }) {
                 key={r.value}
                 type="button"
                 onClick={() => setRole(r.value)}
-                className={`flex flex-col items-start gap-2 border p-4 text-left transition-colors ${
-                  active
+                className={`flex flex-col items-start gap-2 border p-4 text-left transition-colors ${active
                     ? "border-foreground bg-foreground text-background"
                     : "border-border bg-surface hover:border-foreground/40"
-                }`}
+                  }`}
               >
                 <Icon size={20} strokeWidth={1.5} />
                 <span className="text-sm font-medium leading-tight">{r.label}</span>
