@@ -281,10 +281,19 @@ export function SitesPanel() {
   };
 
   const getCanonicalStatus = (site: any): string => {
-    if (isSiteDropped(site)) return "Dropped / Rejected";
-    if (site.consultant_stage === "Completion" || site.consultant_stage === "Billing") return "Submitted";
+    const meta = parseSiteMetadata(site.task_notes);
     const workerIds = getSiteWorkerIds(site);
+
+    if (meta.status === "Dropped / Rejected" || meta.status === "Reject") return "Dropped / Rejected";
+    if (meta.status === "Submitted" || site.consultant_stage === "Completion" || site.consultant_stage === "Billing") return "Submitted";
+    if (meta.status === "Certification Pending") return "Certification Pending";
+    if (meta.status === "In Assessment") return "In Assessment";
+    if (meta.status === "Unsubmitted") return "Unsubmitted";
+    if (meta.status === "Pending Assignment") return "Pending Assignment";
+
     if (workerIds.length === 0) return "Pending Assignment";
+
+    if (isSiteDropped(site)) return "Dropped / Rejected";
     if (isSiteSubmitted(site)) {
       return isSiteCertification(site) ? "Submitted" : "Certification Pending";
     }
@@ -300,23 +309,23 @@ export function SitesPanel() {
     let formWorkers = [...form.workers];
     if (form.status === "Dropped / Rejected") {
       consultantStage = null;
-      metaStatus = "Reject";
+      metaStatus = "Dropped / Rejected";
     } else if (form.status === "Submitted") {
       consultantStage = "Completion";
-      metaStatus = "Completion";
+      metaStatus = "Submitted";
     } else if (form.status === "In Assessment") {
       consultantStage = null;
-      metaStatus = "Assessment";
+      metaStatus = "In Assessment";
     } else if (form.status === "Pending Assignment") {
       consultantStage = null;
-      metaStatus = "";
+      metaStatus = "Pending Assignment";
       formWorkers = [];
     } else if (form.status === "Unsubmitted") {
       consultantStage = null;
-      metaStatus = "Running";
+      metaStatus = "Unsubmitted";
     } else if (form.status === "Certification Pending") {
       consultantStage = null;
-      metaStatus = "Running";
+      metaStatus = "Certification Pending";
     }
 
     const meta = {
@@ -404,23 +413,23 @@ export function SitesPanel() {
     let formWorkers = [...form.workers];
     if (form.status === "Dropped / Rejected") {
       consultantStage = null;
-      metaStatus = "Reject";
+      metaStatus = "Dropped / Rejected";
     } else if (form.status === "Submitted") {
       consultantStage = "Completion";
-      metaStatus = "Completion";
+      metaStatus = "Submitted";
     } else if (form.status === "In Assessment") {
       consultantStage = null;
-      metaStatus = "Assessment";
+      metaStatus = "In Assessment";
     } else if (form.status === "Pending Assignment") {
       consultantStage = null;
-      metaStatus = "";
+      metaStatus = "Pending Assignment";
       formWorkers = [];
     } else if (form.status === "Unsubmitted") {
       consultantStage = null;
-      metaStatus = "Running";
+      metaStatus = "Unsubmitted";
     } else if (form.status === "Certification Pending") {
       consultantStage = null;
-      metaStatus = "Running";
+      metaStatus = "Certification Pending";
     }
 
     const meta = {
@@ -527,23 +536,23 @@ export function SitesPanel() {
     
     if (newStatus === "Dropped / Rejected") {
       consultantStage = null;
-      metaStatus = "Reject";
+      metaStatus = "Dropped / Rejected";
     } else if (newStatus === "Submitted") {
       consultantStage = "Completion";
-      metaStatus = "Completion";
+      metaStatus = "Submitted";
     } else if (newStatus === "In Assessment") {
       consultantStage = null;
-      metaStatus = "Assessment";
+      metaStatus = "In Assessment";
     } else if (newStatus === "Pending Assignment") {
       consultantStage = null;
-      metaStatus = "";
+      metaStatus = "Pending Assignment";
       updatedWorkers = [];
     } else if (newStatus === "Unsubmitted") {
       consultantStage = null;
-      metaStatus = "Running";
+      metaStatus = "Unsubmitted";
     } else if (newStatus === "Certification Pending") {
       consultantStage = null;
-      metaStatus = "Running";
+      metaStatus = "Certification Pending";
     }
 
     const newNotes = serializeSiteMetadata(currentTaskNotes, { 

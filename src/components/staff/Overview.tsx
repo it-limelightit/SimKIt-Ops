@@ -245,9 +245,18 @@ export function Overview() {
   };
 
   const getCanonicalStatus = (row: SiteRow): string => {
-    if (isSiteDropped(row)) return "Dropped / Rejected";
-    if (row.consultant_stage === "Completion" || row.consultant_stage === "Billing") return "Submitted";
+    const meta = row.meta;
+
+    if (meta.status === "Dropped / Rejected" || meta.status === "Reject") return "Dropped / Rejected";
+    if (meta.status === "Submitted" || row.consultant_stage === "Completion" || row.consultant_stage === "Billing") return "Submitted";
+    if (meta.status === "Certification Pending") return "Certification Pending";
+    if (meta.status === "In Assessment") return "In Assessment";
+    if (meta.status === "Unsubmitted") return "Unsubmitted";
+    if (meta.status === "Pending Assignment") return "Pending Assignment";
+
     if (row.workerIds.length === 0) return "Pending Assignment";
+
+    if (isSiteDropped(row)) return "Dropped / Rejected";
     if (isSiteSubmitted(row)) {
       return isSiteCertification(row) ? "Submitted" : "Certification Pending";
     }
