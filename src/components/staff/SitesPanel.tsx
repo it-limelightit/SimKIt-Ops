@@ -302,7 +302,7 @@ export function SitesPanel() {
     if (meta.status === "Submitted" || site.consultant_stage === "Completion" || site.consultant_stage === "Billing") return "Submitted";
     if (meta.status === "Certification Pending") return "Certification Pending";
     if (meta.status === "Installed") return "Installed";
-    if (meta.status === "In Assessment") return "In Assessment";
+    if (meta.status === "In Assessment" || meta.status === "Assessed") return "Assessed";
     if (meta.status === "Unsubmitted") return "Unsubmitted";
     if (meta.status === "Pending Assignment") return "Pending Assignment";
 
@@ -313,7 +313,7 @@ export function SitesPanel() {
       return isSiteCertification(site) ? "Submitted" : "Certification Pending";
     }
     if (isSiteInstalled(site)) return "Installed";
-    if (isSiteAssessment(site)) return "In Assessment";
+    if (isSiteAssessment(site)) return "Assessed";
     return "Unsubmitted";
   };
 
@@ -1225,7 +1225,7 @@ export function SitesPanel() {
                                       ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
                                       : canonicalStatus === "Pending Assignment"
                                         ? "bg-warning/8 text-warning border-warning/20"
-                                        : canonicalStatus === "In Assessment"
+                                        : canonicalStatus === "Assessed"
                                           ? "bg-lime/10 text-lime border-lime/20"
                                           : "bg-surface text-text-dim border-border"
                             }`}

@@ -283,7 +283,7 @@ export function Overview() {
     if (meta.status === "Submitted" || row.consultant_stage === "Completion" || row.consultant_stage === "Billing") return "Submitted";
     if (meta.status === "Certification Pending") return "Certification Pending";
     if (meta.status === "Installed") return "Installed";
-    if (meta.status === "In Assessment") return "In Assessment";
+    if (meta.status === "In Assessment" || meta.status === "Assessed") return "Assessed";
     if (meta.status === "Unsubmitted") return "Unsubmitted";
     if (meta.status === "Pending Assignment") return "Pending Assignment";
 
@@ -294,7 +294,7 @@ export function Overview() {
       return isSiteCertification(row) ? "Submitted" : "Certification Pending";
     }
     if (isSiteInstalled(row)) return "Installed";
-    if (isSiteAssessment(row)) return "In Assessment";
+    if (isSiteAssessment(row)) return "Assessed";
     return "Unsubmitted";
   };
 
@@ -316,7 +316,7 @@ export function Overview() {
   const countUnsubmitted = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Unsubmitted").length;
   const countCertification = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Certification Pending").length;
   const countInstalled = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Installed").length;
-  const countAssessment = filteredForCounts.filter((r) => getCanonicalStatus(r) === "In Assessment").length;
+  const countAssessment = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Assessed").length;
   const countDispatched = filteredForCounts.filter((r) => r.logisticsStatus === "Delivered").length;
   const countDropped = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Dropped / Rejected").length;
 
@@ -336,7 +336,7 @@ export function Overview() {
       case "pending":
         return status === "Pending Assignment";
       case "assessment":
-        return status === "In Assessment";
+        return status === "Assessed";
       case "dispatched":
         return row.logisticsStatus === "Delivered";
       case "dropped":
@@ -437,7 +437,7 @@ export function Overview() {
       toneClass = "bg-emerald-50 text-emerald-700 border-emerald-250";
     } else if (status === "Dropped / Rejected") {
       toneClass = "bg-red-50 text-red-700 border-red-200";
-    } else if (status === "Pending Assignment" || status === "In Assessment" || status === "Unsubmitted" || status === "Certification Pending") {
+    } else if (status === "Pending Assignment" || status === "Assessed" || status === "Unsubmitted" || status === "Certification Pending") {
       toneClass = "bg-amber-50 text-amber-700 border-amber-250";
     }
     return (
@@ -534,7 +534,7 @@ export function Overview() {
     },
     {
       id: "assessment",
-      label: "In Assessment",
+      label: "Assessed",
       value: countAssessment,
       desc: "Currently undergoing assessment",
       icon: ClipboardList,
