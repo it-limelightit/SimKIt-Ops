@@ -24,7 +24,9 @@ const FACTORY_STATUS_OPTIONS = [
   "Certification Pending",
   "Installed",
   "Pending Assignment",
-  "In Assessment",
+  "Total Assignment Pending on Portal",
+  "Panel Dispatched",
+  "Assessed",
   "Dropped / Rejected",
 ] as const;
 
@@ -298,22 +300,29 @@ export function SitesPanel() {
     const meta = parseSiteMetadata(site.task_notes);
     const workerIds = getSiteWorkerIds(site);
 
+    // 1. Explicit manager overrides (highest priority)
     if (meta.status === "Dropped / Rejected" || meta.status === "Reject") return "Dropped / Rejected";
-    if (meta.status === "Submitted" || site.consultant_stage === "Completion" || site.consultant_stage === "Billing") return "Submitted";
+    if (meta.status === "Submitted") return "Submitted";
     if (meta.status === "Certification Pending") return "Certification Pending";
     if (meta.status === "Installed") return "Installed";
-    if (meta.status === "In Assessment" || meta.status === "Assessed") return "Assessed";
+    if (meta.status === "Panel Dispatched") return "Panel Dispatched";
+    if (meta.status === "Assessed" || meta.status === "In Assessment") return "Assessed";
     if (meta.status === "Unsubmitted") return "Unsubmitted";
+    if (meta.status === "Total Assignment Pending on Portal") return "Total Assignment Pending on Portal";
     if (meta.status === "Pending Assignment") return "Pending Assignment";
 
-    if (workerIds.length === 0) return "Pending Assignment";
-
-    if (isSiteDropped(site)) return "Dropped / Rejected";
+    // 2. Auto-detection / Stage Fallbacks
+    if (site.consultant_stage === "Completion" || site.consultant_stage === "Billing") return "Submitted";
     if (isSiteSubmitted(site)) {
       return isSiteCertification(site) ? "Submitted" : "Certification Pending";
     }
     if (isSiteInstalled(site)) return "Installed";
     if (isSiteAssessment(site)) return "Assessed";
+    if (isSiteDropped(site)) return "Dropped / Rejected";
+
+    // 3. Default Assignment / Status Fallbacks
+    if (workerIds.length === 0) return "Pending Assignment";
+
     return "Unsubmitted";
   };
 
@@ -321,12 +330,17 @@ export function SitesPanel() {
     if (!form.name) return toast.error("Name required");
     
     const targetName = (form.company_name || form.name).trim();
-    const { data: existing } = await supabase
+    const { data: existingName } = await supabase
+      .from("sites")
+      .select("id")
+      .ilike("name", targetName);
+
+    const { data: existingCompany } = await supabase
       .from("sites")
       .select("id")
       .ilike("company_name", targetName);
 
-    if (existing && existing.length > 0) {
+    if ((existingName && existingName.length > 0) || (existingCompany && existingCompany.length > 0)) {
       toast.error("Company already found");
       return;
     }
@@ -340,9 +354,9 @@ export function SitesPanel() {
     } else if (form.status === "Submitted") {
       consultantStage = "Completion";
       metaStatus = "Submitted";
-    } else if (form.status === "In Assessment") {
+    } else if (form.status === "In Assessment" || form.status === "Assessed") {
       consultantStage = null;
-      metaStatus = "In Assessment";
+      metaStatus = "Assessed";
     } else if (form.status === "Installed") {
       consultantStage = null;
       metaStatus = "Installed";
@@ -350,6 +364,13 @@ export function SitesPanel() {
       consultantStage = null;
       metaStatus = "Pending Assignment";
       formWorkers = [];
+    } else if (form.status === "Total Assignment Pending on Portal") {
+      consultantStage = null;
+      metaStatus = "Total Assignment Pending on Portal";
+      formWorkers = [];
+    } else if (form.status === "Panel Dispatched") {
+      consultantStage = null;
+      metaStatus = "Panel Dispatched";
     } else if (form.status === "Unsubmitted") {
       consultantStage = null;
       metaStatus = "Unsubmitted";
@@ -439,13 +460,19 @@ export function SitesPanel() {
     if (!editingSite) return;
 
     const targetName = (form.company_name || form.name).trim();
-    const { data: existing } = await supabase
+    const { data: existingName } = await supabase
+      .from("sites")
+      .select("id")
+      .ilike("name", targetName)
+      .neq("id", editingSite.id);
+
+    const { data: existingCompany } = await supabase
       .from("sites")
       .select("id")
       .ilike("company_name", targetName)
       .neq("id", editingSite.id);
 
-    if (existing && existing.length > 0) {
+    if ((existingName && existingName.length > 0) || (existingCompany && existingCompany.length > 0)) {
       toast.error("Company already found");
       return;
     }
@@ -459,9 +486,9 @@ export function SitesPanel() {
     } else if (form.status === "Submitted") {
       consultantStage = "Completion";
       metaStatus = "Submitted";
-    } else if (form.status === "In Assessment") {
+    } else if (form.status === "In Assessment" || form.status === "Assessed") {
       consultantStage = null;
-      metaStatus = "In Assessment";
+      metaStatus = "Assessed";
     } else if (form.status === "Installed") {
       consultantStage = null;
       metaStatus = "Installed";
@@ -469,6 +496,13 @@ export function SitesPanel() {
       consultantStage = null;
       metaStatus = "Pending Assignment";
       formWorkers = [];
+    } else if (form.status === "Total Assignment Pending on Portal") {
+      consultantStage = null;
+      metaStatus = "Total Assignment Pending on Portal";
+      formWorkers = [];
+    } else if (form.status === "Panel Dispatched") {
+      consultantStage = null;
+      metaStatus = "Panel Dispatched";
     } else if (form.status === "Unsubmitted") {
       consultantStage = null;
       metaStatus = "Unsubmitted";
@@ -587,9 +621,9 @@ export function SitesPanel() {
     } else if (newStatus === "Submitted") {
       consultantStage = "Completion";
       metaStatus = "Submitted";
-    } else if (newStatus === "In Assessment") {
+    } else if (newStatus === "In Assessment" || newStatus === "Assessed") {
       consultantStage = null;
-      metaStatus = "In Assessment";
+      metaStatus = "Assessed";
     } else if (newStatus === "Installed") {
       consultantStage = null;
       metaStatus = "Installed";
@@ -597,6 +631,13 @@ export function SitesPanel() {
       consultantStage = null;
       metaStatus = "Pending Assignment";
       updatedWorkers = [];
+    } else if (newStatus === "Total Assignment Pending on Portal") {
+      consultantStage = null;
+      metaStatus = "Total Assignment Pending on Portal";
+      updatedWorkers = [];
+    } else if (newStatus === "Panel Dispatched") {
+      consultantStage = null;
+      metaStatus = "Panel Dispatched";
     } else if (newStatus === "Unsubmitted") {
       consultantStage = null;
       metaStatus = "Unsubmitted";
@@ -670,7 +711,9 @@ export function SitesPanel() {
     "Certification Pending",
     "Installed",
     "Pending Assignment",
-    "In Assessment",
+    "Total Assignment Pending on Portal",
+    "Panel Dispatched",
+    "Assessed",
     "Dropped / Rejected"
   ];
   const assessors = Array.from(
@@ -1223,9 +1266,11 @@ export function SitesPanel() {
                                     ? "bg-violet/10 text-violet border-violet/20"
                                     : canonicalStatus === "Installed"
                                       ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
-                                      : canonicalStatus === "Pending Assignment"
+                                      : canonicalStatus === "Pending Assignment" || canonicalStatus === "Total Assignment Pending on Portal"
                                         ? "bg-warning/8 text-warning border-warning/20"
-                                        : canonicalStatus === "Assessed"
+                                        : canonicalStatus === "Panel Dispatched"
+                                          ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                                          : canonicalStatus === "Assessed"
                                           ? "bg-lime/10 text-lime border-lime/20"
                                           : "bg-surface text-text-dim border-border"
                             }`}

@@ -27,6 +27,7 @@ import {
   Truck,
   AlertCircle,
   Package,
+  Trash2,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -390,6 +391,31 @@ function OrderCard({
   const [step, setStep] = useState<1 | 2>(1);
   const [saving, setSaving] = useState(false);
 
+  const handleDelete = async () => {
+    const confirmDelete = window.confirm(
+      `Are you sure you want to delete the order for ${material.material_name}? This action cannot be undone.`
+    );
+    if (!confirmDelete) return;
+
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from("inventory_materials")
+        .delete()
+        .eq("id", material.id);
+
+      if (error) throw error;
+
+      toast.success("Order deleted successfully.");
+      setExpanded(false);
+      onReload();
+    } catch (err: any) {
+      toast.error("Failed to delete order: " + (err.message || err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   // Date parsing for Notes JSON
   const initialNotes: CourierNotes = useMemo(() => {
     try {
@@ -693,12 +719,23 @@ function OrderCard({
                   <span className="flex items-center gap-1"><MapPin size={12} className="text-violet" /> {material.location || "No Address"}</span>
                 </div>
               </div>
-              <button
-                onClick={() => setExpanded(false)}
-                className="p-1.5 rounded-full bg-surface-raised/60 hover:bg-surface-raised text-text-secondary hover:text-text-primary transition"
-              >
-                <X size={18} />
-              </button>
+              <div className="flex items-center gap-2">
+                {editable && (
+                  <button
+                    onClick={handleDelete}
+                    className="p-1.5 rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-600 transition"
+                    title="Delete Order"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                )}
+                <button
+                  onClick={() => setExpanded(false)}
+                  className="p-1.5 rounded-full bg-surface-raised/60 hover:bg-surface-raised text-text-secondary hover:text-text-primary transition"
+                >
+                  <X size={18} />
+                </button>
+              </div>
             </div>
 
             {/* Modal Content Scrollable Area */}
