@@ -3,6 +3,7 @@
 
 @theme inline {
   --color-background: var(--bg);
+  --color-bg: var(--bg);
   --color-surface: var(--surface);
   --color-surface-raised: var(--surface-raised);
   --color-border: var(--border);
@@ -69,32 +70,32 @@
 
 :root.light-theme {
   /* Base */
-  --bg:            #FAF9F5;   /* warm off-white main background */
-  --surface:       #FFFFFF;   /* white card surface */
-  --surface-raised: #F5F4F0;  /* elevated card / modal */
-  --border:        #E5E5E0;   /* subtle light border */
-  --border-bright: #D4D4CE;   /* hover border */
+  --bg:            #F8FAFC;   /* clean slate off-white background */
+  --surface:       #FFFFFF;   /* pure white card surface */
+  --surface-raised: #F1F5F9;  /* slate-100 elevated card / modal */
+  --border:        #E2E8F0;   /* slate-200 subtle light border */
+  --border-bright: #CBD5E1;   /* slate-300 hover border */
 
   /* Text */
-  --text-primary:  #1C1917;   /* warm dark stone / black text */
-  --text-secondary:#78716C;   /* stone-500 text */
-  --text-dim:      #A8A29E;   /* stone-400 placeholder */
+  --text-primary:  #0F172A;   /* slate-900 deep midnight primary text */
+  --text-secondary:#475569;   /* slate-600 elegant readable text */
+  --text-dim:      #94A3B8;   /* slate-400 placeholder text */
 
   /* Electric Accents */
-  --lime:          #1C1917;   /* dark/black primary accent in light mode for ultra-premium look */
-  --lime-dim:      #F5F5F4;   /* light stone bg */
-  --coral:         #DC2626;   /* red-650 */
+  --lime:          #4F46E5;   /* Indigo-600 primary accent for modern corporate brand look */
+  --lime-dim:      #EEF2FF;   /* Indigo-50 soft accent background */
+  --coral:         #EF4444;   /* Red-500 */
   --coral-dim:     #FEF2F2;
-  --violet:        #7C3AED;   /* violet-650 */
+  --violet:        #8B5CF6;   /* Violet-500 */
   --violet-dim:    #F5F3FF;
-  --mint:          #059669;   /* emerald-650 */
+  --mint:          #10B981;   /* Emerald-500 */
   --mint-dim:      #ECFDF5;
 
   /* Functional */
-  --success:       #059669;
-  --warning:       #D97706;   /* amber-650 */
-  --danger:        #DC2626;
-  --primary:       #1C1917;
+  --success:       #10B981;
+  --warning:       #F59E0B;   /* Amber-500 */
+  --danger:        #EF4444;
+  --primary:       #4F46E5;
   --primary-fg:    #FFFFFF;
 }
 
@@ -170,7 +171,7 @@
   }
   &:focus {
     border-color: var(--lime);
-    box-shadow: 0 0 0 3px rgba(200, 255, 74, 0.15);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--lime) 15%, transparent);
   }
   &:disabled {
     opacity: 0.5;
@@ -219,7 +220,7 @@
 
 .complete-job-row.complete {
   background: var(--lime-dim);
-  border-color: rgba(200, 255, 74, 0.4);
+  border-color: color-mix(in srgb, var(--lime) 40%, transparent);
   color: var(--lime);
 }
 

@@ -24,8 +24,6 @@ const FACTORY_STATUS_OPTIONS = [
   "Certification Pending",
   "Installed",
   "Pending Assignment",
-  "Total Assignment Pending on Portal",
-  "Panel Dispatched",
   "Assessed",
   "Dropped / Rejected",
 ] as const;
@@ -135,17 +133,9 @@ function BCMultiSelect({
 }
 
 const ASSESSMENT_KEYS = [
-  "factory_call_done",
-  "third_party_call_done",
-  "appointment_saved",
-  "facility_visit_done",
-  "explanation_saved",
-  "contacts_done",
-  "floor_visit_done",
-  "business_profile_saved",
-  "machines_done",
   "mom_uploaded",
   "media_uploaded",
+  "factory_operations_done",
 ];
 const INSTALLATION_KEYS = ["delivery_confirmed", "coordination_done", "photos_uploaded"];
 const COMMISSIONING_KEYS = [
@@ -305,10 +295,10 @@ export function SitesPanel() {
     if (meta.status === "Submitted") return "Submitted";
     if (meta.status === "Certification Pending") return "Certification Pending";
     if (meta.status === "Installed") return "Installed";
+    // "Panel Dispatched" is auto-detected from logistics — kept for read display but not set manually
     if (meta.status === "Panel Dispatched") return "Panel Dispatched";
     if (meta.status === "Assessed" || meta.status === "In Assessment") return "Assessed";
     if (meta.status === "Unsubmitted") return "Unsubmitted";
-    if (meta.status === "Total Assignment Pending on Portal") return "Total Assignment Pending on Portal";
     if (meta.status === "Pending Assignment") return "Pending Assignment";
 
     // 2. Auto-detection / Stage Fallbacks
@@ -364,13 +354,6 @@ export function SitesPanel() {
       consultantStage = null;
       metaStatus = "Pending Assignment";
       formWorkers = [];
-    } else if (form.status === "Total Assignment Pending on Portal") {
-      consultantStage = null;
-      metaStatus = "Total Assignment Pending on Portal";
-      formWorkers = [];
-    } else if (form.status === "Panel Dispatched") {
-      consultantStage = null;
-      metaStatus = "Panel Dispatched";
     } else if (form.status === "Unsubmitted") {
       consultantStage = null;
       metaStatus = "Unsubmitted";
@@ -496,13 +479,6 @@ export function SitesPanel() {
       consultantStage = null;
       metaStatus = "Pending Assignment";
       formWorkers = [];
-    } else if (form.status === "Total Assignment Pending on Portal") {
-      consultantStage = null;
-      metaStatus = "Total Assignment Pending on Portal";
-      formWorkers = [];
-    } else if (form.status === "Panel Dispatched") {
-      consultantStage = null;
-      metaStatus = "Panel Dispatched";
     } else if (form.status === "Unsubmitted") {
       consultantStage = null;
       metaStatus = "Unsubmitted";
@@ -631,13 +607,6 @@ export function SitesPanel() {
       consultantStage = null;
       metaStatus = "Pending Assignment";
       updatedWorkers = [];
-    } else if (newStatus === "Total Assignment Pending on Portal") {
-      consultantStage = null;
-      metaStatus = "Total Assignment Pending on Portal";
-      updatedWorkers = [];
-    } else if (newStatus === "Panel Dispatched") {
-      consultantStage = null;
-      metaStatus = "Panel Dispatched";
     } else if (newStatus === "Unsubmitted") {
       consultantStage = null;
       metaStatus = "Unsubmitted";
@@ -705,16 +674,16 @@ export function SitesPanel() {
     status: s.consultant_stage || parseSiteMetadata(s.task_notes).status,
   }));
   const cities = Array.from(new Set(sites.map((s) => s.city).filter(Boolean))).sort();
+  // These statuses are manually assignable. "Panel Dispatched" is auto from logistics;
+  // "Total Assignment Pending on Portal" is auto = Assigned − Submitted. Neither appears here.
   const statuses = [
     "Submitted",
     "Unsubmitted",
     "Certification Pending",
     "Installed",
     "Pending Assignment",
-    "Total Assignment Pending on Portal",
-    "Panel Dispatched",
     "Assessed",
-    "Dropped / Rejected"
+    "Dropped / Rejected",
   ];
   const assessors = Array.from(
     new Set(allMetas.map((m) => m.assessor_company).filter(Boolean)),

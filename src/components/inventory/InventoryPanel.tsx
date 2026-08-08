@@ -439,19 +439,19 @@ function OrderCard({
     };
   }, [material.notes, material.state]);
 
-  // Form State - Step 1
-  const [ct1, setCt1] = useState(material.ct1 === "TRUE");
-  const [ct2, setCt2] = useState(material.ct2 === "TRUE");
-  const [ct3, setCt3] = useState(material.ct3 === "TRUE");
-  const [proxy1, setProxy1] = useState(material.proxy1 === "TRUE");
-  const [proxy2, setProxy2] = useState(material.proxy2 === "TRUE");
-  const [encoder, setEncoder] = useState(material.encoder === "TRUE");
-  const [vibration, setVibration] = useState(material.vibration === "TRUE");
+  // Form State - Step 1 (Default unchecked)
+  const [ct1, setCt1] = useState(false);
+  const [ct2, setCt2] = useState(false);
+  const [ct3, setCt3] = useState(false);
+  const [proxy1, setProxy1] = useState(false);
+  const [proxy2, setProxy2] = useState(false);
+  const [encoder, setEncoder] = useState(false);
+  const [vibration, setVibration] = useState(false);
   const [vibrationModel, setVibrationModel] = useState(material.vibration_model || "");
-  const [antenna, setAntenna] = useState(material.antenna === "TRUE");
-  const [towerLight, setTowerLight] = useState(material.tower_light === "TRUE");
-  const [energyMeter, setEnergyMeter] = useState(material.energy_meter === "TRUE");
-  const [plc, setPlc] = useState(material.plc === "TRUE");
+  const [antenna, setAntenna] = useState(false);
+  const [towerLight, setTowerLight] = useState(false);
+  const [energyMeter, setEnergyMeter] = useState(false);
+  const [plc, setPlc] = useState(false);
 
   const [version, setVersion] = useState(material.version || "");
   const [otaKey, setOtaKey] = useState(material.ota_key || "");
@@ -467,6 +467,79 @@ function OrderCard({
   const [packingDate, setPackingDate] = useState(initialNotes.packing_date || "");
   const [transitDate, setTransitDate] = useState(initialNotes.transit_date || "");
   const [arrivedDate, setArrivedDate] = useState(initialNotes.arrived_date || "");
+
+  // Quick Edit State (On outer card)
+  const [quickCourierId, setQuickCourierId] = useState(material.tracking_number || "");
+  const [quickStatus, setQuickStatus] = useState(initialNotes.logistics_status || "Pending");
+  const [quickSaving, setQuickSaving] = useState(false);
+
+  // Sync state with latest material values
+  useEffect(() => {
+    setCourierId(material.tracking_number || "");
+    setState(initialNotes.logistics_status || "Pending");
+    setCourierPartner(material.dispatch || "");
+    setPackingDate(initialNotes.packing_date || "");
+    setTransitDate(initialNotes.transit_date || "");
+    setArrivedDate(initialNotes.arrived_date || "");
+    setVibrationModel(material.vibration_model || "");
+    setVersion(material.version || "");
+    setOtaKey(material.ota_key || "");
+    setOtaAccount(material.ota_account || "");
+    setUplink(material.uplink || "");
+    setIccid(material.iccid || "");
+
+    setQuickCourierId(material.tracking_number || "");
+    setQuickStatus(initialNotes.logistics_status || "Pending");
+  }, [material, initialNotes]);
+
+  // Handle Quick Save from outer card
+  const handleSaveQuick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!editable) return;
+    setQuickSaving(true);
+
+    let currentPackingDate = packingDate;
+    let currentTransitDate = transitDate;
+    let currentArrivedDate = arrivedDate;
+
+    const nowStr = new Date().toLocaleDateString("en-IN");
+    if (quickStatus === "Packing" && !currentPackingDate) {
+      currentPackingDate = nowStr;
+    } else if (quickStatus === "Transit" && !currentTransitDate) {
+      currentTransitDate = nowStr;
+      if (!currentPackingDate) currentPackingDate = nowStr;
+    } else if (quickStatus === "Delivered" && !currentArrivedDate) {
+      currentArrivedDate = nowStr;
+      if (!currentPackingDate) currentPackingDate = nowStr;
+      if (!currentTransitDate) currentTransitDate = nowStr;
+    }
+
+    const newNotes: CourierNotes = {
+      ...initialNotes,
+      logistics_status: quickStatus,
+      courier_id: quickCourierId,
+      packing_date: currentPackingDate,
+      transit_date: currentTransitDate,
+      arrived_date: currentArrivedDate,
+    };
+
+    const { error } = await supabase
+      .from("inventory_materials")
+      .update({
+        tracking_number: quickCourierId || null,
+        state: quickStatus === "Transit" ? "In transit" : quickStatus,
+        notes: JSON.stringify(newNotes),
+      })
+      .eq("id", material.id);
+
+    setQuickSaving(false);
+    if (error) {
+      toast.error("Failed to save quick updates: " + error.message);
+    } else {
+      toast.success("Courier info updated!");
+      onReload();
+    }
+  };
 
   // Save Step 1 (Packing checklist and configurations)
   const handleSaveStep1 = async (e: React.FormEvent) => {
@@ -687,7 +760,52 @@ function OrderCard({
             <div>Vib: <span className="text-text-primary font-bold">{material.vibration === "TRUE" ? (material.vibration_model || "Yes") : "No"}</span></div>
             <div>Proxy: <span className="text-text-primary font-bold">{material.proxy_model || "None"}</span></div>
             <div>Uplink: <span className="text-text-primary font-bold">{material.uplink || "Unconfigured"}</span></div>
+            <div className="col-span-2 border-t border-border/40 pt-1.5 mt-0.5 flex justify-between gap-2">
+              <span className="truncate">AWB: <span className="text-text-primary font-bold">{material.tracking_number || "None"}</span></span>
+              <span className="truncate">Carrier: <span className="text-text-primary font-bold">{material.dispatch || "None"}</span></span>
+            </div>
           </div>
+          {/* Quick Courier & Status Editor */}
+          {editable && (
+            <div 
+              onClick={(e) => e.stopPropagation()} 
+              className="mt-3 p-3 bg-surface-raised border border-border rounded-lg space-y-2"
+            >
+              <div className="text-[9px] uppercase font-mono tracking-wider text-text-secondary font-bold">
+                Quick Logistics Update
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <input
+                    type="text"
+                    value={quickCourierId}
+                    onChange={(e) => setQuickCourierId(e.target.value)}
+                    placeholder="Courier AWB #"
+                    className="w-full text-xs bg-surface border border-border hover:border-border-bright rounded px-2 py-1 outline-none text-text-primary placeholder:text-text-dim font-mono focus:border-lime"
+                  />
+                </div>
+                <div>
+                  <select
+                    value={quickStatus}
+                    onChange={(e) => setQuickStatus(e.target.value)}
+                    className="w-full text-xs bg-surface border border-border hover:border-border-bright rounded px-2 py-1 outline-none text-text-primary cursor-pointer focus:border-lime font-mono"
+                  >
+                    <option value="Pending">Pending</option>
+                    <option value="Packing">Packing</option>
+                    <option value="Transit">Transit</option>
+                    <option value="Delivered">Delivered</option>
+                  </select>
+                </div>
+              </div>
+              <Button
+                onClick={handleSaveQuick}
+                disabled={quickSaving}
+                className="w-full py-1 text-[10px] uppercase font-bold tracking-widest bg-violet text-white font-sans rounded h-7 hover:brightness-110"
+              >
+                {quickSaving ? "Saving..." : "Save Quick Update"}
+              </Button>
+            </div>
+          )}
         </div>
 
         {/* Card Footer (AWB ID / Direct Edit Info) */}

@@ -493,19 +493,6 @@ export function ReportsPanel() {
         </div>
       </header>
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <SummaryCard icon={Factory} label="Total Factories" value={summary.total} tone="lime" />
-        <SummaryCard icon={Building2} label="Companies" value={summary.companies} tone="violet" />
-        <SummaryCard icon={CheckCircle2} label="Completed" value={summary.completed} tone="mint" />
-        <SummaryCard icon={Clock3} label="Pending" value={summary.pending} tone="stone" />
-        <SummaryCard
-          icon={Clock3}
-          label="Awaiting Action"
-          value={summary.awaiting}
-          tone="warning"
-        />
-      </section>
-
       <section className="rounded-[10px] border border-border bg-surface p-5 space-y-4">
         <div className="relative">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" />
@@ -712,51 +699,97 @@ function GroupedView({
       {groups.map((group) => {
         const completed = group.rows.filter((row) => isCompletedStatus(row.status)).length;
         const awaiting = group.rows.filter((row) => isAwaitingStatus(row.status)).length;
+        const pending = group.rows.filter((row) => isPendingStatus(row.status)).length;
         return (
           <section
             key={group.name}
-            className="overflow-hidden rounded-[10px] border border-border bg-surface"
+            className="overflow-hidden rounded-[12px] border border-border bg-surface shadow-sm"
           >
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface-raised px-5 py-4">
-              <div>
-                <h2 className="font-bold text-text-primary">{group.name}</h2>
-                <p className="mt-1 font-mono text-[9px] uppercase tracking-wider text-text-secondary">
-                  {group.rows.length} {group.rows.length === 1 ? "factory" : "factories"}
-                </p>
+            {/* Group Header */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface-raised/60 px-5 py-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] bg-lime/10 border border-lime/20">
+                  <Building2 size={16} className="text-lime" strokeWidth={2} />
+                </div>
+                <div>
+                  <h2 className="text-[15px] font-extrabold text-text-primary tracking-tight leading-tight">
+                    {group.name}
+                  </h2>
+                  <p className="mt-0.5 font-mono text-[9px] uppercase tracking-wider text-text-secondary">
+                    {group.rows.length} {group.rows.length === 1 ? "site" : "sites"} registered
+                  </p>
+                </div>
               </div>
-              <div className="flex gap-2 font-mono text-[9px] uppercase tracking-wider">
-                <span className="rounded-full bg-mint-dim px-2.5 py-1 text-mint">
-                  {completed} completed
-                </span>
-                <span className="rounded-full bg-warning/10 px-2.5 py-1 text-warning">
-                  {awaiting} awaiting
-                </span>
+              <div className="flex items-center gap-2">
+                {completed > 0 && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-mint-dim border border-mint/20 px-2.5 py-1 font-mono text-[9px] font-bold uppercase tracking-wider text-mint">
+                    <span className="h-1.5 w-1.5 rounded-full bg-mint" />
+                    {completed} done
+                  </span>
+                )}
+                {awaiting > 0 && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-warning/10 border border-warning/20 px-2.5 py-1 font-mono text-[9px] font-bold uppercase tracking-wider text-warning">
+                    <span className="h-1.5 w-1.5 rounded-full bg-warning" />
+                    {awaiting} awaiting
+                  </span>
+                )}
+                {pending > 0 && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-surface-raised border border-border px-2.5 py-1 font-mono text-[9px] font-bold uppercase tracking-wider text-text-secondary">
+                    <span className="h-1.5 w-1.5 rounded-full bg-text-dim" />
+                    {pending} pending
+                  </span>
+                )}
               </div>
             </div>
+            {/* Table */}
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="border-b border-border">
-                  <tr className="text-left font-mono text-[9px] uppercase tracking-widest text-text-secondary">
+                  <tr className="text-left font-mono text-[9px] uppercase tracking-widest text-text-secondary bg-surface-raised/30">
                     {showCompany && <th className="px-5 py-3">Company</th>}
-                    <th className="px-5 py-3">Factory</th>
+                    <th className="px-5 py-3">Factory / Site Name</th>
                     <th className="px-5 py-3">City</th>
                     {!showCompany && <th className="px-5 py-3">Consultant</th>}
                     <th className="px-5 py-3">Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {group.rows.map((row) => (
-                    <tr key={row.id} className="border-b border-border last:border-0">
+                  {group.rows.map((row, idx) => (
+                    <tr
+                      key={row.id}
+                      className={`border-b border-border/60 last:border-0 transition-colors hover:bg-surface-raised/30 ${
+                        idx % 2 === 0 ? "" : "bg-surface-raised/10"
+                      }`}
+                    >
                       {showCompany && (
-                        <td className="px-5 py-3 text-text-secondary">{row.companyName}</td>
+                        <td className="px-5 py-3">
+                          <span className="font-semibold text-text-primary text-[13px]">{row.companyName}</span>
+                        </td>
                       )}
-                      <td className="px-5 py-3 font-semibold text-text-primary">
-                        {row.factoryName}
+                      <td className="px-5 py-3">
+                        <div className="font-bold text-text-primary text-[13px] leading-tight">{row.factoryName}</div>
+                        {showCompany && row.factoryName !== row.companyName && (
+                          <div className="text-[10px] text-text-dim font-mono mt-0.5">{row.companyName}</div>
+                        )}
                       </td>
-                      <td className="px-5 py-3 text-text-secondary">{row.city}</td>
+                      <td className="px-5 py-3">
+                        <span className="flex items-center gap-1.5 text-text-secondary text-[12px]">
+                          {row.city}
+                        </span>
+                      </td>
                       {!showCompany && (
-                        <td className="px-5 py-3 text-text-secondary">
-                          {row.consultantNames.join(", ") || "Unassigned"}
+                        <td className="px-5 py-3">
+                          {row.consultantNames.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {row.consultantNames.map((name, i) => (
+                                <span key={i} className="inline-flex items-center gap-1 rounded-[5px] bg-surface-raised border border-border px-2 py-0.5 text-[10px] font-semibold text-text-primary">
+                                  {name}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-text-dim italic text-[11px]">Unassigned</span>
+                          )}
                         </td>
                       )}
                       <td className="px-5 py-3">

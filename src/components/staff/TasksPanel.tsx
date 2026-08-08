@@ -25,8 +25,40 @@ export function parseTaskNotes(notes: string | null) {
   const phase = phaseMatch ? phaseMatch[1] : null;
   let cleanNotes = notes;
   if (phaseMatch) cleanNotes = cleanNotes.replace(phaseMatch[0], "");
-  // Strip legacy tags and metadata
-  cleanNotes = cleanNotes.replace(/\[SECTION:[^\]]*\]/g, "").replace(/\[HIDDEN:[^\]]*\]/g, "").replace(/\[METADATA:[^\]]*\]/g, "").replace(/\[STAGE:[^\]]*\]/g, "");
+
+  // Strip METADATA block with brace matching (since JSON might contain brackets ']')
+  const metaPrefix = "[METADATA:";
+  const metaIdx = cleanNotes.indexOf(metaPrefix);
+  if (metaIdx !== -1) {
+    const start = metaIdx + metaPrefix.length;
+    let depth = 0;
+    let endIdx = -1;
+    for (let i = start; i < cleanNotes.length; i++) {
+      if (cleanNotes[i] === "{") depth++;
+      else if (cleanNotes[i] === "}") {
+        depth--;
+        if (depth === 0) {
+          endIdx = i + 1 + (cleanNotes[i + 1] === "]" ? 1 : 0);
+          break;
+        }
+      }
+    }
+    if (endIdx !== -1) {
+      cleanNotes = cleanNotes.slice(0, metaIdx) + cleanNotes.slice(endIdx);
+    }
+  }
+
+  // Strip legacy tags
+  cleanNotes = cleanNotes
+    .replace(/\[SECTION:[^\]]*\]/g, "")
+    .replace(/\[HIDDEN:[^\]]*\]/g, "")
+    .replace(/\[STAGE:[^\]]*\]/g, "");
+
+  // Remove any remaining raw JSON object string
+  if (cleanNotes.includes('"assessor_company"')) {
+    cleanNotes = cleanNotes.replace(/\{[^\}]*\}/g, "");
+  }
+
   return { phase, cleanNotes: cleanNotes.trim() };
 }
 
