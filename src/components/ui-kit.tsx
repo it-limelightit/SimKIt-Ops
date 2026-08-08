@@ -111,11 +111,13 @@ export function Checkbox({
     <label htmlFor={inputId} className={cn("inline-flex items-center gap-3 text-sm font-sans text-text-primary", disabled ? "opacity-50 cursor-not-allowed pointer-events-none" : "cursor-pointer")}>
       <span
         className={cn(
-          "flex h-[18px] w-[18px] shrink-0 items-center justify-center border-2 rounded-[4px] transition-all duration-150",
-          checked ? "border-lime bg-lime text-bg" : "border-border-bright bg-transparent",
+          "flex h-[20px] w-[20px] shrink-0 items-center justify-center border-[1.5px] rounded-[5px] transition-all duration-150",
+          checked 
+            ? "border-lime bg-lime text-bg shadow-[0_0_12px_color-mix(in_srgb,var(--lime)_30%,transparent)] scale-[1.05]" 
+            : "border-border-bright bg-surface-raised/40 hover:border-lime/50",
         )}
       >
-        {checked && <Check size={12} strokeWidth={3} />}
+        {checked && <Check size={13} strokeWidth={3.5} className="animate-in zoom-in-75 duration-150" />}
       </span>
       <input
         id={inputId}

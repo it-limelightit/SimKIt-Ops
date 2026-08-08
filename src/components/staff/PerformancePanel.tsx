@@ -485,10 +485,7 @@ function fmtDate(iso: string | null | undefined) {
 }
 
 const ASSESSMENT_KEYS = [
-  "factory_call_done", "third_party_call_done", "appointment_saved",
-  "facility_visit_done", "explanation_saved", "contacts_done",
-  "floor_visit_done", "business_profile_saved", "machines_done",
-  "mom_uploaded", "media_uploaded",
+  "mom_uploaded", "media_uploaded", "factory_operations_done",
 ];
 const INSTALLATION_KEYS = ["delivery_confirmed", "coordination_done", "photos_uploaded"];
 const COMMISSIONING_KEYS = [

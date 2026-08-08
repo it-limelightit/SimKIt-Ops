@@ -6,7 +6,7 @@ import { Badge, Button, ProgressBar, Skeleton, Select, Label, Card } from "@/com
 import { AssessmentTab } from "@/components/business-consultant/AssessmentTab";
 import { InstallationTab } from "@/components/business-consultant/InstallationTab";
 import { CommissioningTab } from "@/components/business-consultant/CommissioningTab";
-import { LogOut, Check, CheckCircle2, MapPin, Calendar, Clock, BookOpen, Boxes } from "lucide-react";
+import { LogOut, Check, CheckCircle2, MapPin, Calendar, Clock, BookOpen, Boxes, Sun, Moon, User, Phone, Mail } from "lucide-react";
 import { parseTaskNotes } from "@/components/staff/TasksPanel";
 import { parseSiteMetadata } from "@/components/staff/SitesPanel";
 import { toast } from "sonner";
@@ -278,117 +278,156 @@ function BusinessConsultantPage() {
     <Shell onSignOut={signOut} profileName={profile?.name ?? undefined} showDashboardBtn={true} onGoToDashboard={() => setView("dashboard")}>
       <div className="mt-8 space-y-6">
         
-        {/* Site & Factory Dropdown selectors matching Mockup */}
-        <div className="grid gap-4 sm:grid-cols-2 bg-surface p-6 border border-border rounded-[10px]">
-          <div>
-            <Label className="text-lime">Site Name Dropdown</Label>
-            <Select value={selectedSiteId} onChange={(e) => handleSiteChange(e.target.value)}>
-              {sitesList.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.city ? `${s.city.toUpperCase()} - ${s.name}` : s.name}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div>
-            <Label className="text-lime">Factory Name Dropdown</Label>
-            <Select value={selectedFactoryId} onChange={(e) => handleSiteChange(e.target.value)}>
-              {sitesList.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </Select>
-          </div>
-        </div>
-
         {/* Factory Details Box matching Mockup */}
-        <div className="border-l-[4px] border-lime bg-surface px-6 py-5 rounded-[8px] border border-border space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="font-mono text-[10px] uppercase tracking-widest text-lime font-bold">
-              Details of the Factory
+        <div className="bg-surface/50 backdrop-blur-md p-6 rounded-xl border border-border hover:border-lime/20 transition-all duration-300 shadow-[0_4px_30px_rgba(0,0,0,0.05)] space-y-6">
+          <div className="flex items-center justify-between border-b border-border/60 pb-3">
+            <div>
+              <div className="text-[10px] uppercase font-mono tracking-widest text-lime font-bold">
+                Details of the Factory
+              </div>
+              <h3 className="text-2xl font-extrabold font-syne text-text-primary uppercase tracking-tight mt-1">
+                {site.name}
+              </h3>
             </div>
             <Badge tone={displayedStatus === "Running" || displayedStatus === "Completion" ? "success" : displayedStatus === "Stopped" ? "danger" : "warning"}>
               {displayedStatus}
             </Badge>
           </div>
           
-          <div className="grid gap-6 md:grid-cols-3 text-sm">
-            <div className="space-y-2">
-              <div className="font-semibold text-text-primary uppercase text-xs tracking-wider">Location & Address</div>
-              <div className="text-text-secondary text-xs">{site.address || "—"}</div>
-              <div className="text-text-secondary text-xs">{site.city || "—"}</div>
-            </div>
-            
-            <div className="space-y-2">
-              <div className="font-semibold text-text-primary uppercase text-xs tracking-wider">Primary Contact</div>
-              {(meta.c1_name || meta.c1_mobile || meta.c1_email) ? (
-                <div className="text-xs space-y-1">
-                  {meta.c1_name && <div className="font-medium text-text-primary">{meta.c1_name}</div>}
-                  {meta.c1_mobile && (
-                    <a href={`tel:${meta.c1_mobile}`} className="text-lime hover:underline font-mono flex items-center gap-1">
-                      📞 {meta.c1_mobile}
-                    </a>
-                  )}
-                  {meta.c1_email && <div className="text-text-secondary truncate">{meta.c1_email}</div>}
-                </div>
-              ) : (
-                <div className="text-text-dim text-xs">No primary contact</div>
-              )}
+          <div className="grid gap-4 md:grid-cols-3">
+            {/* Location Address Card */}
+            <div className="bg-surface-raised/40 p-4 rounded-xl border border-border/80 flex gap-3">
+              <MapPin className="text-lime w-5 h-5 shrink-0 mt-0.5" />
+              <div>
+                <div className="font-mono text-[9px] uppercase tracking-wider text-text-secondary">Location & Address</div>
+                <p className="mt-1 font-semibold text-text-primary text-sm leading-snug">{site.address || "—"}</p>
+                <span className="inline-block mt-2 font-mono text-[10px] bg-surface px-2 py-0.5 border border-border rounded text-text-secondary font-bold uppercase">{site.city || "—"}</span>
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <div className="font-semibold text-text-primary uppercase text-xs tracking-wider">Secondary Contact</div>
-              {(meta.c2_name || meta.c2_mobile || meta.c2_email) ? (
-                <div className="text-xs space-y-1">
-                  {meta.c2_name && <div className="font-medium text-text-primary">{meta.c2_name}</div>}
-                  {meta.c2_mobile && (
-                    <a href={`tel:${meta.c2_mobile}`} className="text-lime hover:underline font-mono flex items-center gap-1">
-                      📞 {meta.c2_mobile}
-                    </a>
-                  )}
-                  {meta.c2_email && <div className="text-text-secondary truncate">{meta.c2_email}</div>}
-                </div>
-              ) : (
-                <div className="text-text-dim text-xs">No secondary contact</div>
-              )}
+            {/* Primary Contact Card */}
+            <div className="bg-surface-raised/40 p-4 rounded-xl border border-border/80 flex gap-3">
+              <User className="text-lime w-5 h-5 shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <div className="font-mono text-[9px] uppercase tracking-wider text-text-secondary">Primary Contact</div>
+                {(meta.c1_name || meta.c1_mobile || meta.c1_email) ? (
+                  <div className="mt-1 space-y-1 text-sm">
+                    {meta.c1_name && <p className="font-semibold text-text-primary truncate">{meta.c1_name}</p>}
+                    {meta.c1_mobile && (
+                      <a href={`tel:${meta.c1_mobile}`} className="text-lime hover:underline font-mono text-xs flex items-center gap-1.5 mt-0.5 font-bold">
+                        <Phone size={11} /> {meta.c1_mobile}
+                      </a>
+                    )}
+                    {meta.c1_email && (
+                      <div className="text-text-secondary text-xs truncate flex items-center gap-1.5 mt-0.5 font-mono">
+                        <Mail size={11} /> {meta.c1_email}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="mt-1 text-xs text-text-dim italic">No contact details</p>
+                )}
+              </div>
+            </div>
+
+            {/* Secondary Contact Card */}
+            <div className="bg-surface-raised/40 p-4 rounded-xl border border-border/80 flex gap-3">
+              <User className="text-lime w-5 h-5 shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <div className="font-mono text-[9px] uppercase tracking-wider text-text-secondary">Secondary Contact</div>
+                {(meta.c2_name || meta.c2_mobile || meta.c2_email) ? (
+                  <div className="mt-1 space-y-1 text-sm">
+                    {meta.c2_name && <p className="font-semibold text-text-primary truncate">{meta.c2_name}</p>}
+                    {meta.c2_mobile && (
+                      <a href={`tel:${meta.c2_mobile}`} className="text-lime hover:underline font-mono text-xs flex items-center gap-1.5 mt-0.5 font-bold">
+                        <Phone size={11} /> {meta.c2_mobile}
+                      </a>
+                    )}
+                    {meta.c2_email && (
+                      <div className="text-text-secondary text-xs truncate flex items-center gap-1.5 mt-0.5 font-mono">
+                        <Mail size={11} /> {meta.c2_email}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="mt-1 text-xs text-text-dim italic">No contact details</p>
+                )}
+              </div>
             </div>
           </div>
           
-          <div className="grid gap-4 sm:grid-cols-3 text-xs pt-3 border-t border-border text-text-secondary">
-            <div className="flex items-center gap-2">
-              <Calendar size={14} className="text-lime shrink-0" />
-              <span>Appt: {site.appt_date ? site.appt_date : "Not scheduled"}</span>
+          <div className="grid gap-4 md:grid-cols-2 pt-4 border-t border-border/60 items-center">
+            {/* Appointment Pills */}
+            <div className="flex flex-wrap gap-2">
+              <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-text-secondary bg-surface-raised px-3 py-1.5 border border-border rounded-full font-semibold shadow-sm">
+                <Calendar size={13} className="text-lime shrink-0" />
+                Appt: {site.appt_date ? site.appt_date : "Not scheduled"}
+              </span>
+              <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-text-secondary bg-surface-raised px-3 py-1.5 border border-border rounded-full font-semibold shadow-sm">
+                <Clock size={13} className="text-lime shrink-0" />
+                Time: {site.appt_time ? site.appt_time.slice(0, 5) : "No time set"}
+              </span>
             </div>
-            <div className="flex items-center gap-2">
-              <Clock size={14} className="text-lime shrink-0" />
-              <span>Time: {site.appt_time ? site.appt_time.slice(0, 5) : "No time set"}</span>
+            
+            {/* Update Stage dropdown */}
+            <div className="flex flex-col gap-1.5 md:items-end">
+              <div className="flex items-center gap-2 w-full md:max-w-xs justify-between md:justify-end">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-text-secondary font-bold shrink-0">Workflow Stage:</span>
+                <Select
+                  value={site.consultant_stage ?? ""}
+                  onChange={(e) => {
+                    const stage = e.target.value;
+                    if (stage === "Billing" || stage === "Completion") void updateConsultantStage(stage);
+                  }}
+                  className="py-1 px-2 text-xs h-8 max-w-[160px]"
+                >
+                  <option value="">Select reached…</option>
+                  <option value="Billing">Billing</option>
+                  <option value="Completion">Completion</option>
+                </Select>
+              </div>
             </div>
           </div>
-          <div className="pt-3 border-t border-border">
-            <Label className="text-lime">Update Manager Workflow</Label>
-            <Select
-              value={site.consultant_stage ?? ""}
-              onChange={(e) => {
-                const stage = e.target.value;
-                if (stage === "Billing" || stage === "Completion") void updateConsultantStage(stage);
-              }}
-            >
-              <option value="">Select when reached…</option>
-              <option value="Billing">Billing</option>
-              <option value="Completion">Completion</option>
-            </Select>
-            <p className="mt-1.5 text-[10px] font-mono text-text-dim">
-              This update appears on the manager’s Sites screen immediately.
-            </p>
-          </div>
+          
           {cleanNotes && (
-            <div className="pt-3 border-t border-border flex gap-2 text-sm text-text-secondary">
+            <div className="pt-4 border-t border-border/60 flex gap-2 text-sm text-text-secondary">
               <BookOpen size={16} className="text-lime shrink-0 mt-0.5" />
               <p>{cleanNotes}</p>
             </div>
           )}
         </div>
+
+        {/* Chunky Horizontal Phase Progress Tabs */}
+        <nav className="flex flex-col md:flex-row gap-4 mt-6">
+          {segments.map((s) => {
+            const isActive = tab === s.k;
+            return (
+              <button
+                key={s.k}
+                onClick={() => setTab(s.k)}
+                className={`relative flex-1 h-[58px] bg-surface/80 backdrop-blur-sm border rounded-xl overflow-hidden flex items-center px-5 transition-all duration-300 cursor-pointer ${
+                  isActive 
+                    ? "border-lime ring-2 ring-lime/20 scale-[1.02] shadow-[0_0_20px_rgba(200,255,74,0.1)]" 
+                    : "border-border hover:border-border-bright hover:bg-surface-raised/20"
+                }`}
+              >
+                <div
+                  className="absolute left-0 top-0 bottom-0 bg-gradient-to-r from-lime/30 to-mint/30 transition-all duration-500 ease-out"
+                  style={{ width: `${s.pct}%` }}
+                />
+                <div className="relative z-10 w-full flex items-center justify-between font-mono text-[11px] font-bold tracking-widest text-text-primary">
+                  <span className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${isActive ? "bg-lime animate-pulse" : "bg-text-dim"}`} />
+                    {s.label}
+                  </span>
+                  <span className="bg-surface-raised px-2 py-0.5 rounded text-[10px] border border-border">
+                    {s.pct}%
+                  </span>
+                </div>
+              </button>
+            );
+          })}
+        </nav>
 
         {/* Phase Name Label matching Mockup */}
         <div className="pt-4 border-t border-border">
@@ -397,31 +436,6 @@ function BusinessConsultantPage() {
             {tab === "assessment" ? "Assessment Visit" : tab === "installation" ? "Installation Phase" : tab === "commissioning" ? "Commissioning Phase" : "Device & Sensor Order"}
           </h2>
         </div>
-
-        {/* Chunky Horizontal Phase Progress Tabs */}
-        <nav className="flex flex-col md:flex-row gap-4">
-          {segments.map((s) => {
-            const isActive = tab === s.k;
-            return (
-              <button
-                key={s.k}
-                onClick={() => setTab(s.k)}
-                className={`relative flex-1 h-[52px] bg-surface border rounded-[8px] overflow-hidden flex items-center px-4 transition-all duration-150 cursor-pointer ${
-                  isActive ? "border-lime ring-2 ring-lime/20" : "border-border hover:border-border-bright"
-                }`}
-              >
-                <div
-                  className="absolute left-0 top-0 bottom-0 bg-gradient-to-r from-lime to-mint opacity-20 transition-all duration-600 ease-out"
-                  style={{ width: `${s.pct}%` }}
-                />
-                <div className="relative z-10 w-full flex items-center justify-between font-mono text-[11px] font-bold tracking-widest text-text-primary">
-                  <span>{s.label}</span>
-                  <span>{s.pct}%</span>
-                </div>
-              </button>
-            );
-          })}
-        </nav>
       </div>
 
       <main className="mt-8 space-y-4 pb-24">
@@ -612,6 +626,34 @@ function Shell({
   onGoToInventory?: () => void;
   inventoryActive?: boolean;
 }) {
+  const [themeMode, setThemeMode] = useState<"light" | "dark">("light");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("themeMode");
+      const initial = (stored === "dark" || stored === "light") ? stored : "light";
+      setThemeMode(initial);
+      const root = document.documentElement;
+      if (initial === "light") {
+        root.classList.add("light-theme");
+      } else {
+        root.classList.remove("light-theme");
+      }
+    }
+  }, []);
+
+  const toggleTheme = () => {
+    const next = themeMode === "light" ? "dark" : "light";
+    setThemeMode(next);
+    const root = document.documentElement;
+    if (next === "light") {
+      root.classList.add("light-theme");
+    } else {
+      root.classList.remove("light-theme");
+    }
+    localStorage.setItem("themeMode", next);
+  };
+
   return (
     <div className="min-h-screen bg-background text-text-primary font-sans antialiased">
       <div className="sticky top-0 z-40 border-b border-border bg-surface/90 backdrop-blur-md">
@@ -639,6 +681,13 @@ function Shell({
                 {profileName.toUpperCase()}
               </span>
             )}
+            <button
+              onClick={toggleTheme}
+              className="text-text-secondary hover:text-lime transition-colors p-1.5 cursor-pointer bg-transparent border-0 outline-none flex items-center justify-center"
+              title={themeMode === "light" ? "Switch to Dark Mode" : "Switch to Light Mode"}
+            >
+              {themeMode === "light" ? <Moon size={16} strokeWidth={2} /> : <Sun size={16} strokeWidth={2} />}
+            </button>
             <Button variant="ghost" onClick={onSignOut} className="py-1 px-3 text-xs">
               <LogOut size={14} />
               <span>Sign out</span>
@@ -651,17 +700,7 @@ function Shell({
   );
 }
 
-// Keys used to compute per-tab completion %
 const ASSESSMENT_KEYS = [
-  "factory_call_done",
-  "third_party_call_done",
-  "appointment_saved",
-  "facility_visit_done",
-  "explanation_saved",
-  "contacts_done",
-  "floor_visit_done",
-  "business_profile_saved",
-  "machines_done",
   "mom_uploaded",
   "media_uploaded",
   "factory_operations_done",

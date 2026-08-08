@@ -53,17 +53,9 @@ type SiteRow = {
 };
 
 const ASSESSMENT_KEYS = [
-  "factory_call_done",
-  "third_party_call_done",
-  "appointment_saved",
-  "facility_visit_done",
-  "explanation_saved",
-  "contacts_done",
-  "floor_visit_done",
-  "business_profile_saved",
-  "machines_done",
   "mom_uploaded",
   "media_uploaded",
+  "factory_operations_done",
 ];
 const INSTALLATION_KEYS = ["delivery_confirmed", "coordination_done", "photos_uploaded"];
 const COMMISSIONING_KEYS = [
@@ -350,8 +342,9 @@ export function Overview() {
   // Calculate counts based on current filters and canonical status partitioning
   const countTotal = filteredForCounts.length; // First card represents total companies count
   const countPending = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Pending Assignment").length;
-  const countPendingPortal = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Total Assignment Pending on Portal").length;
   const countSubmitted = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Submitted").length;
+  // Total Assignment Pending on Portal = Companies Assigned - Submitted
+  const countPendingPortal = countTotal - countSubmitted;
   const countUnsubmitted = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Unsubmitted").length;
   const countCertification = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Certification Pending").length;
   const countInstalled = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Installed").length;
@@ -375,7 +368,8 @@ export function Overview() {
       case "pending":
         return status === "Pending Assignment";
       case "pending_portal":
-        return status === "Total Assignment Pending on Portal";
+        // Show all companies that haven't been submitted yet
+        return status !== "Submitted";
       case "assessment":
         return status === "Assessed";
       case "dispatched":
@@ -579,7 +573,7 @@ export function Overview() {
       id: "pending_portal",
       label: "Total Assignment Pending on Portal",
       value: countPendingPortal,
-      desc: "Pending assignment on portal",
+      desc: `Companies assigned (${countTotal}) − submitted (${countSubmitted})`,
       icon: UserMinus,
       badgeStyle: "text-amber-700 bg-amber-50 border-amber-250",
       dotStyle: "bg-amber-600",

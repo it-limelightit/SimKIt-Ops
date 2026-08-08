@@ -19,7 +19,7 @@ import { MediaUploader } from "@/components/MediaUploader";
 import { usePhaseData } from "@/lib/use-phase-data";
 import { useAuth } from "@/lib/auth-store";
 import { advanceSiteVisitStatus } from "@/lib/site-metadata";
-import { Plus, Trash2, Users, Wrench, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, Trash2, Users, Wrench, AlertTriangle, ChevronDown, ChevronUp, Building2, Check } from "lucide-react";
 
 type Props = { siteId: string; workerId: string; hiddenSections?: string[]; onSubmit?: () => void };
 
@@ -85,7 +85,7 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
   const [siteDetails, setSiteDetails] = useState<{ appt_date: string | null; appt_time: string | null; task_notes: string | null } | null>(null);
 
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
-    "Factory Call": true,
+    "MOM": true,
   });
 
   const toggleSection = (name: string) => {
@@ -231,405 +231,12 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
         )}
       </div>
 
-      {/* 1. Factory Call */}
-      {shouldShow("Factory Call") && (
-        <Card className="border-l-[3px] border-lime relative">
-          <div className="section-number-ghost">01</div>
-          <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSection("Factory Call")}>
-            <SectionTitle num={1}>Factory Call</SectionTitle>
-            <span className="font-mono text-[10px] text-lime bg-lime-dim/50 px-2 py-0.5 border border-lime/20 rounded-[4px] font-bold">
-              {expandedSections["Factory Call"] ? "COLLAPSE ▲" : "EXPAND ▼"}
-            </span>
-          </div>
-          
-          {expandedSections["Factory Call"] && (
-            <div className="mt-6 space-y-6 animate-in fade-in duration-200">
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-text-secondary">Factory call phase details and confirmation</span>
-                <Badge tone={data.factory_call_done ? "success" : "warning"}>
-                  {data.factory_call_done ? "Done" : "Pending"}
-                </Badge>
-              </div>
-              {data.factory_call_done && (
-                <div className="mt-5">
-                  <Label>Completed at</Label>
-                  <Input
-                    type="datetime-local"
-                    defaultValue={toLocalInput(data.factory_call_at)}
-                    onBlur={(e) => patch({ factory_call_at: fromLocalInput(e.target.value) })}
-                  />
-                </div>
-              )}
-              {renderCustomFields("Factory Call")}
-              <CompleteJobRow
-                checked={!!data.factory_call_done}
-                onToggle={() => {
-                  const v = !data.factory_call_done;
-                  patch({ factory_call_done: v, factory_call_at: v ? data.factory_call_at ?? nowIso() : null });
-                }}
-              />
-            </div>
-          )}
-        </Card>
-      )}
-
-      {/* 2. Assessor Call */}
-      {shouldShow("Third Party Call") && (
-        <Card className="border-l-[3px] border-lime relative">
-          <div className="section-number-ghost">02</div>
-          <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSection("Third Party Call")}>
-            <SectionTitle num={2}>Assessor Call</SectionTitle>
-            <span className="font-mono text-[10px] text-lime bg-lime-dim/50 px-2 py-0.5 border border-lime/20 rounded-[4px] font-bold">
-              {expandedSections["Third Party Call"] ? "COLLAPSE ▲" : "EXPAND ▼"}
-            </span>
-          </div>
-
-          {expandedSections["Third Party Call"] && (
-            <div className="mt-6 space-y-6 animate-in fade-in duration-200">
-              {renderCustomFields("Third Party Call")}
-              <CompleteJobRow
-                checked={!!data.third_party_call_done}
-                onToggle={() => {
-                  const v = !data.third_party_call_done;
-                  patch({ third_party_call_done: v, third_party_call_at: v ? nowIso() : null });
-                }}
-              />
-            </div>
-          )}
-        </Card>
-      )}
-
-      {/* 3. Appointment */}
-      {shouldShow("Appointment") && (
-        <Card key={siteDetails ? "loaded" : "loading"} className="border-l-[3px] border-lime relative">
-          <div className="section-number-ghost">03</div>
-          <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSection("Appointment")}>
-            <SectionTitle num={3}>Book Appointment</SectionTitle>
-            <span className="font-mono text-[10px] text-lime bg-lime-dim/50 px-2 py-0.5 border border-lime/20 rounded-[4px] font-bold">
-              {expandedSections["Appointment"] ? "COLLAPSE ▲" : "EXPAND ▼"}
-            </span>
-          </div>
-
-          {expandedSections["Appointment"] && (
-            <div className="mt-6 space-y-6 animate-in fade-in duration-200">
-              {renderCustomFields("Appointment", !!data.appointment_saved)}
-              <CompleteJobRow
-                checked={!!data.appointment_saved}
-                onToggle={() => patch({ appointment_saved: !data.appointment_saved })}
-              />
-            </div>
-          )}
-        </Card>
-      )}
-
-      {/* 4. Facility Visit */}
-      {shouldShow("Facility Visit") && (
-        <Card className="border-l-[3px] border-lime relative">
-          <div className="section-number-ghost">04</div>
-          <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSection("Facility Visit")}>
-            <SectionTitle num={4}>Facility Visit</SectionTitle>
-            <span className="font-mono text-[10px] text-lime bg-lime-dim/50 px-2 py-0.5 border border-lime/20 rounded-[4px] font-bold">
-              {expandedSections["Facility Visit"] ? "COLLAPSE ▲" : "EXPAND ▼"}
-            </span>
-          </div>
-
-          {expandedSections["Facility Visit"] && (
-            <div className="mt-6 space-y-6 animate-in fade-in duration-200">
-              {data.facility_visit_done && (
-                <div className="mb-5 grid grid-cols-2 gap-4">
-                  <div>
-                    <Label>Visited at</Label>
-                    <Input
-                      type="datetime-local"
-                      defaultValue={toLocalInput(data.facility_visit_at)}
-                      onBlur={(e) => patch({ facility_visit_at: fromLocalInput(e.target.value) })}
-                    />
-                  </div>
-                  <div>
-                    <Label>Visited by</Label>
-                    <Input value={data.facility_visited_by ?? profile?.name ?? ""} readOnly />
-                  </div>
-                </div>
-              )}
-              {renderCustomFields("Facility Visit")}
-              <CompleteJobRow
-                checked={!!data.facility_visit_done}
-                onToggle={() =>
-                  patch({
-                    facility_visit_done: !data.facility_visit_done,
-                    facility_visit_at: !data.facility_visit_done ? data.facility_visit_at ?? nowIso() : null,
-                    facility_visited_by: !data.facility_visit_done ? profile?.name ?? "" : null,
-                  })
-                }
-              />
-            </div>
-          )}
-        </Card>
-      )}
-
-      {/* 5. Explanation */}
-      {shouldShow("Explanation") && (
-        <Card className="border-l-[3px] border-lime relative">
-          <div className="section-number-ghost">05</div>
-          <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSection("Explanation")}>
-            <SectionTitle num={5}>Explanation</SectionTitle>
-            <span className="font-mono text-[10px] text-lime bg-lime-dim/50 px-2 py-0.5 border border-lime/20 rounded-[4px] font-bold">
-              {expandedSections["Explanation"] ? "COLLAPSE ▲" : "EXPAND ▼"}
-            </span>
-          </div>
-
-          {expandedSections["Explanation"] && (
-            <div className="mt-6 space-y-6 animate-in fade-in duration-200">
-              <Label>Explanation Notes <span className="text-[#A63D2F] ml-0.5">*</span></Label>
-              <Textarea
-                rows={6}
-                defaultValue={data.explanation_notes ?? ""}
-                onBlur={(e) => patch({ explanation_notes: e.target.value })}
-                disabled={!!data.explanation_saved}
-              />
-              <div className="mt-2 flex items-center justify-between">
-                <span className="font-mono text-[10px] text-text-secondary">
-                  {(data.explanation_notes ?? "").length} characters
-                </span>
-                {data.explanation_saved ? (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={() => save({ ...data, explanation_saved: false })}
-                  >
-                    Edit Explanation
-                  </Button>
-                ) : (
-                  <Button
-                    type="button"
-                    onClick={() => {
-                      if (!data.explanation_notes?.trim()) {
-                        toast.error("Please fill in Explanation Notes.");
-                        return;
-                      }
-                      save({ ...data, explanation_saved: true });
-                    }}
-                  >
-                    Save Explanation
-                  </Button>
-                )}
-              </div>
-              {renderCustomFields("Explanation", !!data.explanation_saved)}
-              <CompleteJobRow
-                checked={!!data.explanation_saved}
-                onToggle={() => {
-                  if (!data.explanation_saved && !data.explanation_notes?.trim()) {
-                    toast.error("Please fill in Explanation Notes first.");
-                    return;
-                  }
-                  patch({ explanation_saved: !data.explanation_saved });
-                }}
-              />
-            </div>
-          )}
-        </Card>
-      )}
-
-      {/* 6. Contacts */}
-      {shouldShow("Contacts") && (
-        <Card className="border-l-[3px] border-lime relative">
-          <div className="section-number-ghost">06</div>
-          <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSection("Contacts")}>
-            <SectionTitle num={6}>Contact Numbers</SectionTitle>
-            <span className="font-mono text-[10px] text-lime bg-lime-dim/50 px-2 py-0.5 border border-lime/20 rounded-[4px] font-bold">
-              {expandedSections["Contacts"] ? "COLLAPSE ▲" : "EXPAND ▼"}
-            </span>
-          </div>
-          {expandedSections["Contacts"] && (
-            <div className="mt-6 space-y-6 animate-in fade-in duration-200">
-              <ContactsCardContent siteId={siteId} onChange={(n) => patch({ contacts_done: n > 0 })} />
-              <CompleteJobRow
-                checked={!!data.contacts_done}
-                onToggle={() => patch({ contacts_done: !data.contacts_done })}
-              />
-            </div>
-          )}
-        </Card>
-      )}
-
-      {/* 7. Floor Visit */}
-      {shouldShow("Floor Visit") && (
-        <Card className="border-l-[3px] border-lime relative">
-          <div className="section-number-ghost">07</div>
-          <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSection("Floor Visit")}>
-            <SectionTitle num={7}>Floor Visit with Machine Photos</SectionTitle>
-            <span className="font-mono text-[10px] text-lime bg-lime-dim/50 px-2 py-0.5 border border-lime/20 rounded-[4px] font-bold">
-              {expandedSections["Floor Visit"] ? "COLLAPSE ▲" : "EXPAND ▼"}
-            </span>
-          </div>
-
-          {expandedSections["Floor Visit"] && (
-            <div className="mt-6 space-y-6 animate-in fade-in duration-200">
-              <div className="mt-6">
-                <MediaUploader siteId={siteId} phase="assessment" section="floor-visit" />
-              </div>
-              {renderCustomFields("Floor Visit")}
-              <CompleteJobRow
-                checked={!!data.floor_visit_done}
-                onToggle={() => patch({ floor_visit_done: !data.floor_visit_done })}
-                validate={() => validateSectionLinks("Floor Visit", ["floor-visit"])}
-              />
-            </div>
-          )}
-        </Card>
-      )}
-
-      {/* 8. Business Profile */}
-      {shouldShow("Business Profile") && (
-        <Card className="border-l-[3px] border-lime relative">
-          <div className="section-number-ghost">08</div>
-          <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSection("Business Profile")}>
-            <SectionTitle num={8}>Business Profile</SectionTitle>
-            <span className="font-mono text-[10px] text-lime bg-lime-dim/50 px-2 py-0.5 border border-lime/20 rounded-[4px] font-bold">
-              {expandedSections["Business Profile"] ? "COLLAPSE ▲" : "EXPAND ▼"}
-            </span>
-          </div>
-
-          {expandedSections["Business Profile"] && (
-            <div className="mt-6 space-y-6 animate-in fade-in duration-200">
-              <div className="grid gap-6 md:grid-cols-2">
-                <div>
-                  <Label>Business Name</Label>
-                  <Input
-                    defaultValue={data.biz_name ?? ""}
-                    onBlur={(e) => patch({ biz_name: e.target.value })}
-                    disabled={!!data.business_profile_saved}
-                  />
-                </div>
-                <div>
-                  <Label>Industry Type</Label>
-                  <Select
-                    defaultValue={data.biz_industry ?? ""}
-                    onBlur={(e) => patch({ biz_industry: e.target.value })}
-                    onChange={(e) => patch({ biz_industry: e.target.value })}
-                    disabled={!!data.business_profile_saved}
-                  >
-                    <option value="">Select…</option>
-                    {["Manufacturing", "Textile", "Chemical", "Food Processing", "Other"].map((o) => (
-                      <option key={o}>{o}</option>
-                    ))}
-                  </Select>
-                </div>
-                <div>
-                  <Label>GST Number</Label>
-                  <Input
-                    defaultValue={data.biz_gst ?? ""}
-                    onBlur={(e) => patch({ biz_gst: e.target.value })}
-                    disabled={!!data.business_profile_saved}
-                  />
-                </div>
-                <div>
-                  <Label>Primary Contact Name</Label>
-                  <Input
-                    defaultValue={data.biz_contact_name ?? ""}
-                    onBlur={(e) => patch({ biz_contact_name: e.target.value })}
-                    disabled={!!data.business_profile_saved}
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <Label>Address</Label>
-                  <Textarea
-                    rows={2}
-                    defaultValue={data.biz_address ?? ""}
-                    onBlur={(e) => patch({ biz_address: e.target.value })}
-                    disabled={!!data.business_profile_saved}
-                  />
-                </div>
-                <div>
-                  <Label>City</Label>
-                  <Input
-                    defaultValue={data.biz_city ?? ""}
-                    onBlur={(e) => patch({ biz_city: e.target.value })}
-                    disabled={!!data.business_profile_saved}
-                  />
-                </div>
-                <div>
-                  <Label>State</Label>
-                  <Input
-                    defaultValue={data.biz_state ?? ""}
-                    onBlur={(e) => patch({ biz_state: e.target.value })}
-                    disabled={!!data.business_profile_saved}
-                  />
-                </div>
-                <div>
-                  <Label>PIN</Label>
-                  <Input
-                    defaultValue={data.biz_pin ?? ""}
-                    onBlur={(e) => patch({ biz_pin: e.target.value })}
-                    disabled={!!data.business_profile_saved}
-                  />
-                </div>
-                <div>
-                  <Label>Primary Contact Number</Label>
-                  <Input
-                    defaultValue={data.biz_contact_mobile ?? ""}
-                    onBlur={(e) => patch({ biz_contact_mobile: e.target.value })}
-                    disabled={!!data.business_profile_saved}
-                  />
-                </div>
-              </div>
-              <div className="flex justify-end">
-                {data.business_profile_saved ? (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={() => save({ ...data, business_profile_saved: false })}
-                  >
-                    Edit Business Profile
-                  </Button>
-                ) : (
-                  <Button
-                    type="button"
-                    onClick={() => save({ ...data, business_profile_saved: true })}
-                  >
-                    Save Business Profile
-                  </Button>
-                )}
-              </div>
-              <CompleteJobRow
-                checked={!!data.business_profile_saved}
-                onToggle={() => patch({ business_profile_saved: !data.business_profile_saved })}
-              />
-              {renderCustomFields("Business Profile", !!data.business_profile_saved)}
-            </div>
-          )}
-        </Card>
-      )}
-
-      {/* 9. Machines */}
-      {shouldShow("Machines") && (
-        <Card className="border-l-[3px] border-lime relative">
-          <div className="section-number-ghost">09</div>
-          <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSection("Machines")}>
-            <SectionTitle num={9}>Machine Details</SectionTitle>
-            <span className="font-mono text-[10px] text-lime bg-lime-dim/50 px-2 py-0.5 border border-lime/20 rounded-[4px] font-bold">
-              {expandedSections["Machines"] ? "COLLAPSE ▲" : "EXPAND ▼"}
-            </span>
-          </div>
-          {expandedSections["Machines"] && (
-            <div className="mt-6 space-y-6 animate-in fade-in duration-200">
-              <MachinesCardContent siteId={siteId} onChange={(n) => patch({ machines_done: n > 0 })} />
-              {renderCustomFields("Machines")}
-              <CompleteJobRow
-                checked={!!data.machines_done}
-                onToggle={() => patch({ machines_done: !data.machines_done })}
-              />
-            </div>
-          )}
-        </Card>
-      )}
-
-      {/* 10. MOM */}
+      {/* 1. MOM */}
       {shouldShow("MOM") && (
         <Card className="border-l-[3px] border-lime relative">
-          <div className="section-number-ghost">10</div>
+          <div className="section-number-ghost">01</div>
           <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSection("MOM")}>
-            <SectionTitle num={10}>MOM (Minutes of Meeting)</SectionTitle>
+            <SectionTitle num={1}>MOM (Minutes of Meeting)</SectionTitle>
             <span className="font-mono text-[10px] text-lime bg-lime-dim/50 px-2 py-0.5 border border-lime/20 rounded-[4px] font-bold">
               {expandedSections["MOM"] ? "COLLAPSE ▲" : "EXPAND ▼"}
             </span>
@@ -661,12 +268,12 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
         </Card>
       )}
 
-      {/* 11. Photos & Videos */}
+      {/* 2. Photos & Videos */}
       {shouldShow("Media") && (
         <Card className="border-l-[3px] border-lime relative">
-          <div className="section-number-ghost">11</div>
+          <div className="section-number-ghost">02</div>
           <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSection("Media")}>
-            <SectionTitle num={11}>Photos &amp; Videos</SectionTitle>
+            <SectionTitle num={2}>Photos &amp; Videos</SectionTitle>
             <span className="font-mono text-[10px] text-lime bg-lime-dim/50 px-2 py-0.5 border border-lime/20 rounded-[4px] font-bold">
               {expandedSections["Media"] ? "COLLAPSE ▲" : "EXPAND ▼"}
             </span>
@@ -690,12 +297,12 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
         </Card>
       )}
 
-      {/* 12. Factory Operations Form */}
+      {/* 3. Factory Operations Form */}
       {shouldShow("Factory Operations") && (
         <Card className="border-l-[3px] border-lime relative">
-          <div className="section-number-ghost">12</div>
+          <div className="section-number-ghost">03</div>
           <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSection("Factory Operations")}>
-            <SectionTitle num={12}>Factory Operations Form</SectionTitle>
+            <SectionTitle num={3}>Factory Operations Form</SectionTitle>
             <span className="font-mono text-[10px] text-lime bg-lime-dim/50 px-2 py-0.5 border border-lime/20 rounded-[4px] font-bold">
               {expandedSections["Factory Operations"] ? "COLLAPSE ▲" : "EXPAND ▼"}
             </span>
@@ -703,7 +310,7 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
 
           {expandedSections["Factory Operations"] && (
             <div className="mt-6 space-y-6 animate-in fade-in duration-200">
-              <FactoryOperationsCardContent data={data} patch={patch} />
+              <FactoryOperationsCardContent data={data} patch={patch} siteId={siteId} />
               <CompleteJobRow
                 checked={!!data.factory_operations_done}
                 onToggle={() => patch({ factory_operations_done: !data.factory_operations_done })}
@@ -725,13 +332,13 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
       <div className="mt-8 flex justify-end">
         <Button
           onClick={async () => {
-            if (shouldShow("Third Party Call") && !data.third_party_call_done) {
-              toast.error("Please complete the Assessor Call section.");
+            if (shouldShow("MOM") && !data.mom_uploaded) {
+              toast.error("Please complete the MOM (Minutes of Meeting) section.");
               return;
             }
 
-            if (shouldShow("Explanation") && !data.explanation_notes?.trim()) {
-              toast.error("Please fill in Explanation Notes.");
+            if (shouldShow("Media") && !data.media_uploaded) {
+              toast.error("Please complete the Photos & Videos section.");
               return;
             }
 
@@ -924,6 +531,7 @@ function MachinesCardContent({ siteId, onChange }: { siteId: string; onChange: (
 interface FactoryOperationsCardContentProps {
   data: Record<string, any>;
   patch: (delta: Partial<Record<string, any>>) => void;
+  siteId: string;
 }
 
 const COMMON_DOWNTIME_REASONS = [
@@ -988,7 +596,29 @@ function checkShiftOverlap(shifts: any[]): boolean {
   return false;
 }
 
-function FactoryOperationsCardContent({ data, patch }: FactoryOperationsCardContentProps) {
+function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperationsCardContentProps) {
+  useEffect(() => {
+    if (!siteId) return;
+    (async () => {
+      const { data: site } = await supabase
+        .from("sites")
+        .select("name,company_name,address")
+        .eq("id", siteId)
+        .maybeSingle();
+      if (site) {
+        const updates: Record<string, any> = {};
+        if (!data.factory_op_name) {
+          updates.factory_op_name = site.company_name || site.name;
+        }
+        if (!data.factory_op_address && site.address) {
+          updates.factory_op_address = site.address;
+        }
+        if (Object.keys(updates).length > 0) {
+          patch(updates);
+        }
+      }
+    })();
+  }, [siteId, data.factory_op_name, data.factory_op_address]);
   // Initialize dynamic lists
   const machines = data.factory_op_machines ?? [""];
   const owners = data.factory_op_owners ?? [{ name: "", email: "", contact: "" }];
@@ -1540,12 +1170,232 @@ function FactoryOperationsCardContent({ data, patch }: FactoryOperationsCardCont
         </div>
       </div>
 
-      {/* H. Business Profile Header */}
-      <div className="pt-6 border-t border-border text-center">
-        <h4 className="font-syne text-[15px] font-extrabold uppercase tracking-widest text-text-secondary">
-          Business Profile
-        </h4>
+
+      {/* H. Business Profile Details */}
+      <div className="space-y-6 bg-surface-raised/40 backdrop-blur-md border border-border/80 rounded-2xl p-6 shadow-sm relative overflow-hidden transition-all duration-300 hover:border-lime/40">
+        <div className="flex items-center gap-3 border-b border-border/80 pb-3">
+          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-lime-dim/50 border border-lime/20 text-lime">
+            <Building2 size={16} />
+          </div>
+          <div className="flex-1">
+            <h4 className="font-syne text-[14px] font-extrabold uppercase tracking-wider text-text-primary">
+              Business Profile Details
+            </h4>
+            <p className="text-[10px] text-text-secondary font-mono tracking-normal mt-0.5">
+              Configure machine type specification and parameters
+            </p>
+          </div>
+          <span className="flex h-2 w-2 relative">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-lime/40 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-lime"></span>
+          </span>
+        </div>
+
+        <div className="bg-surface/50 border border-border/60 rounded-xl p-4">
+          <Label className="text-[9px] text-text-secondary tracking-widest uppercase font-bold mb-1.5 block">Select Company / Machine Type</Label>
+          <div className="relative">
+            <Select
+              value={data.company_type ?? ""}
+              onChange={(e) => patch({ company_type: e.target.value })}
+              className="w-full bg-surface-raised border border-border rounded-lg px-3 py-2 text-sm focus:border-lime focus:ring-1 focus:ring-lime/20 transition-all font-sans"
+            >
+              <option value="">Select Type...</option>
+              <option value="Runtime Machine">Runtime Machine (Time-based Tracking)</option>
+              <option value="Length-based Machine">Length-based Machine (Continuous Extruder)</option>
+            </Select>
+          </div>
+        </div>
+
+        {data.company_type === "Runtime Machine" && (
+          <div className="space-y-6 pt-4 border-t border-border/60 animate-in fade-in duration-200">
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="bg-surface/30 border border-border/40 rounded-xl p-4 space-y-2 hover:border-lime/30 transition-all">
+                <Label className="text-[9px] text-lime font-bold font-mono tracking-wider block">Expected daily run (hours)</Label>
+                <Input
+                  type="number"
+                  value={data.expected_daily_run_hours ?? ""}
+                  onChange={(e) => patch({ expected_daily_run_hours: e.target.value ? Number(e.target.value) : "" })}
+                  placeholder="e.g. 9"
+                  className="bg-transparent border-0 border-b border-border/80 focus:border-lime focus:ring-0 rounded-none text-base font-semibold py-1 px-0 w-full"
+                />
+              </div>
+              <div className="bg-surface/30 border border-border/40 rounded-xl p-4 space-y-2 hover:border-lime/30 transition-all">
+                <Label className="text-[9px] text-lime font-bold font-mono tracking-wider block">Expected runtime / day (min)</Label>
+                <Input
+                  type="number"
+                  value={data.expected_runtime_day_min ?? ""}
+                  onChange={(e) => patch({ expected_runtime_day_min: e.target.value ? Number(e.target.value) : "" })}
+                  placeholder="540"
+                  className="bg-transparent border-0 border-b border-border/80 focus:border-lime focus:ring-0 rounded-none text-base font-semibold py-1 px-0 w-full"
+                />
+                <p className="text-[9px] text-text-secondary mt-1">Typical productive runtime per day</p>
+              </div>
+              <div className="bg-surface/30 border border-border/40 rounded-xl p-4 space-y-2 hover:border-lime/30 transition-all">
+                <Label className="text-[9px] text-lime font-bold font-mono tracking-wider block">Minimum stop duration (min)</Label>
+                <Input
+                  type="number"
+                  value={data.expected_daily_run_hours && data.expected_runtime_day_min ? data.minimum_stop_duration_min ?? "" : data.minimum_stop_duration_min ?? ""}
+                  onChange={(e) => patch({ minimum_stop_duration_min: e.target.value ? Number(e.target.value) : "" })}
+                  placeholder="5"
+                  className="bg-transparent border-0 border-b border-border/80 focus:border-lime focus:ring-0 rounded-none text-base font-semibold py-1 px-0 w-full"
+                />
+                <p className="text-[9px] text-text-secondary mt-1">Stops shorter than this are ignored</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div
+                onClick={() => patch({ production_count_meaningful: !data.production_count_meaningful })}
+                className={`flex items-center gap-3 p-4 rounded-xl border transition-all cursor-pointer select-none ${
+                  data.production_count_meaningful
+                    ? "border-lime bg-lime-dim/10 text-text-primary shadow-[0_0_12px_rgba(200,255,74,0.05)]"
+                    : "border-border/60 bg-surface/20 text-text-secondary hover:border-border-bright"
+                }`}
+              >
+                <div className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${
+                  data.production_count_meaningful
+                    ? "border-lime bg-lime text-primary-foreground"
+                    : "border-text-dim"
+                }`}>
+                  {data.production_count_meaningful && <Check size={11} strokeWidth={3} />}
+                </div>
+                <div className="flex-1">
+                  <span className="text-xs font-semibold block font-sans">Production count is meaningful</span>
+                  <span className="text-[9px] text-text-dim block mt-0.5">Toggle if OEE production count applies.</span>
+                </div>
+              </div>
+
+              <div
+                onClick={() => patch({ vibration_monitoring_relevant: !data.vibration_monitoring_relevant })}
+                className={`flex items-center gap-3 p-4 rounded-xl border transition-all cursor-pointer select-none ${
+                  data.vibration_monitoring_relevant
+                    ? "border-lime bg-lime-dim/10 text-text-primary shadow-[0_0_12px_rgba(200,255,74,0.05)]"
+                    : "border-border/60 bg-surface/20 text-text-secondary hover:border-border-bright"
+                }`}
+              >
+                <div className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${
+                  data.vibration_monitoring_relevant
+                    ? "border-lime bg-lime text-primary-foreground"
+                    : "border-text-dim"
+                }`}>
+                  {data.vibration_monitoring_relevant && <Check size={11} strokeWidth={3} />}
+                </div>
+                <div className="flex-1">
+                  <span className="text-xs font-semibold block font-sans">Vibration monitoring relevant</span>
+                  <span className="text-[9px] text-text-dim block mt-0.5">Toggle for hardware vibration sensors.</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <Label className="text-[10px] uppercase tracking-widest text-text-secondary">Machine Classification</Label>
+              <div className="bg-surface/40 p-1.5 border border-border/85 rounded-xl flex flex-wrap gap-1 w-full md:w-auto">
+                {["Production", "Utility", "Auxiliary", "Support"].map((type) => {
+                  const isActive = (data.machine_usage_type ?? "Production") === type;
+                  return (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => patch({ machine_usage_type: type })}
+                      className={`flex-1 md:flex-none px-4 py-2 text-xs font-semibold rounded-lg transition-all duration-200 cursor-pointer ${
+                        isActive
+                          ? "bg-lime text-primary-foreground font-bold shadow-sm"
+                          : "text-text-secondary hover:text-text-primary hover:bg-surface-raised/40"
+                      }`}
+                    >
+                      {type}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[10px] text-text-secondary italic">
+                Current Selection: {data.machine_usage_type ?? "Production"} — {
+                  {
+                    Production: "Makes units (OEE applies)",
+                    Utility: "Compressor, pump, etc.",
+                    Auxiliary: "Conveyor, mixer, support equip.",
+                    Support: "AC, lighting, non-operating",
+                  }[data.machine_usage_type ?? "Production"]
+                }
+              </p>
+            </div>
+          </div>
+        )}
+
+        {data.company_type === "Length-based Machine" && (
+          <div className="space-y-6 pt-4 border-t border-border/60 animate-in fade-in duration-200">
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="bg-surface/30 border border-border/40 rounded-xl p-4 space-y-2 hover:border-lime/30 transition-all">
+                <Label className="text-[9px] text-lime font-bold font-mono tracking-wider block">Expected meters / shift * (m)</Label>
+                <Input
+                  type="number"
+                  value={data.expected_meters_shift ?? ""}
+                  onChange={(e) => patch({ expected_meters_shift: e.target.value ? Number(e.target.value) : "" })}
+                  placeholder="Target meters per shift"
+                  className="bg-transparent border-0 border-b border-border/80 focus:border-lime focus:ring-0 rounded-none text-base font-semibold py-1 px-0 w-full"
+                />
+                <p className="text-[9px] text-text-secondary mt-1">Target meters this machine should produce per shift.</p>
+              </div>
+              <div className="bg-surface/30 border border-border/40 rounded-xl p-4 space-y-2 hover:border-lime/30 transition-all">
+                <Label className="text-[9px] text-lime font-bold font-mono tracking-wider block">Target line speed * (mpm)</Label>
+                <Input
+                  type="number"
+                  value={data.target_line_speed ?? ""}
+                  onChange={(e) => patch({ target_line_speed: e.target.value ? Number(e.target.value) : "" })}
+                  placeholder="Ideal speed in mpm"
+                  className="bg-transparent border-0 border-b border-border/80 focus:border-lime focus:ring-0 rounded-none text-base font-semibold py-1 px-0 w-full"
+                />
+                <p className="text-[9px] text-text-secondary mt-1">Ideal speed in meters per minute.</p>
+              </div>
+              <div className="bg-surface/30 border border-border/40 rounded-xl p-4 space-y-2 hover:border-lime/30 transition-all">
+                <Label className="text-[9px] text-lime font-bold font-mono tracking-wider block">Minimum acceptable speed (mpm)</Label>
+                <Input
+                  type="number"
+                  value={data.minimum_acceptable_speed ?? ""}
+                  onChange={(e) => patch({ minimum_acceptable_speed: e.target.value ? Number(e.target.value) : "" })}
+                  placeholder="Below this MPM is treated as idle/slow"
+                  className="bg-transparent border-0 border-b border-border/80 focus:border-lime focus:ring-0 rounded-none text-base font-semibold py-1 px-0 w-full"
+                />
+                <p className="text-[9px] text-text-secondary mt-1">Below this speed the machine is considered idle.</p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <Label className="text-[10px] uppercase tracking-widest text-text-secondary">Machine Classification</Label>
+              <div className="bg-surface/40 p-1.5 border border-border/85 rounded-xl flex flex-wrap gap-1 w-full md:w-auto">
+                {["Production", "Utility", "Auxiliary", "Support"].map((type) => {
+                  const isActive = (data.machine_usage_type ?? "Production") === type;
+                  return (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => patch({ machine_usage_type: type })}
+                      className={`flex-1 md:flex-none px-4 py-2 text-xs font-semibold rounded-lg transition-all duration-200 cursor-pointer ${
+                        isActive
+                          ? "bg-lime text-primary-foreground font-bold shadow-sm"
+                          : "text-text-secondary hover:text-text-primary hover:bg-surface-raised/40"
+                      }`}
+                    >
+                      {type}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[10px] text-text-secondary italic">
+                Current Selection: {data.machine_usage_type ?? "Production"} — {
+                  {
+                    Production: "Makes units (OEE applies)",
+                    Utility: "Compressor, pump, etc.",
+                    Auxiliary: "Conveyor, mixer, support equip.",
+                    Support: "AC, lighting, non-operating",
+                  }[data.machine_usage_type ?? "Production"]
+                }
+              </p>
+            </div>
+          </div>
+        )}
       </div>
+
     </div>
   );
 }
