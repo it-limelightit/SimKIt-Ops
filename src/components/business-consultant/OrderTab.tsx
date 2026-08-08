@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, SectionTitle, Label, Input, Select, Button, Checkbox } from "@/components/ui-kit";
 import { toast } from "sonner";
@@ -33,9 +33,34 @@ export function OrderTab({ site, workerId }: OrderTabProps) {
 
   const [submitting, setSubmitting] = useState(false);
   const [submittedOrder, setSubmittedOrder] = useState<any | null>(null);
+  const [existingOrder, setExistingOrder] = useState<any | null>(null);
+  const [loadingOrder, setLoadingOrder] = useState(true);
 
   const companyName = site.company_name || site.name;
   const address = site.address?.trim() || site.city?.trim() || "Address not specified";
+
+  useEffect(() => {
+    const fetchExistingOrder = async () => {
+      setLoadingOrder(true);
+      try {
+        const { data, error } = await supabase
+          .from("inventory_materials")
+          .select("*")
+          .eq("submitted", true)
+          .eq("material_name", companyName)
+          .maybeSingle();
+
+        if (!error && data) {
+          setExistingOrder(data);
+        }
+      } catch (err) {
+        console.error("Error checking existing order:", err);
+      } finally {
+        setLoadingOrder(false);
+      }
+    };
+    fetchExistingOrder();
+  }, [companyName]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,6 +71,21 @@ export function OrderTab({ site, workerId }: OrderTabProps) {
 
     setSubmitting(true);
     try {
+      // 1. Prevent duplicate submission by querying DB first
+      const { data: check, error: checkError } = await supabase
+        .from("inventory_materials")
+        .select("*")
+        .eq("submitted", true)
+        .eq("material_name", companyName)
+        .maybeSingle();
+
+      if (check) {
+        toast.error("Already ordered: An order has already been placed for this company.");
+        setExistingOrder(check);
+        setSubmitting(false);
+        return;
+      }
+
       const { data: inserted, error } = await supabase
         .from("inventory_materials")
         .insert({
@@ -108,29 +148,42 @@ export function OrderTab({ site, workerId }: OrderTabProps) {
     }
   };
 
-  if (submittedOrder) {
+  if (loadingOrder) {
     return (
-      <Card className="max-w-2xl mx-auto border border-lime p-8 text-center space-y-6">
+      <Card className="max-w-2xl mx-auto p-8 text-center space-y-4 border border-border">
         <div className="flex justify-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-lime/10 text-lime animate-bounce">
+          <RefreshCw className="animate-spin text-lime" size={32} />
+        </div>
+        <p className="text-text-secondary text-sm font-mono">Checking order status...</p>
+      </Card>
+    );
+  }
+
+  const orderToShow = submittedOrder || existingOrder;
+
+  if (orderToShow) {
+    return (
+      <Card className="max-w-2xl mx-auto border border-lime p-8 text-center space-y-6 animate-fade-in">
+        <div className="flex justify-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-lime/10 text-lime">
             <CheckCircle2 size={36} />
           </div>
         </div>
         <h2 className="text-2xl font-bold font-syne uppercase tracking-tight text-text-primary">
-          Order Submitted Successfully
+          {existingOrder ? "Order Already Placed" : "Order Submitted Successfully"}
         </h2>
         <p className="text-sm text-text-secondary max-w-md mx-auto">
           The order for <strong className="text-text-primary">{companyName}</strong> has been transmitted to Logistics. The manager will prepare the packing list shortly.
         </p>
         <div className="p-4 bg-surface rounded-[8px] border border-border text-left space-y-2 max-w-md mx-auto font-mono text-xs">
-          <div><span className="text-text-dim">Device:</span> {submittedOrder.device_id}</div>
-          <div><span className="text-text-dim">Company:</span> {submittedOrder.material_name}</div>
+          <div><span className="text-text-dim">Device:</span> {orderToShow.device_id}</div>
+          <div><span className="text-text-dim">Company:</span> {orderToShow.material_name}</div>
           <div>
             <span className="text-text-dim">Status:</span>{" "}
             <span className="text-yellow font-bold">
               {(() => {
                 try {
-                  const notesObj = JSON.parse(submittedOrder.notes);
+                  const notesObj = JSON.parse(orderToShow.notes);
                   return notesObj.logistics_status;
                 } catch (e) {
                   return "Pending";
@@ -139,9 +192,6 @@ export function OrderTab({ site, workerId }: OrderTabProps) {
             </span>
           </div>
         </div>
-        <Button onClick={() => setSubmittedOrder(null)} variant="primary" className="mt-4">
-          Submit Another Order
-        </Button>
       </Card>
     );
   }

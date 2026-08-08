@@ -147,7 +147,10 @@ export function Overview() {
         supabase.from("installation").select("data,updated_at,site_id"),
         supabase.from("commissioning").select("data,updated_at,site_id"),
         supabase.from("profiles").select("id,name,mobile,is_active").order("created_at"),
-        supabase.from("inventory_materials").select("state,notes,submitted,material_name"),
+        supabase
+          .from("inventory_materials")
+          .select("state,notes,submitted,material_name,created_at")
+          .order("created_at", { ascending: false }),
       ]);
 
       setRawSites(sitesRes.data ?? []);
@@ -156,6 +159,8 @@ export function Overview() {
       setRawCommissionings(commissioningsRes.data ?? []);
       setRawProfiles(profilesRes.data ?? []);
       setRawMaterials(materialsRes.data ?? []);
+      console.log("RAW MATERIALS FROM DB:", materialsRes.data);
+      console.log("RAW SITES FROM DB:", sitesRes.data);
     } catch (err) {
       console.error("Error fetching overview metrics:", err);
     } finally {
@@ -175,19 +180,41 @@ export function Overview() {
 
   const getLogisticsStatus = (m: any): string => {
     try {
-      if (m.notes && m.notes.startsWith("{")) {
-        const parsed = JSON.parse(m.notes);
-        if (parsed.logistics_status) {
-          return parsed.logistics_status;
+      if (!m.notes) return m.state === "In transit" ? "Transit" : (m.state || "Pending");
+      
+      let parsed = m.notes;
+      if (typeof m.notes === "string") {
+        const trimmed = m.notes.trim();
+        if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+          parsed = JSON.parse(trimmed);
+        } else {
+          return m.state === "In transit" ? "Transit" : (m.state || "Pending");
         }
       }
-    } catch (e) {}
+      
+      if (parsed && typeof parsed === "object" && parsed.logistics_status) {
+        return parsed.logistics_status;
+      }
+    } catch (e) {
+      console.error("Error parsing logistics status:", e);
+    }
     return m.state === "In transit" ? "Transit" : (m.state || "Pending");
   };
 
   const aMap = new Map<string, any>(rawAssessments.map((r) => [r.site_id, r]));
   const iMap = new Map<string, any>(rawInstallations.map((r) => [r.site_id, r]));
   const cMap = new Map<string, any>(rawCommissionings.map((r) => [r.site_id, r]));
+
+  const normalizeCompanyName = (name: string): string => {
+    if (!name) return "";
+    return name
+      .toLowerCase()
+      .replace(/^m\/s\.?\s+|^ms\.?\s+/i, "")
+      .replace(/\s+pvt\.?\s*ltd\.?|\s+private\s+limited/i, "")
+      .replace(/\s+ltd\.?/i, "")
+      .replace(/[^a-z0-9]/g, "")
+      .trim();
+  };
 
   const allProcessedRows: SiteRow[] = rawSites.map((site) => {
     const ar = aMap.get(site.id);
@@ -217,12 +244,13 @@ export function Overview() {
       }
     }
 
-    const matchingMaterial = rawMaterials.find(
-      (m) =>
-        m.submitted &&
-        (m.material_name.toLowerCase().trim() === (site.company_name || "").toLowerCase().trim() ||
-          m.material_name.toLowerCase().trim() === site.name.toLowerCase().trim())
-    );
+    const matchingMaterial = rawMaterials.find((m) => {
+      if (m.submitted === false) return false;
+      const normMat = normalizeCompanyName(m.material_name);
+      const normComp = normalizeCompanyName(site.company_name);
+      const normName = normalizeCompanyName(site.name);
+      return normMat === normComp || normMat === normName;
+    });
     const logisticsStatus = matchingMaterial ? getLogisticsStatus(matchingMaterial) : "Pending";
 
     return {
@@ -279,22 +307,32 @@ export function Overview() {
   const getCanonicalStatus = (row: SiteRow): string => {
     const meta = row.meta;
 
+    // 1. Explicit manager overrides (highest priority)
     if (meta.status === "Dropped / Rejected" || meta.status === "Reject") return "Dropped / Rejected";
-    if (meta.status === "Submitted" || row.consultant_stage === "Completion" || row.consultant_stage === "Billing") return "Submitted";
+    if (meta.status === "Submitted") return "Submitted";
     if (meta.status === "Certification Pending") return "Certification Pending";
     if (meta.status === "Installed") return "Installed";
-    if (meta.status === "In Assessment" || meta.status === "Assessed") return "Assessed";
+    if (meta.status === "Panel Dispatched") return "Panel Dispatched";
+    if (meta.status === "Assessed" || meta.status === "In Assessment") return "Assessed";
     if (meta.status === "Unsubmitted") return "Unsubmitted";
+    if (meta.status === "Total Assignment Pending on Portal") return "Total Assignment Pending on Portal";
     if (meta.status === "Pending Assignment") return "Pending Assignment";
 
-    if (row.workerIds.length === 0) return "Pending Assignment";
+    // 2. Logistics override (Panel Dispatched)
+    if (row.logisticsStatus === "Delivered") return "Panel Dispatched";
 
-    if (isSiteDropped(row)) return "Dropped / Rejected";
+    // 3. Auto-detection / Stage Fallbacks
+    if (row.consultant_stage === "Completion" || row.consultant_stage === "Billing") return "Submitted";
     if (isSiteSubmitted(row)) {
       return isSiteCertification(row) ? "Submitted" : "Certification Pending";
     }
     if (isSiteInstalled(row)) return "Installed";
     if (isSiteAssessment(row)) return "Assessed";
+    if (isSiteDropped(row)) return "Dropped / Rejected";
+
+    // 4. Default Assignment / Status Fallbacks
+    if (row.workerIds.length === 0) return "Pending Assignment";
+
     return "Unsubmitted";
   };
 
@@ -312,12 +350,13 @@ export function Overview() {
   // Calculate counts based on current filters and canonical status partitioning
   const countTotal = filteredForCounts.length; // First card represents total companies count
   const countPending = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Pending Assignment").length;
+  const countPendingPortal = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Total Assignment Pending on Portal").length;
   const countSubmitted = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Submitted").length;
   const countUnsubmitted = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Unsubmitted").length;
   const countCertification = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Certification Pending").length;
   const countInstalled = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Installed").length;
   const countAssessment = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Assessed").length;
-  const countDispatched = filteredForCounts.filter((r) => r.logisticsStatus === "Delivered").length;
+  const countDispatched = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Panel Dispatched").length;
   const countDropped = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Dropped / Rejected").length;
 
   // Apply selected KPI filter to table
@@ -335,10 +374,12 @@ export function Overview() {
         return status === "Installed";
       case "pending":
         return status === "Pending Assignment";
+      case "pending_portal":
+        return status === "Total Assignment Pending on Portal";
       case "assessment":
         return status === "Assessed";
       case "dispatched":
-        return row.logisticsStatus === "Delivered";
+        return status === "Panel Dispatched";
       case "dropped":
         return status === "Dropped / Rejected";
       default:
@@ -437,7 +478,9 @@ export function Overview() {
       toneClass = "bg-emerald-50 text-emerald-700 border-emerald-250";
     } else if (status === "Dropped / Rejected") {
       toneClass = "bg-red-50 text-red-700 border-red-200";
-    } else if (status === "Pending Assignment" || status === "Assessed" || status === "Unsubmitted" || status === "Certification Pending") {
+    } else if (status === "Panel Dispatched") {
+      toneClass = "bg-blue-50 text-blue-700 border-blue-200";
+    } else if (status === "Pending Assignment" || status === "Total Assignment Pending on Portal" || status === "Assessed" || status === "Unsubmitted" || status === "Certification Pending") {
       toneClass = "bg-amber-50 text-amber-700 border-amber-250";
     }
     return (
@@ -509,7 +552,7 @@ export function Overview() {
       id: "unsubmitted",
       label: "Unsubmitted",
       value: countUnsubmitted,
-      desc: "Assessment submission pending",
+      desc: "Completed but pending on Portal",
       icon: AlertCircle,
       badgeStyle: "text-orange-600 bg-orange-50 border-orange-200",
       dotStyle: "bg-orange-500",
@@ -531,6 +574,15 @@ export function Overview() {
       icon: UserMinus,
       badgeStyle: "text-amber-600 bg-amber-50 border-amber-200",
       dotStyle: "bg-amber-500",
+    },
+    {
+      id: "pending_portal",
+      label: "Total Assignment Pending on Portal",
+      value: countPendingPortal,
+      desc: "Pending assignment on portal",
+      icon: UserMinus,
+      badgeStyle: "text-amber-700 bg-amber-50 border-amber-250",
+      dotStyle: "bg-amber-600",
     },
     {
       id: "assessment",
@@ -728,79 +780,50 @@ export function Overview() {
 
             {/* Bottom Row: Grouped Analytics */}
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-              {/* Card 5: Pending Assignment */}
-              {(() => {
-                const k = kpis.find(x => x.id === "pending")!;
-                if (!k) return null;
-                const active = selectedKpi === k.id;
-                const Icon = k.icon;
-                const cardBorder = active
-                  ? "border-lime ring-2 ring-lime/20 bg-surface-raised scale-[1.02]"
-                  : "border-border bg-surface hover:border-border-bright hover:shadow-sm";
-                return (
-                  <button
-                    onClick={() => setSelectedKpi(k.id)}
-                    className={`flex flex-col justify-between w-full text-left p-5 border rounded-xl shadow-sm transition-all duration-200 group cursor-pointer h-full min-h-[160px] ${cardBorder}`}
-                  >
-                    <div className="flex items-start justify-between w-full">
-                      <div className={`p-2 rounded-lg border ${k.badgeStyle}`}>
-                        <Icon size={18} strokeWidth={2.5} />
-                      </div>
-                      <span className={`h-2.5 w-2.5 rounded-full ${k.dotStyle}`} />
-                    </div>
-                    <div className="mt-4">
-                      <div className="text-3xl font-extrabold text-text-primary tracking-tight font-mono">
-                        {k.value}
-                      </div>
-                      <div className="text-xs font-semibold mt-1 text-text-primary">
-                        {k.label}
-                      </div>
-                      <div className="text-[10px] mt-0.5 leading-snug text-text-secondary">
-                        {k.desc}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })()}
-
-              {/* Combined Box for In Assessment, Panel Dispatched, and Installed */}
-              <div className="lg:col-span-2 border border-border bg-surface/30 rounded-xl p-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                {/* Card 6: In Assessment */}
-                {(() => {
-                  const k = kpis.find(x => x.id === "assessment")!;
-                  if (!k) return null;
+              {/* Column 1: Stacked Pending Assignment and Total Assignment Pending on Portal */}
+              <div className="flex flex-col gap-2 justify-between h-full">
+                {[
+                  kpis.find(x => x.id === "pending")!,
+                  kpis.find(x => x.id === "pending_portal")!
+                ].filter(Boolean).map((k) => {
                   const active = selectedKpi === k.id;
                   const Icon = k.icon;
                   const cardBorder = active
-                    ? "border-lime ring-2 ring-lime/20 bg-surface-raised scale-[1.02]"
+                    ? "border-lime ring-2 ring-lime/20 bg-surface-raised scale-[1.01]"
                     : "border-border bg-surface hover:border-border-bright hover:shadow-sm";
                   return (
                     <button
+                      key={k.id}
                       onClick={() => setSelectedKpi(k.id)}
-                      className={`flex flex-col justify-between w-full text-left p-5 border rounded-xl shadow-sm transition-all duration-200 group cursor-pointer h-full min-h-[140px] ${cardBorder}`}
+                      className={`flex items-center justify-between w-full text-left px-4 py-2.5 border rounded-xl shadow-sm transition-all duration-200 group cursor-pointer flex-1 ${cardBorder}`}
                     >
-                      <div className="flex items-start justify-between w-full">
-                        <div className={`p-2 rounded-lg border ${k.badgeStyle}`}>
-                          <Icon size={18} strokeWidth={2.5} />
+                      <div className="flex items-center gap-3">
+                        <div className={`p-1.5 rounded-lg border shrink-0 ${k.badgeStyle}`}>
+                          <Icon size={14} strokeWidth={2.5} />
                         </div>
-                        <span className={`h-2.5 w-2.5 rounded-full ${k.dotStyle}`} />
+                        <div>
+                          <div className="text-xs font-semibold text-text-primary">
+                            {k.label}
+                          </div>
+                          <div className="text-[9px] text-text-secondary leading-tight mt-0.5">
+                            {k.desc}
+                          </div>
+                        </div>
                       </div>
-                      <div className="mt-4">
-                        <div className="text-3xl font-extrabold text-text-primary tracking-tight font-mono">
+                      <div className="flex items-center gap-3">
+                        <div className="text-xl font-black text-text-primary font-mono">
                           {k.value}
                         </div>
-                        <div className="text-xs font-semibold mt-1 text-text-primary">
-                          {k.label}
-                        </div>
-                        <div className="text-[10px] mt-0.5 leading-snug text-text-secondary">
-                          {k.desc}
-                        </div>
+                        <span className={`h-2 w-2 rounded-full ${k.dotStyle} shrink-0`} />
                       </div>
                     </button>
                   );
-                })()}
+                })}
+              </div>
 
-                {/* Vertical stack for Panel Dispatched and Installed (reduced size) */}
+              {/* Combined Box for In Assessment, Panel Dispatched, and Installed (Swapped Positions) */}
+              <div className="lg:col-span-2 border border-border bg-surface/30 rounded-xl p-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                {/* 1. Stacked Panel Dispatched and Installed on the left */}
                 <div className="flex flex-col gap-2 justify-between h-full">
                   {[
                     kpis.find(x => x.id === "dispatched")!,
@@ -840,6 +863,41 @@ export function Overview() {
                     );
                   })}
                 </div>
+
+                {/* 2. Assessed large card on the right */}
+                {(() => {
+                  const k = kpis.find(x => x.id === "assessment")!;
+                  if (!k) return null;
+                  const active = selectedKpi === k.id;
+                  const Icon = k.icon;
+                  const cardBorder = active
+                    ? "border-lime ring-2 ring-lime/20 bg-surface-raised scale-[1.02]"
+                    : "border-border bg-surface hover:border-border-bright hover:shadow-sm";
+                  return (
+                    <button
+                      onClick={() => setSelectedKpi(k.id)}
+                      className={`flex flex-col justify-between w-full text-left p-5 border rounded-xl shadow-sm transition-all duration-200 group cursor-pointer h-full min-h-[140px] ${cardBorder}`}
+                    >
+                      <div className="flex items-start justify-between w-full">
+                        <div className={`p-2 rounded-lg border ${k.badgeStyle}`}>
+                          <Icon size={18} strokeWidth={2.5} />
+                        </div>
+                        <span className={`h-2.5 w-2.5 rounded-full ${k.dotStyle}`} />
+                      </div>
+                      <div className="mt-4">
+                        <div className="text-3xl font-extrabold text-text-primary tracking-tight font-mono">
+                          {k.value}
+                        </div>
+                        <div className="text-xs font-semibold mt-1 text-text-primary">
+                          {k.label}
+                        </div>
+                        <div className="text-[10px] mt-0.5 leading-snug text-text-secondary">
+                          {k.desc}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })()}
               </div>
 
               {/* Card 8: Dropped / Rejected */}
