@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 import { Skeleton } from "@/components/ui-kit";
 import {
   Building,
@@ -17,6 +18,8 @@ import {
   XCircle,
   Wrench,
   Truck,
+  Download,
+  FileText,
 } from "lucide-react";
 
 type Appt = {
@@ -125,6 +128,7 @@ export function Overview() {
 
   // Pagination States
   const [currentPage, setCurrentPage] = useState(1);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const rowsPerPage = 10;
 
   const loadData = async () => {
@@ -296,6 +300,11 @@ export function Overview() {
     return stage.includes("installed") || row.progress.i === 100;
   };
 
+  const isSiteCommissioned = (row: SiteRow) => {
+    const stage = (row.consultant_stage || row.meta.status || "").toLowerCase();
+    return stage.includes("commissioned") || row.progress.c === 100;
+  };
+
   const getCanonicalStatus = (row: SiteRow): string => {
     const meta = row.meta;
 
@@ -303,11 +312,12 @@ export function Overview() {
     if (meta.status === "Dropped / Rejected" || meta.status === "Reject") return "Dropped / Rejected";
     if (meta.status === "Submitted") return "Submitted";
     if (meta.status === "Certification Pending") return "Certification Pending";
+    if (meta.status === "Commissioned") return "Commissioned";
     if (meta.status === "Installed") return "Installed";
     if (meta.status === "Panel Dispatched") return "Panel Dispatched";
     if (meta.status === "Assessed" || meta.status === "In Assessment") return "Assessed";
+    if (meta.status === "Assigned") return "Assigned";
     if (meta.status === "Unsubmitted") return "Unsubmitted";
-    if (meta.status === "Total Assignment Pending on Portal") return "Total Assignment Pending on Portal";
     if (meta.status === "Pending Assignment") return "Pending Assignment";
 
     // 2. Logistics override (Panel Dispatched)
@@ -318,11 +328,13 @@ export function Overview() {
     if (isSiteSubmitted(row)) {
       return isSiteCertification(row) ? "Submitted" : "Certification Pending";
     }
+    if (isSiteCommissioned(row)) return "Commissioned";
     if (isSiteInstalled(row)) return "Installed";
     if (isSiteAssessment(row)) return "Assessed";
     if (isSiteDropped(row)) return "Dropped / Rejected";
 
     // 4. Default Assignment / Status Fallbacks
+    if (row.workerIds.length > 0) return "Assigned";
     if (row.workerIds.length === 0) return "Pending Assignment";
 
     return "Unsubmitted";
@@ -342,12 +354,12 @@ export function Overview() {
   // Calculate counts based on current filters and canonical status partitioning
   const countTotal = filteredForCounts.length; // First card represents total companies count
   const countPending = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Pending Assignment").length;
+  const countAssignedBc = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Assigned").length;
   const countSubmitted = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Submitted").length;
-  // Total Assignment Pending on Portal = Companies Assigned - Submitted
-  const countPendingPortal = countTotal - countSubmitted;
   const countUnsubmitted = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Unsubmitted").length;
   const countCertification = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Certification Pending").length;
   const countInstalled = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Installed").length;
+  const countCommissioned = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Commissioned").length;
   const countAssessment = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Assessed").length;
   const countDispatched = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Panel Dispatched").length;
   const countDropped = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Dropped / Rejected").length;
@@ -365,11 +377,14 @@ export function Overview() {
         return status === "Certification Pending";
       case "installed":
         return status === "Installed";
+      case "commissioned":
+        return status === "Commissioned";
       case "pending":
         return status === "Pending Assignment";
       case "pending_portal":
-        // Show all companies that haven't been submitted yet
         return status !== "Submitted";
+      case "assigned_bc":
+        return status === "Assigned";
       case "assessment":
         return status === "Assessed";
       case "dispatched":
@@ -466,6 +481,150 @@ export function Overview() {
     });
   };
 
+  const exportCsv = () => {
+    if (sortedRows.length === 0) {
+      toast.error("No data available to export.");
+      return;
+    }
+    const kpiLabel = kpis.find((k) => k.id === selectedKpi)?.label || "Data";
+    const headers = ["Company", "Contact Person", "Contact Mobile", "City", "Assigned BC", "Appt Progress", "Assessment Progress", "Installation Progress", "Commissioned Progress", "Status", "Last Updated"];
+    const rows = sortedRows.map((r) => {
+      const bcNames = r.workerIds.map((id) => profileNameMap.get(id) || "—").join(", ");
+      const canonicalStatus = getCanonicalStatus(r);
+      const lastUpdated = formatDate(r.progress.updated || r.assigned_at || r.appt_date);
+      return [
+        r.name,
+        r.meta.c1_name || "—",
+        r.meta.c1_mobile || "—",
+        r.city || "—",
+        bcNames || "Unassigned",
+        r.progress.appt.status !== "none" ? r.progress.appt.status : "—",
+        `${r.progress.a}%`,
+        `${r.progress.i}%`,
+        `${r.progress.c}%`,
+        canonicalStatus,
+        lastUpdated
+      ];
+    });
+
+    const lines = [headers, ...rows].map((line) =>
+      line.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(",")
+    );
+
+    const url = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${kpiLabel.toLowerCase().replace(/\s+/g, "-")}-export-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    toast.success("CSV exported successfully.");
+  };
+
+  const exportPdf = async () => {
+    if (sortedRows.length === 0) {
+      toast.error("No data available to export.");
+      return;
+    }
+    setExportingPdf(true);
+    try {
+      const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+        import("jspdf"),
+        import("jspdf-autotable"),
+      ]);
+      const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      
+      const lime: [number, number, number] = [200, 255, 74];
+      const ink: [number, number, number] = [18, 18, 29];
+      const muted: [number, number, number] = [104, 101, 119];
+      const soft: [number, number, number] = [244, 245, 239];
+      
+      const kpiLabel = kpis.find((k) => k.id === selectedKpi)?.label || "Data";
+      
+      const addHeader = () => {
+        doc.setFillColor(...ink);
+        doc.rect(0, 0, pageWidth, 16, "F");
+        doc.setFillColor(...lime);
+        doc.roundedRect(12, 5, 6, 6, 1.2, 1.2, "F");
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10);
+        doc.setTextColor(240, 236, 227);
+        doc.text("SIM-KIT DASHBOARD EXPORT", 22, 10);
+        
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(175, 172, 184);
+        doc.text(kpiLabel.toUpperCase(), pageWidth - 12, 10, { align: "right" });
+      };
+
+      addHeader();
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(14);
+      doc.setTextColor(...ink);
+      doc.text(`${kpiLabel} - Details Report`, 12, 28);
+      
+      const generatedAt = new Intl.DateTimeFormat("en-IN", {
+        dateStyle: "long",
+        timeStyle: "short",
+      }).format(new Date());
+      
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(...muted);
+      doc.text(`Generated at: ${generatedAt} | Total Records: ${sortedRows.length}`, 12, 33);
+
+      autoTable(doc, {
+        startY: 38,
+        margin: { left: 12, right: 12, top: 24, bottom: 14 },
+        head: [["Company", "City", "Assigned BC", "Appt / A / I / C Progress", "Status", "Updated"]],
+        body: sortedRows.map((r) => {
+          const bcNames = r.workerIds.map((id) => profileNameMap.get(id) || "—").join(", ");
+          const canonicalStatus = getCanonicalStatus(r);
+          const progressStr = `Appt: ${r.progress.appt.status !== "none" ? r.progress.appt.status : "—"}\nAssmt: ${r.progress.a || 0}%\nInst: ${r.progress.i || 0}%\nComm: ${r.progress.c || 0}%`;
+          const lastUpdated = formatDate(r.progress.updated || r.assigned_at || r.appt_date);
+          return [
+            r.name,
+            r.city || "—",
+            bcNames || "Unassigned",
+            progressStr,
+            canonicalStatus,
+            lastUpdated
+          ];
+        }),
+        theme: "grid",
+        styles: {
+          font: "helvetica",
+          fontSize: 8,
+          cellPadding: 2.5,
+          lineColor: [225, 226, 220],
+          lineWidth: 0.2,
+          textColor: ink,
+          overflow: "linebreak",
+        },
+        headStyles: { fillColor: ink, textColor: [240, 236, 227], fontStyle: "bold" },
+        alternateRowStyles: { fillColor: soft },
+        columnStyles: {
+          0: { cellWidth: 70 },
+          1: { cellWidth: 35 },
+          2: { cellWidth: 50 },
+          3: { cellWidth: 50 },
+          4: { cellWidth: 40 },
+          5: { cellWidth: 28 },
+        },
+        didDrawPage: () => addHeader(),
+      });
+
+      doc.save(`${kpiLabel.toLowerCase().replace(/\s+/g, "-")}-report-${new Date().toISOString().slice(0, 10)}.pdf`);
+      toast.success("PDF report downloaded.");
+    } catch (error) {
+      console.error("PDF generation failed", error);
+      toast.error("Failed to generate PDF export.");
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     let toneClass = "bg-stone-50 text-stone-600 border-stone-200";
     if (status === "Submitted") {
@@ -474,6 +633,12 @@ export function Overview() {
       toneClass = "bg-red-50 text-red-700 border-red-200";
     } else if (status === "Panel Dispatched") {
       toneClass = "bg-blue-50 text-blue-700 border-blue-200";
+    } else if (status === "Installed") {
+      toneClass = "bg-cyan-50 text-cyan-700 border-cyan-200";
+    } else if (status === "Commissioned") {
+      toneClass = "bg-teal-50 text-teal-700 border-teal-250";
+    } else if (status === "Assigned") {
+      toneClass = "bg-indigo-50 text-indigo-700 border-indigo-200";
     } else if (status === "Pending Assignment" || status === "Total Assignment Pending on Portal" || status === "Assessed" || status === "Unsubmitted" || status === "Certification Pending") {
       toneClass = "bg-amber-50 text-amber-700 border-amber-250";
     }
@@ -572,11 +737,20 @@ export function Overview() {
     {
       id: "pending_portal",
       label: "Total Assignment Pending on Portal",
-      value: countPendingPortal,
-      desc: `Companies assigned (${countTotal}) − submitted (${countSubmitted})`,
-      icon: UserMinus,
-      badgeStyle: "text-amber-700 bg-amber-50 border-amber-250",
-      dotStyle: "bg-amber-600",
+      value: countTotal - countSubmitted,
+      desc: `Companies assigned (${countTotal}) - submitted (${countSubmitted})`,
+      icon: AlertCircle,
+      badgeStyle: "text-amber-600 bg-amber-50 border-amber-200",
+      dotStyle: "bg-amber-500",
+    },
+    {
+      id: "assigned_bc",
+      label: "Assigned",
+      value: countAssignedBc,
+      desc: "Consultant assigned, work pending",
+      icon: Users,
+      badgeStyle: "text-indigo-600 bg-indigo-50 border-indigo-200",
+      dotStyle: "bg-indigo-500",
     },
     {
       id: "assessment",
@@ -584,8 +758,8 @@ export function Overview() {
       value: countAssessment,
       desc: "Currently undergoing assessment",
       icon: ClipboardList,
-      badgeStyle: "text-teal-600 bg-teal-50 border-teal-200",
-      dotStyle: "bg-teal-500",
+      badgeStyle: "text-blue-600 bg-blue-50 border-blue-200",
+      dotStyle: "bg-blue-500",
     },
     {
       id: "dispatched",
@@ -602,8 +776,17 @@ export function Overview() {
       value: countInstalled,
       desc: "Installation phase completed",
       icon: Wrench,
-      badgeStyle: "text-cyan-600 bg-cyan-50 border-cyan-200",
-      dotStyle: "bg-cyan-500",
+      badgeStyle: "text-blue-600 bg-blue-50 border-blue-200",
+      dotStyle: "bg-blue-500",
+    },
+    {
+      id: "commissioned",
+      label: "Commissioned",
+      value: countCommissioned,
+      desc: "Commissioning phase completed",
+      icon: CheckCircle2,
+      badgeStyle: "text-emerald-600 bg-emerald-50 border-emerald-200",
+      dotStyle: "bg-emerald-500",
     },
     {
       id: "dropped",
@@ -617,24 +800,24 @@ export function Overview() {
   ];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-5">
       <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <p className="font-mono text-[11px] uppercase tracking-widest text-text-secondary">Dashboard</p>
-          <h1 className="mt-2 text-4xl text-text-primary font-syne uppercase tracking-tight font-extrabold">Overview</h1>
+          <p className="font-mono text-[10px] uppercase tracking-widest text-text-secondary">Dashboard</p>
+          <h1 className="mt-1 text-3xl text-text-primary font-syne uppercase tracking-tight font-extrabold">Overview</h1>
         </div>
       </header>
 
       {/* Main semantic variables-based analytics dashboard */}
-      <div className="bg-surface text-text-primary border border-border rounded-2xl p-6 md:p-8 shadow-sm space-y-8 font-sans transition-all duration-300">
+      <div className="bg-surface text-text-primary border border-border rounded-2xl p-4 md:p-5 shadow-sm space-y-6 font-sans transition-all duration-300">
         
         {/* Title / Sync Info */}
-        <div className="flex items-center justify-between border-b border-border pb-5">
+        <div className="flex items-center justify-between border-b border-border pb-4">
           <div>
-            <h2 className="text-2xl font-extrabold text-text-primary tracking-tight">
+            <h2 className="text-xl font-extrabold text-text-primary tracking-tight">
               Analytics Dashboard
             </h2>
-            <p className="text-sm text-text-secondary mt-1 font-normal">
+            <p className="text-xs text-text-secondary mt-0.5 font-normal">
               Interactive metrics overview and site verification trackers.
             </p>
           </div>
@@ -650,75 +833,39 @@ export function Overview() {
         {loading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="h-32 bg-surface-raised rounded-xl animate-pulse" />
+              <div key={i} className="h-24 bg-surface-raised rounded-xl animate-pulse" />
             ))}
           </div>
         ) : (
           <div className="space-y-4">
-            {/* Top Row: Grouped Analytics */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {/* Card 1: Companies Assigned */}
-              {(() => {
-                const k = kpis.find(x => x.id === "assigned")!;
-                if (!k) return null;
-                const active = selectedKpi === k.id;
-                const Icon = k.icon;
-                const cardBorder = active
-                  ? "border-lime ring-2 ring-lime/20 bg-surface-raised scale-[1.02]"
-                  : "border-border bg-surface hover:border-border-bright hover:shadow-sm";
-                return (
-                  <button
-                    onClick={() => setSelectedKpi(k.id)}
-                    className={`flex flex-col justify-between w-full text-left p-5 border rounded-xl shadow-sm transition-all duration-200 group cursor-pointer h-full min-h-[160px] ${cardBorder}`}
-                  >
-                    <div className="flex items-start justify-between w-full">
-                      <div className={`p-2 rounded-lg border ${k.badgeStyle}`}>
-                        <Icon size={18} strokeWidth={2.5} />
-                      </div>
-                      <span className={`h-2.5 w-2.5 rounded-full ${k.dotStyle}`} />
-                    </div>
-                    <div className="mt-4">
-                      <div className="text-3xl font-extrabold text-text-primary tracking-tight">
-                        {k.value}
-                      </div>
-                      <div className="text-xs font-semibold mt-1 text-text-primary">
-                        {k.label}
-                      </div>
-                      <div className="text-[10px] mt-0.5 leading-snug text-text-secondary">
-                        {k.desc}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })()}
-
-              {/* Combined Box for Cards 2, 3, and 4 */}
-              <div className="lg:col-span-2 border border-border bg-surface/30 rounded-xl p-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                {/* Card 2: Submitted */}
+            {/* ROW 1 */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+              {/* Companies Assigned */}
+              <div className="lg:col-span-4 h-full">
                 {(() => {
-                  const k = kpis.find(x => x.id === "submitted")!;
+                  const k = kpis.find(x => x.id === "assigned")!;
                   if (!k) return null;
                   const active = selectedKpi === k.id;
                   const Icon = k.icon;
                   const cardBorder = active
-                    ? "border-lime ring-2 ring-lime/20 bg-surface-raised scale-[1.02]"
-                    : "border-border bg-surface hover:border-border-bright hover:shadow-sm";
+                    ? "border-blue-500 ring-2 ring-blue-500/10 bg-white scale-[1.01] shadow-md"
+                    : "border-border bg-white hover:border-blue-400 hover:shadow-md transition-all";
                   return (
                     <button
                       onClick={() => setSelectedKpi(k.id)}
-                      className={`flex flex-col justify-between w-full text-left p-5 border rounded-xl shadow-sm transition-all duration-200 group cursor-pointer h-full min-h-[140px] ${cardBorder}`}
+                      className={`flex flex-col justify-between w-full text-left p-4 border rounded-xl shadow-xs transition-all duration-200 group cursor-pointer h-full min-h-[130px] ${cardBorder}`}
                     >
                       <div className="flex items-start justify-between w-full">
-                        <div className={`p-2 rounded-lg border ${k.badgeStyle}`}>
-                          <Icon size={18} strokeWidth={2.5} />
+                        <div className={`p-2 rounded-xl border ${k.badgeStyle}`}>
+                          <Icon size={16} strokeWidth={2.5} />
                         </div>
-                        <span className={`h-2.5 w-2.5 rounded-full ${k.dotStyle}`} />
+                        <span className={`h-2 w-2 rounded-full ${k.dotStyle}`} />
                       </div>
                       <div className="mt-4">
-                        <div className="text-3xl font-extrabold text-text-primary tracking-tight">
+                        <div className="text-3xl font-extrabold text-text-primary tracking-tight font-mono">
                           {k.value}
                         </div>
-                        <div className="text-xs font-semibold mt-1 text-text-primary">
+                        <div className="text-xs font-bold mt-1 text-text-primary">
                           {k.label}
                         </div>
                         <div className="text-[10px] mt-0.5 leading-snug text-text-secondary">
@@ -728,75 +875,125 @@ export function Overview() {
                     </button>
                   );
                 })()}
+              </div>
 
-                {/* Vertical stack for Cards 3 and 4 (reduced size) */}
-                <div className="flex flex-col gap-2 justify-between h-full">
-                  {[
-                    kpis.find(x => x.id === "unsubmitted")!,
-                    kpis.find(x => x.id === "certification")!
-                  ].filter(Boolean).map((k) => {
-                    const active = selectedKpi === k.id;
-                    const Icon = k.icon;
-                    const cardBorder = active
-                      ? "border-lime ring-2 ring-lime/20 bg-surface-raised scale-[1.01]"
-                      : "border-border bg-surface hover:border-border-bright hover:shadow-sm";
-                    return (
-                      <button
-                        key={k.id}
-                        onClick={() => setSelectedKpi(k.id)}
-                        className={`flex items-center justify-between w-full text-left px-4 py-2.5 border rounded-xl shadow-sm transition-all duration-200 group cursor-pointer flex-1 ${cardBorder}`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className={`p-1.5 rounded-lg border shrink-0 ${k.badgeStyle}`}>
-                            <Icon size={14} strokeWidth={2.5} />
+              {/* Right Box: Submitted & Stack */}
+              <div className="lg:col-span-8 border border-border bg-surface/30 rounded-2xl p-4 flex flex-col justify-between h-full">
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-4 flex-1">
+                  {/* Submitted */}
+                  <div className="md:col-span-6 h-full">
+                    {(() => {
+                      const k = kpis.find(x => x.id === "submitted")!;
+                      if (!k) return null;
+                      const active = selectedKpi === k.id;
+                      const Icon = k.icon;
+                      const cardBorder = active
+                        ? "border-emerald-500 ring-2 ring-emerald-500/10 bg-white scale-[1.01] shadow-md"
+                        : "border-border bg-white hover:border-emerald-400 hover:shadow-md transition-all";
+                      return (
+                        <button
+                          onClick={() => setSelectedKpi(k.id)}
+                          className={`flex flex-col justify-between w-full text-left p-4 border rounded-xl shadow-xs transition-all duration-200 group cursor-pointer h-full min-h-[130px] ${cardBorder}`}
+                        >
+                          <div className="flex items-start justify-between w-full">
+                            <div className={`p-2 rounded-xl border ${k.badgeStyle}`}>
+                              <Icon size={16} strokeWidth={2.5} />
+                            </div>
+                            <span className={`h-2 w-2 rounded-full ${k.dotStyle}`} />
                           </div>
-                          <div>
-                            <div className="text-xs font-semibold text-text-primary">
+                          <div className="mt-4">
+                            <div className="text-3xl font-extrabold text-text-primary tracking-tight font-mono">
+                              {k.value}
+                            </div>
+                            <div className="text-xs font-bold mt-1 text-text-primary">
                               {k.label}
                             </div>
-                            <div className="text-[9px] text-text-secondary leading-tight mt-0.5">
+                            <div className="text-[10px] mt-0.5 leading-snug text-text-secondary">
                               {k.desc}
                             </div>
                           </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <div className="text-xl font-black text-text-primary font-mono">
-                            {k.value}
+                        </button>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Unsubmitted & Certification Pending Stack */}
+                  <div className="md:col-span-6 flex flex-col gap-3 justify-between h-full">
+                    {[
+                      kpis.find(x => x.id === "unsubmitted")!,
+                      kpis.find(x => x.id === "certification")!
+                    ].filter(Boolean).map((k) => {
+                      const active = selectedKpi === k.id;
+                      const Icon = k.icon;
+                      const isPurple = k.id === "certification";
+                      const hoverColor = isPurple ? "hover:border-purple-400" : "hover:border-orange-400";
+                      const cardBorder = active
+                        ? (isPurple
+                          ? "border-purple-500 ring-2 ring-purple-500/10 bg-white scale-[1.01] shadow-md"
+                          : "border-orange-500 ring-2 ring-orange-500/10 bg-white scale-[1.01] shadow-md")
+                        : `border-border bg-white ${hoverColor} hover:shadow-md transition-all`;
+                      return (
+                        <button
+                          key={k.id}
+                          onClick={() => setSelectedKpi(k.id)}
+                          className={`flex items-center justify-between w-full text-left px-3 py-2.5 border rounded-xl shadow-xs transition-all duration-200 group cursor-pointer flex-1 ${cardBorder}`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className={`p-1.5 rounded-lg border shrink-0 ${k.badgeStyle}`}>
+                              <Icon size={14} strokeWidth={2.5} />
+                            </div>
+                            <div>
+                              <div className="text-xs font-bold text-text-primary">
+                                {k.label}
+                              </div>
+                              <div className="text-[9px] text-text-secondary leading-tight mt-0.5">
+                                {k.desc}
+                              </div>
+                            </div>
                           </div>
-                          <span className={`h-2 w-2 rounded-full ${k.dotStyle} shrink-0`} />
-                        </div>
-                      </button>
-                    );
-                  })}
+                          <div className="flex items-center gap-2">
+                            <div className="text-xl font-extrabold text-text-primary font-mono">
+                              {k.value}
+                            </div>
+                            <span className={`h-2 w-2 rounded-full ${k.dotStyle} shrink-0`} />
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* Bottom Row: Grouped Analytics */}
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-              {/* Column 1: Stacked Pending Assignment and Total Assignment Pending on Portal */}
-              <div className="flex flex-col gap-2 justify-between h-full">
+            {/* ROW 2 */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+              {/* Pending Assignment & Assigned Stack */}
+              <div className="lg:col-span-3 flex flex-col gap-3 justify-between h-full">
                 {[
                   kpis.find(x => x.id === "pending")!,
-                  kpis.find(x => x.id === "pending_portal")!
+                  kpis.find(x => x.id === "assigned_bc")!
                 ].filter(Boolean).map((k) => {
                   const active = selectedKpi === k.id;
                   const Icon = k.icon;
+                  const isIndigo = k.id === "assigned_bc";
+                  const hoverColor = isIndigo ? "hover:border-blue-400" : "hover:border-amber-400";
                   const cardBorder = active
-                    ? "border-lime ring-2 ring-lime/20 bg-surface-raised scale-[1.01]"
-                    : "border-border bg-surface hover:border-border-bright hover:shadow-sm";
+                    ? (isIndigo
+                      ? "border-blue-500 ring-2 ring-blue-500/10 bg-white scale-[1.01] shadow-md"
+                      : "border-amber-500 ring-2 ring-amber-500/10 bg-white scale-[1.01] shadow-md")
+                    : `border-border bg-white ${hoverColor} hover:shadow-md transition-all`;
                   return (
                     <button
                       key={k.id}
                       onClick={() => setSelectedKpi(k.id)}
-                      className={`flex items-center justify-between w-full text-left px-4 py-2.5 border rounded-xl shadow-sm transition-all duration-200 group cursor-pointer flex-1 ${cardBorder}`}
+                      className={`flex items-center justify-between w-full text-left px-3 py-2.5 border rounded-xl shadow-xs transition-all duration-200 group cursor-pointer flex-1 ${cardBorder}`}
                     >
                       <div className="flex items-center gap-3">
                         <div className={`p-1.5 rounded-lg border shrink-0 ${k.badgeStyle}`}>
                           <Icon size={14} strokeWidth={2.5} />
                         </div>
                         <div>
-                          <div className="text-xs font-semibold text-text-primary">
+                          <div className="text-xs font-bold text-text-primary">
                             {k.label}
                           </div>
                           <div className="text-[9px] text-text-secondary leading-tight mt-0.5">
@@ -804,8 +1001,8 @@ export function Overview() {
                           </div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <div className="text-xl font-black text-text-primary font-mono">
+                      <div className="flex items-center gap-2">
+                        <div className="text-xl font-extrabold text-text-primary font-mono">
                           {k.value}
                         </div>
                         <span className={`h-2 w-2 rounded-full ${k.dotStyle} shrink-0`} />
@@ -815,74 +1012,123 @@ export function Overview() {
                 })}
               </div>
 
-              {/* Combined Box for In Assessment, Panel Dispatched, and Installed (Swapped Positions) */}
-              <div className="lg:col-span-2 border border-border bg-surface/30 rounded-xl p-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                {/* 1. Stacked Panel Dispatched and Installed on the left */}
-                <div className="flex flex-col gap-2 justify-between h-full">
-                  {[
-                    kpis.find(x => x.id === "dispatched")!,
-                    kpis.find(x => x.id === "installed")!
-                  ].filter(Boolean).map((k) => {
-                    const active = selectedKpi === k.id;
-                    const Icon = k.icon;
-                    const cardBorder = active
-                      ? "border-lime ring-2 ring-lime/20 bg-surface-raised scale-[1.01]"
-                      : "border-border bg-surface hover:border-border-bright hover:shadow-sm";
-                    return (
-                      <button
-                        key={k.id}
-                        onClick={() => setSelectedKpi(k.id)}
-                        className={`flex items-center justify-between w-full text-left px-4 py-2.5 border rounded-xl shadow-sm transition-all duration-200 group cursor-pointer flex-1 ${cardBorder}`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className={`p-1.5 rounded-lg border shrink-0 ${k.badgeStyle}`}>
-                            <Icon size={14} strokeWidth={2.5} />
-                          </div>
-                          <div>
-                            <div className="text-xs font-semibold text-text-primary">
-                              {k.label}
+              {/* Middle Container Box */}
+              <div className="lg:col-span-6 border border-border bg-surface/30 rounded-2xl p-4 flex flex-col justify-between h-full">
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-4 flex-1">
+                  {/* Assessed & Panel Dispatched Stack */}
+                  <div className="md:col-span-6 flex flex-col gap-3 justify-between h-full">
+                    {[
+                      kpis.find(x => x.id === "assessment")!,
+                      kpis.find(x => x.id === "dispatched")!
+                    ].filter(Boolean).map((k) => {
+                      const active = selectedKpi === k.id;
+                      const Icon = k.icon;
+                      const cardBorder = active
+                        ? "border-blue-500 ring-2 ring-blue-500/10 bg-white scale-[1.01] shadow-md"
+                        : "border-border bg-white hover:border-blue-400 hover:shadow-md transition-all";
+                      return (
+                        <button
+                          key={k.id}
+                          onClick={() => setSelectedKpi(k.id)}
+                          className={`flex items-center justify-between w-full text-left px-3 py-2.5 border rounded-xl shadow-xs transition-all duration-200 group cursor-pointer flex-1 ${cardBorder}`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className={`p-1.5 rounded-lg border shrink-0 ${k.badgeStyle}`}>
+                              <Icon size={14} strokeWidth={2.5} />
                             </div>
-                            <div className="text-[9px] text-text-secondary leading-tight mt-0.5">
-                              {k.desc}
+                            <div>
+                              <div className="text-xs font-bold text-text-primary">
+                                {k.label}
+                              </div>
+                              <div className="text-[9px] text-text-secondary leading-tight mt-0.5">
+                                {k.desc}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <div className="text-xl font-black text-text-primary font-mono">
-                            {k.value}
+                          <div className="flex items-center gap-2">
+                            <div className="text-xl font-extrabold text-text-primary font-mono">
+                              {k.value}
+                            </div>
+                            <span className={`h-2 w-2 rounded-full ${k.dotStyle} shrink-0`} />
                           </div>
-                          <span className={`h-2 w-2 rounded-full ${k.dotStyle} shrink-0`} />
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+                        </button>
+                      );
+                    })}
+                  </div>
 
-                {/* 2. Assessed large card on the right */}
+                  {/* Installed & Commissioned Stack */}
+                  <div className="md:col-span-6 flex flex-col gap-3 justify-between h-full">
+                    {[
+                      kpis.find(x => x.id === "installed")!,
+                      kpis.find(x => x.id === "commissioned")!
+                    ].filter(Boolean).map((k) => {
+                      const active = selectedKpi === k.id;
+                      const Icon = k.icon;
+                      const isGreen = k.id === "commissioned";
+                      const hoverColor = isGreen ? "hover:border-emerald-400" : "hover:border-blue-400";
+                      const cardBorder = active
+                        ? (isGreen
+                          ? "border-emerald-500 ring-2 ring-emerald-500/10 bg-white scale-[1.01] shadow-md"
+                          : "border-blue-500 ring-2 ring-blue-500/10 bg-white scale-[1.01] shadow-md")
+                        : `border-border bg-white ${hoverColor} hover:shadow-md transition-all`;
+                      return (
+                        <button
+                          key={k.id}
+                          onClick={() => setSelectedKpi(k.id)}
+                          className={`flex items-center justify-between w-full text-left px-3 py-2.5 border rounded-xl shadow-xs transition-all duration-200 group cursor-pointer flex-1 ${cardBorder}`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className={`p-1.5 rounded-lg border shrink-0 ${k.badgeStyle}`}>
+                              <Icon size={14} strokeWidth={2.5} />
+                            </div>
+                            <div>
+                              <div className="text-xs font-bold text-text-primary">
+                                {k.label}
+                              </div>
+                              <div className="text-[9px] text-text-secondary leading-tight mt-0.5">
+                                {k.desc}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="text-xl font-extrabold text-text-primary font-mono">
+                              {k.value}
+                            </div>
+                            <span className={`h-2 w-2 rounded-full ${k.dotStyle} shrink-0`} />
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Dropped / Rejected */}
+              <div className="lg:col-span-3 h-full">
                 {(() => {
-                  const k = kpis.find(x => x.id === "assessment")!;
+                  const k = kpis.find(x => x.id === "dropped")!;
                   if (!k) return null;
                   const active = selectedKpi === k.id;
                   const Icon = k.icon;
                   const cardBorder = active
-                    ? "border-lime ring-2 ring-lime/20 bg-surface-raised scale-[1.02]"
-                    : "border-border bg-surface hover:border-border-bright hover:shadow-sm";
+                    ? "border-red-500 ring-2 ring-red-500/10 bg-white scale-[1.01] shadow-md"
+                    : "border-border bg-white hover:border-red-400 hover:shadow-md transition-all";
                   return (
                     <button
                       onClick={() => setSelectedKpi(k.id)}
-                      className={`flex flex-col justify-between w-full text-left p-5 border rounded-xl shadow-sm transition-all duration-200 group cursor-pointer h-full min-h-[140px] ${cardBorder}`}
+                      className={`flex flex-col justify-between w-full text-left p-4 border rounded-xl shadow-xs transition-all duration-200 group cursor-pointer h-full min-h-[130px] ${cardBorder}`}
                     >
                       <div className="flex items-start justify-between w-full">
-                        <div className={`p-2 rounded-lg border ${k.badgeStyle}`}>
-                          <Icon size={18} strokeWidth={2.5} />
+                        <div className={`p-2 rounded-xl border ${k.badgeStyle}`}>
+                          <Icon size={16} strokeWidth={2.5} />
                         </div>
-                        <span className={`h-2.5 w-2.5 rounded-full ${k.dotStyle}`} />
+                        <span className={`h-2 w-2 rounded-full ${k.dotStyle}`} />
                       </div>
                       <div className="mt-4">
                         <div className="text-3xl font-extrabold text-text-primary tracking-tight font-mono">
                           {k.value}
                         </div>
-                        <div className="text-xs font-semibold mt-1 text-text-primary">
+                        <div className="text-xs font-bold mt-1 text-text-primary">
                           {k.label}
                         </div>
                         <div className="text-[10px] mt-0.5 leading-snug text-text-secondary">
@@ -893,57 +1139,43 @@ export function Overview() {
                   );
                 })()}
               </div>
-
-              {/* Card 8: Dropped / Rejected */}
-              {(() => {
-                const k = kpis.find(x => x.id === "dropped")!;
-                if (!k) return null;
-                const active = selectedKpi === k.id;
-                const Icon = k.icon;
-                const cardBorder = active
-                  ? "border-lime ring-2 ring-lime/20 bg-surface-raised scale-[1.02]"
-                  : "border-border bg-surface hover:border-border-bright hover:shadow-sm";
-                return (
-                  <button
-                    onClick={() => setSelectedKpi(k.id)}
-                    className={`flex flex-col justify-between w-full text-left p-5 border rounded-xl shadow-sm transition-all duration-200 group cursor-pointer h-full min-h-[160px] ${cardBorder}`}
-                  >
-                    <div className="flex items-start justify-between w-full">
-                      <div className={`p-2 rounded-lg border ${k.badgeStyle}`}>
-                        <Icon size={18} strokeWidth={2.5} />
-                      </div>
-                      <span className={`h-2.5 w-2.5 rounded-full ${k.dotStyle}`} />
-                    </div>
-                    <div className="mt-4">
-                      <div className="text-3xl font-extrabold text-text-primary tracking-tight font-mono">
-                        {k.value}
-                      </div>
-                      <div className="text-xs font-semibold mt-1 text-text-primary">
-                        {k.label}
-                      </div>
-                      <div className="text-[10px] mt-0.5 leading-snug text-text-secondary">
-                        {k.desc}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })()}
             </div>
           </div>
         )}
 
         {/* Drill-down Table Section */}
         {selectedKpi && (
-          <div className="border border-border rounded-xl bg-surface p-5 space-y-5 shadow-sm">
+          <div className="border border-border rounded-xl bg-surface p-4 space-y-4 shadow-sm">
             {/* Table Header and Filters */}
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between border-b border-border pb-5">
-              <div>
-                <h3 className="text-lg font-bold text-text-primary">
-                  {kpis.find((k) => k.id === selectedKpi)?.label} Details
-                </h3>
-                <p className="text-xs text-text-secondary font-normal mt-0.5">
-                  Showing {sortedRows.length} of {allProcessedRows.length} total records.
-                </p>
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between border-b border-border pb-4">
+              <div className="flex items-center justify-between w-full lg:w-auto">
+                <div>
+                  <h3 className="text-lg font-bold text-text-primary">
+                    {kpis.find((k) => k.id === selectedKpi)?.label} Details
+                  </h3>
+                  <p className="text-xs text-text-secondary font-normal mt-0.5">
+                    Showing {sortedRows.length} of {allProcessedRows.length} total records.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 ml-6 shrink-0">
+                  <button
+                    onClick={exportCsv}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-[#E8F5E9] hover:bg-[#C8E6C9] text-[#2E7D32] border border-[#A5D6A7] rounded-md transition-colors shadow-xs cursor-pointer"
+                    title="Export to Excel / CSV"
+                  >
+                    <Download size={14} />
+                    <span>Excel</span>
+                  </button>
+                  <button
+                    onClick={exportPdf}
+                    disabled={exportingPdf}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-[#FFEBEE] hover:bg-[#FFCDD2] text-[#C62828] border border-[#EF9A9A] rounded-md transition-colors shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Export to PDF"
+                  >
+                    <FileText size={14} />
+                    <span>{exportingPdf ? "Generating..." : "PDF"}</span>
+                  </button>
+                </div>
               </div>
 
               {/* Filtering Controls */}

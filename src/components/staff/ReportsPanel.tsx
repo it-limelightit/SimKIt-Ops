@@ -45,43 +45,33 @@ type FactoryRow = {
 };
 
 const STATUS_OPTIONS = [
-  "Completed/Billed from our end",
-  "Completed but bill pending",
-  "Pending Installation",
-  "Pending Assessment",
-  "Completed but awaiting NPC confirmation",
+  "Pending Assignment",
   "Assigned",
-  "Assessment & Visit",
-  "Concept",
-  "Installation",
-  "Verification",
-  "Shipped",
-  "Running",
-  "Billing",
-  "Completion",
-  "Reject",
+  "Assessed",
+  "Panel Dispatched",
+  "Installed",
+  "Commissioned",
+  "Submitted",
+  "Unsubmitted",
+  "Certification Pending",
+  "Dropped / Rejected",
 ] as const;
 
-const isCompletedStatus = (status: string) =>
-  status === "Completion" || status === "Completed/Billed from our end";
+const isCompletedStatus = (status: string) => status === "Submitted";
 const isPendingStatus = (status: string) =>
-  ["Pending Installation", "Pending Assessment", "Assigned", "Concept"].includes(status);
-const isAwaitingStatus = (status: string) =>
-  ["Completed but bill pending", "Completed but awaiting NPC confirmation", "Billing"].includes(
-    status,
-  );
+  ["Pending Assignment", "Assigned", "Assessed", "Panel Dispatched", "Installed", "Commissioned", "Unsubmitted"].includes(status);
+const isAwaitingStatus = (status: string) => status === "Certification Pending";
 
 function statusStyle(status: string) {
-  if (isCompletedStatus(status)) return "border-mint/25 bg-mint-dim text-mint";
-  if (isAwaitingStatus(status)) return "border-warning/25 bg-warning/10 text-warning";
-  if (status === "Reject") return "border-coral/25 bg-coral-dim text-coral";
-  if (["Verification", "Shipped"].includes(status)) {
-    return "border-violet/25 bg-violet/10 text-violet";
-  }
-  if (["Assessment & Visit", "Installation", "Running"].includes(status)) {
-    return "border-[#3B82F6]/25 bg-[#3B82F6]/10 text-[#60A5FA]";
-  }
-  return "border-border bg-surface-raised text-text-secondary";
+  if (status === "Submitted") return "border-emerald-250 bg-emerald-50 text-emerald-700";
+  if (status === "Dropped / Rejected") return "border-red-200 bg-red-50 text-red-700";
+  if (status === "Certification Pending") return "border-purple-200 bg-purple-50 text-purple-700";
+  if (status === "Commissioned") return "border-teal-250 bg-teal-50 text-teal-700";
+  if (status === "Installed") return "border-cyan-200 bg-cyan-50 text-cyan-700";
+  if (status === "Panel Dispatched" || status === "Assessed") return "border-blue-200 bg-blue-50 text-blue-700";
+  if (status === "Assigned") return "border-indigo-200 bg-indigo-50 text-indigo-700";
+  if (status === "Pending Assignment") return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-stone-200 bg-stone-50 text-stone-600";
 }
 
 function groupReportRows(rows: FactoryRow[], key: (row: FactoryRow) => string) {
@@ -93,12 +83,43 @@ function groupReportRows(rows: FactoryRow[], key: (row: FactoryRow) => string) {
   return Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b));
 }
 
+const ASSESSMENT_KEYS = ["mom_uploaded", "media_uploaded", "factory_operations_done"];
+const INSTALLATION_KEYS = ["delivery_confirmed", "coordination_done", "photos_uploaded"];
+const COMMISSIONING_KEYS = [
+  "coordination_done",
+  "visit_done",
+  "connection_done",
+  "configure_done",
+  "testing_done",
+  "screenshots_uploaded",
+  "certificate_sent",
+];
+
+const pctKeys = (data: any, keys: string[]) => {
+  if (!data) return 0;
+  const done = keys.filter((k) => !!data[k]).length;
+  return Math.round((done / keys.length) * 100);
+};
+
+const getSiteWorkerIds = (site: any): string[] => {
+  if (site.assigned_worker_id) return [site.assigned_worker_id];
+  const meta = parseSiteMetadata(site.task_notes);
+  if (meta.worker_ids && Array.isArray(meta.worker_ids)) {
+    return meta.worker_ids;
+  }
+  return [];
+};
+
 export function ReportsPanel() {
   const [view, setView] = useState<ViewMode>("company");
   const [sites, setSites] = useState<SiteRecord[]>([]);
   const [consultants, setConsultants] = useState<Consultant[]>([]);
   const [loading, setLoading] = useState(true);
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [assessments, setAssessments] = useState<any[]>([]);
+  const [installations, setInstallations] = useState<any[]>([]);
+  const [commissionings, setCommissionings] = useState<any[]>([]);
+  const [materials, setMaterials] = useState<any[]>([]);
   const [filters, setFilters] = useState({
     search: "",
     from: "",
@@ -111,24 +132,47 @@ export function ReportsPanel() {
   useEffect(() => {
     const load = async () => {
       setLoading(true);
-      const [siteResult, consultantResult] = await Promise.all([
-        supabase
-          .from("sites")
-          .select(
-            "id,name,company_name,city,assigned_worker_id,task_notes,consultant_stage,created_at",
-          )
-          .order("created_at", { ascending: false }),
-        supabase.from("profiles").select("id,name,mobile").order("name"),
-      ]);
+      try {
+        const [
+          siteResult,
+          consultantResult,
+          assessmentsRes,
+          installationsRes,
+          commissioningsRes,
+          materialsRes,
+        ] = await Promise.all([
+          supabase
+            .from("sites")
+            .select(
+              "id,name,company_name,city,assigned_worker_id,task_notes,consultant_stage,created_at",
+            )
+            .order("created_at", { ascending: false }),
+          supabase.from("profiles").select("id,name,mobile").order("name"),
+          supabase.from("assessment").select("data,updated_at,site_id"),
+          supabase.from("installation").select("data,updated_at,site_id"),
+          supabase.from("commissioning").select("data,updated_at,site_id"),
+          supabase
+            .from("inventory_materials")
+            .select("state,notes,submitted,material_name,created_at")
+            .order("created_at", { ascending: false }),
+        ]);
 
-      if (siteResult.error)
-        toast.error("Could not load factory report: " + siteResult.error.message);
-      if (consultantResult.error) {
-        toast.error("Could not load business consultants: " + consultantResult.error.message);
+        if (siteResult.error)
+          toast.error("Could not load factory report: " + siteResult.error.message);
+        if (consultantResult.error)
+          toast.error("Could not load business consultants: " + consultantResult.error.message);
+
+        setSites(siteResult.data ?? []);
+        setConsultants(consultantResult.data ?? []);
+        setAssessments(assessmentsRes.data ?? []);
+        setInstallations(installationsRes.data ?? []);
+        setCommissionings(commissioningsRes.data ?? []);
+        setMaterials(materialsRes.data ?? []);
+      } catch (err) {
+        console.error("Error loading reports data:", err);
+      } finally {
+        setLoading(false);
       }
-      setSites(siteResult.data ?? []);
-      setConsultants(consultantResult.data ?? []);
-      setLoading(false);
     };
     void load();
 
@@ -150,16 +194,126 @@ export function ReportsPanel() {
   );
 
   const rows = useMemo<FactoryRow[]>(
-    () =>
-      sites.map((site) => {
-        const meta = parseSiteMetadata(site.task_notes);
-        const consultantIds =
-          meta.worker_ids?.length > 0
-            ? meta.worker_ids
-            : site.assigned_worker_id
-              ? [site.assigned_worker_id]
-              : [];
-        const rawStatus = site.consultant_stage || meta.status || "Unspecified";
+    () => {
+      const aMap = new Map<string, any>(assessments.map((r) => [r.site_id, r]));
+      const iMap = new Map<string, any>(installations.map((r) => [r.site_id, r]));
+      const cMap = new Map<string, any>(commissionings.map((r) => [r.site_id, r]));
+
+      const getLogisticsStatus = (m: any): string => {
+        try {
+          if (!m.notes) return m.state === "In transit" ? "Transit" : (m.state || "Pending");
+          let parsed = m.notes;
+          if (typeof m.notes === "string") {
+            const trimmed = m.notes.trim();
+            if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+              parsed = JSON.parse(trimmed);
+            } else {
+              return m.state === "In transit" ? "Transit" : (m.state || "Pending");
+            }
+          }
+          if (parsed && typeof parsed === "object" && parsed.logistics_status) {
+            return parsed.logistics_status;
+          }
+        } catch (e) {
+          console.error("Error parsing logistics status:", e);
+        }
+        return m.state === "In transit" ? "Transit" : (m.state || "Pending");
+      };
+
+      const normalizeCompanyName = (name: string): string => {
+        if (!name) return "";
+        return name
+          .toLowerCase()
+          .replace(/^m\/s\.?\s+|^ms\.?\s+/i, "")
+          .replace(/\s+pvt\.?\s*ltd\.?|\s+private\s+limited/i, "")
+          .replace(/\s+ltd\.?/i, "")
+          .replace(/[^a-z0-9]/g, "")
+          .trim();
+      };
+
+      const isSiteSubmitted = (row: any) => {
+        if (row.consultant_stage === "Completion" || row.consultant_stage === "Billing") return true;
+        const ar = aMap.get(row.id);
+        return !!ar?.data?.assessment_phase_submitted;
+      };
+
+      const isSiteCertification = (row: any) => {
+        const ar = aMap.get(row.id);
+        const cr = cMap.get(row.id);
+        const hasCert = !!(cr?.data?.certificate_sent || ar?.data?.certificate_sent);
+        return hasCert;
+      };
+
+      const isSiteCommissioned = (row: any) => {
+        const cr = cMap.get(row.id);
+        const cP = pctKeys(cr?.data, COMMISSIONING_KEYS);
+        return cP === 100;
+      };
+
+      const isSiteInstalled = (row: any) => {
+        const ir = iMap.get(row.id);
+        const iP = pctKeys(ir?.data, INSTALLATION_KEYS);
+        return iP === 100;
+      };
+
+      const isSiteAssessment = (row: any) => {
+        const ar = aMap.get(row.id);
+        const aP = pctKeys(ar?.data, ASSESSMENT_KEYS);
+        return aP > 0;
+      };
+
+      const isSiteDropped = (row: any) => {
+        const meta = parseSiteMetadata(row.task_notes);
+        return meta.status === "Dropped / Rejected" || meta.status === "Reject";
+      };
+
+      const getCanonicalStatus = (row: any, logisticsStatus: string): string => {
+        const meta = parseSiteMetadata(row.task_notes);
+        const workerIds = getSiteWorkerIds(row);
+
+        if (meta.status === "Dropped / Rejected" || meta.status === "Reject") return "Dropped / Rejected";
+        if (meta.status === "Submitted") return "Submitted";
+        if (meta.status === "Certification Pending") return "Certification Pending";
+        if (meta.status === "Commissioned") return "Commissioned";
+        if (meta.status === "Installed") return "Installed";
+        if (meta.status === "Panel Dispatched") return "Panel Dispatched";
+        if (meta.status === "Assessed" || meta.status === "In Assessment") return "Assessed";
+        if (meta.status === "Assigned") return "Assigned";
+        if (meta.status === "Unsubmitted") return "Unsubmitted";
+        if (meta.status === "Pending Assignment") return "Pending Assignment";
+
+        if (logisticsStatus === "Delivered") return "Panel Dispatched";
+
+        if (row.consultant_stage === "Completion" || row.consultant_stage === "Billing") return "Submitted";
+        if (isSiteSubmitted(row)) {
+          return isSiteCertification(row) ? "Submitted" : "Certification Pending";
+        }
+        if (isSiteCommissioned(row)) return "Commissioned";
+        if (isSiteInstalled(row)) return "Installed";
+        if (isSiteAssessment(row)) return "Assessed";
+        if (isSiteDropped(row)) return "Dropped / Rejected";
+
+        if (workerIds.length > 0) return "Assigned";
+        if (workerIds.length === 0) return "Pending Assignment";
+
+        return "Unsubmitted";
+      };
+
+      return sites.map((site) => {
+        const consultantIds = getSiteWorkerIds(site);
+
+        // Logistics matching
+        const matchingMaterial = materials.find((m) => {
+          if (m.submitted === false) return false;
+          const normMat = normalizeCompanyName(m.material_name);
+          const normComp = normalizeCompanyName(site.company_name);
+          const normName = normalizeCompanyName(site.name);
+          return normMat === normComp || normMat === normName;
+        });
+        const logisticsStatus = matchingMaterial ? getLogisticsStatus(matchingMaterial) : "Pending";
+
+        const canonicalStatus = getCanonicalStatus(site, logisticsStatus);
+
         return {
           id: site.id,
           companyName: site.company_name?.trim() || site.name,
@@ -170,11 +324,12 @@ export function ReportsPanel() {
             (id: string) =>
               consultantMap.get(id)?.name || consultantMap.get(id)?.mobile || "Unknown",
           ),
-          status: rawStatus,
+          status: canonicalStatus,
           createdAt: site.created_at,
         };
-      }),
-    [sites, consultantMap],
+      });
+    },
+    [sites, consultantMap, assessments, installations, commissionings, materials],
   );
 
   const cities = useMemo(
@@ -265,7 +420,19 @@ export function ReportsPanel() {
     const url = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" }));
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `factory-management-report-${new Date().toISOString().slice(0, 10)}.csv`;
+    
+    let fileNameParts = ["sim-kit-factory-report"];
+    if (filters.city) {
+      fileNameParts.push(filters.city.toLowerCase().replace(/\s+/g, "-"));
+    } else {
+      fileNameParts.push("all-cities");
+    }
+    if (filters.status) {
+      fileNameParts.push(filters.status.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
+    }
+    fileNameParts.push(new Date().toISOString().slice(0, 10));
+
+    anchor.download = `${fileNameParts.join("-")}.csv`;
     anchor.click();
     URL.revokeObjectURL(url);
   };
@@ -302,11 +469,13 @@ export function ReportsPanel() {
         doc.setFontSize(9);
         doc.setTextColor(240, 236, 227);
         doc.text("SIM-KIT OPS", 22, 9);
-        if (section) {
-          doc.setFont("helvetica", "normal");
-          doc.setTextColor(175, 172, 184);
-          doc.text(section.toUpperCase(), pageWidth - 12, 9, { align: "right" });
-        }
+        
+        const cityText = `CITY: ${filters.city ? filters.city.toUpperCase() : "ALL CITIES"}`;
+        const headerText = section ? `${section.toUpperCase()} | ${cityText}` : cityText;
+
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(175, 172, 184);
+        doc.text(headerText, pageWidth - 12, 9, { align: "right" });
       };
 
       const addSectionPage = (number: string, title: string, description: string) => {
@@ -355,7 +524,7 @@ export function ReportsPanel() {
           autoTable(doc, {
             startY: y + 5,
             margin: { left: 12, right: 12, top: 20, bottom: 14 },
-            head: [["Company", "Factory", "City", "Business Associate", "Status"]],
+            head: [["Company", "Factory", "City", "Business Consultant", "Status"]],
             body: groupRows.map((row) => [
               row.companyName,
               row.factoryName,
@@ -405,7 +574,11 @@ export function ReportsPanel() {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(10);
       doc.setTextColor(155, 151, 166);
-      doc.text(`Generated ${generatedAt}`, 24, 95);
+      doc.text(`Generated: ${generatedAt}`, 24, 93);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.setTextColor(...lime);
+      doc.text(`CITY: ${filters.city ? filters.city.toUpperCase() : "ALL CITIES"}`, 24, 100);
 
       const metrics = [
         ["FACTORIES", summary.total],
@@ -448,10 +621,10 @@ export function ReportsPanel() {
       addGroupedTables("Status breakdown", statusGroups);
       addSectionPage(
         "03",
-        "Business associate pages",
-        "Assignments and workload grouped by business associate.",
+        "Business consultant pages",
+        "Assignments and workload grouped by business consultant.",
       );
-      addGroupedTables("Business associate breakdown", associateGroups);
+      addGroupedTables("Business consultant breakdown", associateGroups);
 
       const totalPages = doc.getNumberOfPages();
       for (let page = 1; page <= totalPages; page += 1) {
@@ -463,7 +636,19 @@ export function ReportsPanel() {
         doc.text(`${page} / ${totalPages}`, pageWidth - 12, pageHeight - 7, { align: "right" });
       }
 
-      doc.save(`sim-kit-factory-report-${new Date().toISOString().slice(0, 10)}.pdf`);
+      let pdfFileNameParts = ["sim-kit-factory-report"];
+      if (filters.city) {
+        pdfFileNameParts.push(filters.city.toLowerCase().replace(/\s+/g, "-"));
+      } else {
+        pdfFileNameParts.push("all-cities");
+      }
+      if (filters.status) {
+        pdfFileNameParts.push(filters.status.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
+      }
+      pdfFileNameParts.push(new Date().toISOString().slice(0, 10));
+
+      const finalPdfName = `${pdfFileNameParts.join("-")}.pdf`;
+      doc.save(finalPdfName);
       toast.success("PDF report exported successfully.");
     } catch (error) {
       console.error(error);
