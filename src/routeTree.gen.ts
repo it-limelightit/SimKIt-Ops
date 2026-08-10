@@ -19,6 +19,7 @@ import { Route as ManagerSitesRouteImport } from './routes/manager.sites'
 import { Route as ManagerReportsRouteImport } from './routes/manager.reports'
 import { Route as ManagerPerformanceRouteImport } from './routes/manager.performance'
 import { Route as ManagerLogisticRouteImport } from './routes/manager.logistic'
+import { Route as ManagerFactoryDataRouteImport } from './routes/manager.factory-data'
 import { Route as ManagerDriveLinksRouteImport } from './routes/manager.drive-links'
 import { Route as ManagerBusinessConsultantsRouteImport } from './routes/manager.business-consultants'
 
@@ -72,6 +73,11 @@ const ManagerLogisticRoute = ManagerLogisticRouteImport.update({
   path: '/logistic',
   getParentRoute: () => ManagerRoute,
 } as any)
+const ManagerFactoryDataRoute = ManagerFactoryDataRouteImport.update({
+  id: '/factory-data',
+  path: '/factory-data',
+  getParentRoute: () => ManagerRoute,
+} as any)
 const ManagerDriveLinksRoute = ManagerDriveLinksRouteImport.update({
   id: '/drive-links',
   path: '/drive-links',
@@ -91,6 +97,7 @@ export interface FileRoutesByFullPath {
   '/manager': typeof ManagerRouteWithChildren
   '/manager/business-consultants': typeof ManagerBusinessConsultantsRoute
   '/manager/drive-links': typeof ManagerDriveLinksRoute
+  '/manager/factory-data': typeof ManagerFactoryDataRoute
   '/manager/logistic': typeof ManagerLogisticRoute
   '/manager/performance': typeof ManagerPerformanceRoute
   '/manager/reports': typeof ManagerReportsRoute
@@ -104,6 +111,7 @@ export interface FileRoutesByTo {
   '/business-consultant': typeof BusinessConsultantRoute
   '/manager/business-consultants': typeof ManagerBusinessConsultantsRoute
   '/manager/drive-links': typeof ManagerDriveLinksRoute
+  '/manager/factory-data': typeof ManagerFactoryDataRoute
   '/manager/logistic': typeof ManagerLogisticRoute
   '/manager/performance': typeof ManagerPerformanceRoute
   '/manager/reports': typeof ManagerReportsRoute
@@ -119,6 +127,7 @@ export interface FileRoutesById {
   '/manager': typeof ManagerRouteWithChildren
   '/manager/business-consultants': typeof ManagerBusinessConsultantsRoute
   '/manager/drive-links': typeof ManagerDriveLinksRoute
+  '/manager/factory-data': typeof ManagerFactoryDataRoute
   '/manager/logistic': typeof ManagerLogisticRoute
   '/manager/performance': typeof ManagerPerformanceRoute
   '/manager/reports': typeof ManagerReportsRoute
@@ -135,6 +144,7 @@ export interface FileRouteTypes {
     | '/manager'
     | '/manager/business-consultants'
     | '/manager/drive-links'
+    | '/manager/factory-data'
     | '/manager/logistic'
     | '/manager/performance'
     | '/manager/reports'
@@ -148,6 +158,7 @@ export interface FileRouteTypes {
     | '/business-consultant'
     | '/manager/business-consultants'
     | '/manager/drive-links'
+    | '/manager/factory-data'
     | '/manager/logistic'
     | '/manager/performance'
     | '/manager/reports'
@@ -162,6 +173,7 @@ export interface FileRouteTypes {
     | '/manager'
     | '/manager/business-consultants'
     | '/manager/drive-links'
+    | '/manager/factory-data'
     | '/manager/logistic'
     | '/manager/performance'
     | '/manager/reports'
@@ -249,6 +261,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ManagerLogisticRouteImport
       parentRoute: typeof ManagerRoute
     }
+    '/manager/factory-data': {
+      id: '/manager/factory-data'
+      path: '/factory-data'
+      fullPath: '/manager/factory-data'
+      preLoaderRoute: typeof ManagerFactoryDataRouteImport
+      parentRoute: typeof ManagerRoute
+    }
     '/manager/drive-links': {
       id: '/manager/drive-links'
       path: '/drive-links'
@@ -269,6 +288,7 @@ declare module '@tanstack/react-router' {
 interface ManagerRouteChildren {
   ManagerBusinessConsultantsRoute: typeof ManagerBusinessConsultantsRoute
   ManagerDriveLinksRoute: typeof ManagerDriveLinksRoute
+  ManagerFactoryDataRoute: typeof ManagerFactoryDataRoute
   ManagerLogisticRoute: typeof ManagerLogisticRoute
   ManagerPerformanceRoute: typeof ManagerPerformanceRoute
   ManagerReportsRoute: typeof ManagerReportsRoute
@@ -280,6 +300,7 @@ interface ManagerRouteChildren {
 const ManagerRouteChildren: ManagerRouteChildren = {
   ManagerBusinessConsultantsRoute: ManagerBusinessConsultantsRoute,
   ManagerDriveLinksRoute: ManagerDriveLinksRoute,
+  ManagerFactoryDataRoute: ManagerFactoryDataRoute,
   ManagerLogisticRoute: ManagerLogisticRoute,
   ManagerPerformanceRoute: ManagerPerformanceRoute,
   ManagerReportsRoute: ManagerReportsRoute,

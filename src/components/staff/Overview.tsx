@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
+import { parseSiteMetadata, serializeSiteMetadata } from "@/lib/site-metadata";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui-kit";
 import {
@@ -78,28 +79,15 @@ function pctKeys(data: any, keys: string[]) {
   return Math.round((keys.filter((k) => !!data[k]).length / keys.length) * 100);
 }
 
-function parseSiteMetadata(taskNotes: string | null) {
-  if (!taskNotes) return { status: "", c1_name: "", c1_mobile: "", c1_email: "", worker_ids: [] as string[] };
-  const prefix = "[METADATA:";
-  const idx = taskNotes.indexOf(prefix);
-  if (idx === -1) return { status: "", c1_name: "", c1_mobile: "", c1_email: "", worker_ids: [] as string[] };
-  const start = idx + prefix.length;
-  let depth = 0;
-  for (let i = start; i < taskNotes.length; i++) {
-    if (taskNotes[i] === "{") depth++;
-    else if (taskNotes[i] === "}") {
-      depth--;
-      if (depth === 0) {
-        try {
-          return JSON.parse(taskNotes.slice(start, i + 1));
-        } catch {
-          return { status: "", c1_name: "", c1_mobile: "", c1_email: "", worker_ids: [] as string[] };
-        }
-      }
-    }
-  }
-  return { status: "", c1_name: "", c1_mobile: "", c1_email: "", worker_ids: [] as string[] };
-}
+const FACTORY_STATUS_OPTIONS = [
+  "Submitted",
+  "Unsubmitted",
+  "Certification Pending",
+  "Installed",
+  "Commissioned",
+  "Assessed",
+  "Dropped / Rejected",
+] as const;
 
 function getSiteWorkerIds(site: any): string[] {
   const meta = parseSiteMetadata(site.task_notes);
@@ -168,6 +156,109 @@ export function Overview() {
     }
   };
 
+  const updateSiteStatus = async (
+    siteId: string,
+    newStatus: string,
+    currentTaskNotes: string | null,
+  ) => {
+    try {
+      const meta = parseSiteMetadata(currentTaskNotes);
+      
+      let consultantStage: string | null = null;
+      let metaStatus: string = "";
+      let updatedWorkers: string[] | undefined = undefined;
+      
+      if (newStatus === "Dropped / Rejected") {
+        consultantStage = null;
+        metaStatus = "Dropped / Rejected";
+      } else if (newStatus === "Submitted") {
+        consultantStage = "Completion";
+        metaStatus = "Submitted";
+      } else if (newStatus === "In Assessment" || newStatus === "Assessed") {
+        consultantStage = null;
+        metaStatus = "Assessed";
+      } else if (newStatus === "Installed") {
+        consultantStage = null;
+        metaStatus = "Installed";
+      } else if (newStatus === "Commissioned") {
+        consultantStage = null;
+        metaStatus = "Commissioned";
+      } else if (newStatus === "Unsubmitted") {
+        consultantStage = null;
+        metaStatus = "Unsubmitted";
+      } else if (newStatus === "Certification Pending") {
+        consultantStage = null;
+        metaStatus = "Certification Pending";
+      } else if (newStatus === "Pending Assignment") {
+        consultantStage = null;
+        metaStatus = "Pending Assignment";
+        updatedWorkers = [];
+      }
+
+      const newNotes = serializeSiteMetadata(currentTaskNotes, { 
+        ...meta, 
+        status: metaStatus,
+        ...(updatedWorkers !== undefined ? { worker_ids: updatedWorkers } : {})
+      });
+
+      const updatePayload: any = {
+        task_notes: newNotes,
+        consultant_stage: consultantStage,
+      };
+
+      if (updatedWorkers !== undefined) {
+        updatePayload.assigned_worker_id = null;
+        updatePayload.assigned_at = null;
+      }
+
+      const { error } = await supabase
+        .from("sites")
+        .update(updatePayload as never)
+        .eq("id", siteId);
+
+      if (error) {
+        toast.error(error.message);
+      } else {
+        toast.success("Site status updated successfully");
+        await loadData();
+      }
+    } catch (err: any) {
+      toast.error("Failed to update status: " + err.message);
+    }
+  };
+
+  const renderStatusSelect = (row: any) => {
+    const canonicalStatus = getCanonicalStatus(row);
+    let toneClass = "bg-surface text-text-dim border-border";
+    if (canonicalStatus === "Submitted" || canonicalStatus === "Commissioned") {
+      toneClass = "bg-emerald-50 text-emerald-700 border-emerald-250";
+    } else if (canonicalStatus === "Dropped / Rejected") {
+      toneClass = "bg-red-50 text-red-700 border-red-200";
+    } else if (canonicalStatus === "Assigned") {
+      toneClass = "bg-indigo-50 text-indigo-700 border-indigo-200";
+    } else if (canonicalStatus === "Pending Assignment" || canonicalStatus === "Total Assignment Pending on Portal" || canonicalStatus === "Assessed" || canonicalStatus === "Unsubmitted" || canonicalStatus === "Certification Pending") {
+      toneClass = "bg-amber-50 text-amber-700 border-amber-250";
+    }
+
+    return (
+      <select
+        value={canonicalStatus || ""}
+        onClick={(e) => e.stopPropagation()} // Prevent row click navigation
+        onChange={(e) => {
+          e.stopPropagation(); // Prevent row click navigation
+          updateSiteStatus(row.id, e.target.value, row.task_notes);
+        }}
+        className={`rounded border px-2 py-0.5 text-[11px] font-semibold cursor-pointer outline-none transition-colors ${toneClass}`}
+      >
+        {FACTORY_STATUS_OPTIONS.map((status) => (
+          <option key={status} value={status} className="bg-surface text-text-primary">
+            {status}
+          </option>
+        ))}
+      </select>
+    );
+  };
+
   useEffect(() => {
     void loadData();
   }, []);
@@ -205,76 +296,6 @@ export function Overview() {
   const iMap = new Map<string, any>(rawInstallations.map((r) => [r.site_id, r]));
   const cMap = new Map<string, any>(rawCommissionings.map((r) => [r.site_id, r]));
 
-  const normalizeCompanyName = (name: string): string => {
-    if (!name) return "";
-    return name
-      .toLowerCase()
-      .replace(/^m\/s\.?\s+|^ms\.?\s+/i, "")
-      .replace(/\s+pvt\.?\s*ltd\.?|\s+private\s+limited/i, "")
-      .replace(/\s+ltd\.?/i, "")
-      .replace(/[^a-z0-9]/g, "")
-      .trim();
-  };
-
-  const allProcessedRows: SiteRow[] = rawSites.map((site) => {
-    const ar = aMap.get(site.id);
-    const ir = iMap.get(site.id);
-    const cr = cMap.get(site.id);
-    const meta = parseSiteMetadata(site.task_notes);
-
-    const isFullyDone = site.consultant_stage === "Completion" || site.consultant_stage === "Billing";
-
-    const aP = isFullyDone || ar?.data?.assessment_phase_submitted ? 100 : pctKeys(ar?.data, ASSESSMENT_KEYS);
-    const iP = isFullyDone ? 100 : pctKeys(ir?.data, INSTALLATION_KEYS);
-    const cP = isFullyDone ? 100 : pctKeys(cr?.data, COMMISSIONING_KEYS);
-    const updated = [ar?.updated_at, ir?.updated_at, cr?.updated_at].filter(Boolean).sort().pop() ?? null;
-
-    const workerIds = getSiteWorkerIds(site);
-
-    let appt: Appt = { status: "none", scheduled: null, completed: null };
-    if (site.appt_date) {
-      const scheduled = new Date(`${site.appt_date}T${site.appt_time || "00:00"}`);
-      const completed = ar?.data?.facility_visit_at ? new Date(ar.data.facility_visit_at) : null;
-      if (!completed) {
-        appt = { status: "scheduled", scheduled: scheduled.toISOString(), completed: null };
-      } else {
-        const diffMin = (completed.getTime() - scheduled.getTime()) / 60000;
-        const status: Appt["status"] = diffMin < -5 ? "early" : diffMin > 15 ? "late" : "ontime";
-        appt = { status, scheduled: scheduled.toISOString(), completed: completed.toISOString() };
-      }
-    }
-
-    const matchingMaterial = rawMaterials.find((m) => {
-      if (m.submitted === false) return false;
-      const normMat = normalizeCompanyName(m.material_name);
-      const normComp = normalizeCompanyName(site.company_name);
-      const normName = normalizeCompanyName(site.name);
-      return normMat === normComp || normMat === normName;
-    });
-    const logisticsStatus = matchingMaterial ? getLogisticsStatus(matchingMaterial) : "Pending";
-
-    return {
-      id: site.id,
-      name: site.name,
-      city: site.city,
-      assigned_worker_id: site.assigned_worker_id,
-      assigned_at: site.assigned_at,
-      appt_date: site.appt_date,
-      appt_time: site.appt_time,
-      task_notes: site.task_notes,
-      consultant_stage: site.consultant_stage,
-      progress: { a: aP, i: iP, c: cP, updated, appt },
-      workerIds,
-      meta: {
-        status: meta.status || "",
-        c1_name: meta.c1_name || "",
-        c1_mobile: meta.c1_mobile || "",
-        c1_email: meta.c1_email || "",
-      },
-      logisticsStatus,
-    };
-  });
-
   // KPI Category Helpers
   const isSiteSubmitted = (row: SiteRow) => {
     if (row.consultant_stage === "Completion" || row.consultant_stage === "Billing") return true;
@@ -290,7 +311,7 @@ export function Overview() {
 
   const isSiteAssessment = (row: SiteRow) => {
     const stage = (row.consultant_stage || row.meta.status || "").toLowerCase();
-    const hasStartedAssessment = row.progress.a > 0 && row.progress.a < 100;
+    const hasStartedAssessment = row.progress.a > 0;
     return stage.includes("assessment") || hasStartedAssessment;
   };
 
@@ -342,9 +363,144 @@ export function Overview() {
     return "Unsubmitted";
   };
 
+  const normalizeCompanyName = (name: string): string => {
+    if (!name) return "";
+    return name
+      .toLowerCase()
+      .replace(/^m\/s\.?\s+|^ms\.?\s+/i, "")
+      .replace(/\s+pvt\.?\s*ltd\.?|\s+private\s+limited/i, "")
+      .replace(/\s+ltd\.?/i, "")
+      .replace(/[^a-z0-9]/g, "")
+      .trim();
+  };
+
+  const allProcessedRows: SiteRow[] = rawSites.map((site) => {
+    const ar = aMap.get(site.id);
+    const ir = iMap.get(site.id);
+    const cr = cMap.get(site.id);
+    const meta = parseSiteMetadata(site.task_notes);
+
+    const isFullyDone = site.consultant_stage === "Completion" || site.consultant_stage === "Billing";
+
+    let aP = isFullyDone || ar?.data?.assessment_phase_submitted ? 100 : pctKeys(ar?.data, ASSESSMENT_KEYS);
+    let iP = isFullyDone ? 100 : pctKeys(ir?.data, INSTALLATION_KEYS);
+    let cP = isFullyDone ? 100 : pctKeys(cr?.data, COMMISSIONING_KEYS);
+    const updated = [ar?.updated_at, ir?.updated_at, cr?.updated_at].filter(Boolean).sort().pop() ?? null;
+
+    const workerIds = getSiteWorkerIds(site);
+
+    let appt: Appt = { status: "none", scheduled: null, completed: null };
+    if (site.appt_date) {
+      const scheduled = new Date(`${site.appt_date}T${site.appt_time || "00:00"}`);
+      const completed = ar?.data?.facility_visit_at ? new Date(ar.data.facility_visit_at) : null;
+      if (!completed) {
+        appt = { status: "scheduled", scheduled: scheduled.toISOString(), completed: null };
+      } else {
+        const diffMin = (completed.getTime() - scheduled.getTime()) / 60000;
+        const status: Appt["status"] = diffMin < -5 ? "early" : diffMin > 15 ? "late" : "ontime";
+        appt = { status, scheduled: scheduled.toISOString(), completed: completed.toISOString() };
+      }
+    }
+
+    const matchingMaterial = rawMaterials.find((m) => {
+      if (m.submitted === false) return false;
+      const normMat = normalizeCompanyName(m.material_name);
+      const normComp = normalizeCompanyName(site.company_name);
+      const normName = normalizeCompanyName(site.name);
+      return normMat === normComp || normMat === normName;
+    });
+    const logisticsStatus = matchingMaterial ? getLogisticsStatus(matchingMaterial) : "Pending";
+
+    const draftRow: SiteRow = {
+      id: site.id,
+      name: site.name,
+      city: site.city,
+      assigned_worker_id: site.assigned_worker_id,
+      assigned_at: site.assigned_at,
+      appt_date: site.appt_date,
+      appt_time: site.appt_time,
+      task_notes: site.task_notes,
+      consultant_stage: site.consultant_stage,
+      progress: { a: aP, i: iP, c: cP, updated, appt },
+      workerIds,
+      meta: {
+        status: meta.status || "",
+        c1_name: meta.c1_name || "",
+        c1_mobile: meta.c1_mobile || "",
+        c1_email: meta.c1_email || "",
+      },
+      logisticsStatus,
+    };
+
+    const status = getCanonicalStatus(draftRow);
+    if (status === "Assessed") {
+      aP = 100;
+    } else if (status === "Installed" || status === "Panel Dispatched") {
+      aP = 100;
+      iP = 100;
+    } else if (status === "Commissioned" || status === "Submitted" || status === "Certification Pending") {
+      aP = 100;
+      iP = 100;
+      cP = 100;
+    }
+
+    return {
+      ...draftRow,
+      progress: { a: aP, i: iP, c: cP, updated, appt },
+    };
+  });
+
   // Dropdown list options
   const cities = Array.from(new Set(allProcessedRows.map((r) => r.city).filter(Boolean))).sort() as string[];
   const executives = rawProfiles.filter((p) => p.is_active && workerIds.has(p.id));
+
+  const handleBcChange = async (row: SiteRow, newWorkerId: string) => {
+    try {
+      const workerIds = newWorkerId ? [newWorkerId] : [];
+      const meta = parseSiteMetadata(row.task_notes);
+      const newNotes = serializeSiteMetadata(row.task_notes, { ...meta, worker_ids: workerIds });
+      
+      const { error } = await supabase
+        .from("sites")
+        .update({
+          assigned_worker_id: newWorkerId || null,
+          assigned_at: newWorkerId ? new Date().toISOString() : null,
+          task_notes: newNotes,
+        } as never)
+        .eq("id", row.id);
+        
+      if (error) {
+        toast.error(error.message);
+      } else {
+        toast.success("BC assignment updated successfully");
+        await loadData();
+      }
+    } catch (err: any) {
+      toast.error("Failed to update assignment: " + err.message);
+    }
+  };
+
+  const renderBcSelect = (row: SiteRow) => {
+    const currentWorkerId = row.workerIds[0] || "";
+    return (
+      <select
+        value={currentWorkerId}
+        onClick={(e) => e.stopPropagation()} // Prevent row click navigation
+        onChange={(e) => {
+          e.stopPropagation();
+          handleBcChange(row, e.target.value);
+        }}
+        className="rounded border border-border px-2 py-0.5 text-[11px] font-semibold cursor-pointer bg-surface text-text-primary outline-none max-w-[150px] truncate"
+      >
+        <option value="">Unassigned</option>
+        {executives.map((exec) => (
+          <option key={exec.id} value={exec.id}>
+            {exec.name || exec.mobile}
+          </option>
+        ))}
+      </select>
+    );
+  };
 
   // Apply filters for counting
   const filteredForCounts = allProcessedRows.filter((row) => {
@@ -1283,14 +1439,10 @@ export function Overview() {
                             {r.city || <span className="text-text-dim">—</span>}
                           </td>
                           <td className="px-4 py-3.5">
-                            {r.workerIds.length > 0 ? (
-                              <div className="flex items-center">
-                                <span className="font-semibold text-text-primary text-xs">{bcNames}</span>
-                                {renderApptBadge(r.progress.appt)}
-                              </div>
-                            ) : (
-                              <span className="text-text-dim italic text-xs font-normal">Unassigned</span>
-                            )}
+                            <div className="flex items-center gap-1.5">
+                              {renderBcSelect(r)}
+                              {r.workerIds.length > 0 && renderApptBadge(r.progress.appt)}
+                            </div>
                           </td>
                           <td className="px-4 py-3.5">
                             <div className="flex flex-wrap gap-1.5">
@@ -1300,7 +1452,7 @@ export function Overview() {
                             </div>
                           </td>
                           <td className="px-4 py-3.5">
-                            {getStatusBadge(canonicalStatus)}
+                            {renderStatusSelect(r)}
                           </td>
                           <td className="px-4 py-3.5 text-xs font-mono font-bold text-text-secondary">
                             {formatDate(r.progress.updated || r.assigned_at || r.appt_date)}

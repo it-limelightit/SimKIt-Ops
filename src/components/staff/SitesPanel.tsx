@@ -301,8 +301,7 @@ export function SitesPanel() {
     const stage = (site.consultant_stage || meta.status || "").toLowerCase();
     const ar = aMap.get(site.id);
     const aP = ar?.data?.assessment_phase_submitted ? 100 : pctKeys(ar?.data, ASSESSMENT_KEYS);
-    const hasStartedAssessment = aP > 0 && aP < 100;
-    return stage.includes("assessment") || hasStartedAssessment;
+    return stage.includes("assessment") || aP === 100;
   };
 
   const getCanonicalStatus = (site: any): string => {
