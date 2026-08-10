@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui-kit";
@@ -108,12 +109,14 @@ function getSiteWorkerIds(site: any): string[] {
 }
 
 export function Overview() {
+  const navigate = useNavigate();
   const [rawSites, setRawSites] = useState<any[]>([]);
   const [rawAssessments, setRawAssessments] = useState<any[]>([]);
   const [rawInstallations, setRawInstallations] = useState<any[]>([]);
   const [rawCommissionings, setRawCommissionings] = useState<any[]>([]);
   const [rawProfiles, setRawProfiles] = useState<any[]>([]);
   const [rawMaterials, setRawMaterials] = useState<any[]>([]);
+  const [workerIds, setWorkerIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
 
   // Filter States
@@ -134,7 +137,7 @@ export function Overview() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [sitesRes, assessmentsRes, installationsRes, commissioningsRes, profilesRes, materialsRes] = await Promise.all([
+      const [sitesRes, assessmentsRes, installationsRes, commissioningsRes, profilesRes, materialsRes, rolesRes] = await Promise.all([
         supabase
           .from("sites")
           .select("id,name,city,assigned_worker_id,assigned_at,appt_date,appt_time,created_at,task_notes,consultant_stage")
@@ -147,6 +150,7 @@ export function Overview() {
           .from("inventory_materials")
           .select("state,notes,submitted,material_name,created_at")
           .order("created_at", { ascending: false }),
+        supabase.from("user_roles").select("user_id").eq("role", "worker"),
       ]);
 
       setRawSites(sitesRes.data ?? []);
@@ -155,8 +159,8 @@ export function Overview() {
       setRawCommissionings(commissioningsRes.data ?? []);
       setRawProfiles(profilesRes.data ?? []);
       setRawMaterials(materialsRes.data ?? []);
-      console.log("RAW MATERIALS FROM DB:", materialsRes.data);
-      console.log("RAW SITES FROM DB:", sitesRes.data);
+      const wIds = new Set((rolesRes.data ?? []).map((r: any) => r.user_id));
+      setWorkerIds(wIds);
     } catch (err) {
       console.error("Error fetching overview metrics:", err);
     } finally {
@@ -316,9 +320,7 @@ export function Overview() {
     if (meta.status === "Installed") return "Installed";
     if (meta.status === "Panel Dispatched") return "Panel Dispatched";
     if (meta.status === "Assessed" || meta.status === "In Assessment") return "Assessed";
-    if (meta.status === "Assigned") return "Assigned";
     if (meta.status === "Unsubmitted") return "Unsubmitted";
-    if (meta.status === "Pending Assignment") return "Pending Assignment";
 
     // 2. Logistics override (Panel Dispatched)
     if (row.logisticsStatus === "Delivered") return "Panel Dispatched";
@@ -342,7 +344,7 @@ export function Overview() {
 
   // Dropdown list options
   const cities = Array.from(new Set(allProcessedRows.map((r) => r.city).filter(Boolean))).sort() as string[];
-  const executives = rawProfiles.filter((p) => p.is_active);
+  const executives = rawProfiles.filter((p) => p.is_active && workerIds.has(p.id));
 
   // Apply filters for counting
   const filteredForCounts = allProcessedRows.filter((row) => {
@@ -353,8 +355,8 @@ export function Overview() {
 
   // Calculate counts based on current filters and canonical status partitioning
   const countTotal = filteredForCounts.length; // First card represents total companies count
-  const countPending = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Pending Assignment").length;
-  const countAssignedBc = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Assigned").length;
+  const countPending = filteredForCounts.filter((r) => r.workerIds.length === 0).length;
+  const countAssignedBc = filteredForCounts.filter((r) => r.workerIds.length > 0 && getCanonicalStatus(r) !== "Submitted").length;
   const countSubmitted = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Submitted").length;
   const countUnsubmitted = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Unsubmitted").length;
   const countCertification = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Certification Pending").length;
@@ -380,11 +382,11 @@ export function Overview() {
       case "commissioned":
         return status === "Commissioned";
       case "pending":
-        return status === "Pending Assignment";
+        return row.workerIds.length === 0;
       case "pending_portal":
         return status !== "Submitted";
       case "assigned_bc":
-        return status === "Assigned";
+        return row.workerIds.length > 0 && getCanonicalStatus(row) !== "Submitted";
       case "assessment":
         return status === "Assessed";
       case "dispatched":
@@ -1264,9 +1266,13 @@ export function Overview() {
                       const canonicalStatus = getCanonicalStatus(r);
 
                       return (
-                        <tr key={r.id} className="hover:bg-surface-raised/35 transition-colors">
+                        <tr
+                          key={r.id}
+                          onClick={() => navigate({ to: "/manager/sites" as any, search: { q: r.name } as any })}
+                          className="hover:bg-surface-raised/35 transition-colors cursor-pointer"
+                        >
                           <td className="px-4 py-3.5">
-                            <div className="font-bold text-text-primary text-sm">{r.name}</div>
+                            <div className="font-bold text-text-primary text-sm hover:text-lime transition-colors">{r.name}</div>
                             {r.meta.c1_name && (
                               <div className="text-[11px] text-text-secondary font-normal mt-0.5">
                                 {r.meta.c1_name} {r.meta.c1_mobile ? `· ${r.meta.c1_mobile}` : ""}

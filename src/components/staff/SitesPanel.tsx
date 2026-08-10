@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useRouterState } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { Button, Card, Input, Label, Select, Badge } from "@/components/ui-kit";
 import { toast } from "sonner";
@@ -24,8 +25,6 @@ const FACTORY_STATUS_OPTIONS = [
   "Certification Pending",
   "Installed",
   "Commissioned",
-  "Pending Assignment",
-  "Assigned",
   "Assessed",
   "Dropped / Rejected",
 ] as const;
@@ -167,7 +166,16 @@ export function SitesPanel() {
   const [creating, setCreating] = useState(false);
   const [editingSite, setEditingSite] = useState<any | null>(null);
 
-  const [search, setSearch] = useState("");
+  const routerState = useRouterState();
+  const searchParam = (routerState.location.search as any)?.q || "";
+
+  const [search, setSearch] = useState(searchParam);
+
+  useEffect(() => {
+    if (searchParam) {
+      setSearch(searchParam);
+    }
+  }, [searchParam]);
   const [filterCity, setFilterCity] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterAssessor, setFilterAssessor] = useState("");
@@ -205,7 +213,7 @@ export function SitesPanel() {
   });
 
   const load = async () => {
-    const [s, w, aRes, iRes, cRes] = await Promise.all([
+    const [s, w, aRes, iRes, cRes, rRes] = await Promise.all([
       supabase
         .from("sites")
         .select(
@@ -216,11 +224,13 @@ export function SitesPanel() {
       supabase.from("assessment").select("data,updated_at,site_id"),
       supabase.from("installation").select("data,updated_at,site_id"),
       supabase.from("commissioning").select("data,updated_at,site_id"),
+      supabase.from("user_roles").select("user_id").eq("role", "worker"),
     ]);
     if (s.error) toast.error("Error loading sites: " + s.error.message);
     if (w.error) toast.error("Error loading profiles: " + w.error.message);
     setSites(s.data ?? []);
-    setBusinessConsultants((w.data ?? []).filter((x: any) => x.is_active));
+    const workerIds = new Set((rRes.data ?? []).map((r: any) => r.user_id));
+    setBusinessConsultants((w.data ?? []).filter((x: any) => x.is_active && workerIds.has(x.id)));
     setAssessments(aRes.data ?? []);
     setInstallations(iRes.data ?? []);
     setCommissionings(cRes.data ?? []);
@@ -305,12 +315,9 @@ export function SitesPanel() {
     if (meta.status === "Certification Pending") return "Certification Pending";
     if (meta.status === "Commissioned") return "Commissioned";
     if (meta.status === "Installed") return "Installed";
-    // "Panel Dispatched" is auto-detected from logistics — kept for read display but not set manually
     if (meta.status === "Panel Dispatched") return "Panel Dispatched";
     if (meta.status === "Assessed" || meta.status === "In Assessment") return "Assessed";
-    if (meta.status === "Assigned") return "Assigned";
     if (meta.status === "Unsubmitted") return "Unsubmitted";
-    if (meta.status === "Pending Assignment") return "Pending Assignment";
 
     // 2. Auto-detection / Stage Fallbacks
     if (site.consultant_stage === "Completion" || site.consultant_stage === "Billing") return "Submitted";
@@ -366,13 +373,6 @@ export function SitesPanel() {
     } else if (form.status === "Commissioned") {
       consultantStage = null;
       metaStatus = "Commissioned";
-    } else if (form.status === "Assigned") {
-      consultantStage = null;
-      metaStatus = "Assigned";
-    } else if (form.status === "Pending Assignment") {
-      consultantStage = null;
-      metaStatus = "Pending Assignment";
-      formWorkers = [];
     } else if (form.status === "Unsubmitted") {
       consultantStage = null;
       metaStatus = "Unsubmitted";
@@ -631,13 +631,6 @@ export function SitesPanel() {
     } else if (newStatus === "Commissioned") {
       consultantStage = null;
       metaStatus = "Commissioned";
-    } else if (newStatus === "Assigned") {
-      consultantStage = null;
-      metaStatus = "Assigned";
-    } else if (newStatus === "Pending Assignment") {
-      consultantStage = null;
-      metaStatus = "Pending Assignment";
-      updatedWorkers = [];
     } else if (newStatus === "Unsubmitted") {
       consultantStage = null;
       metaStatus = "Unsubmitted";
@@ -713,8 +706,6 @@ export function SitesPanel() {
     "Certification Pending",
     "Installed",
     "Commissioned",
-    "Pending Assignment",
-    "Assigned",
     "Assessed",
     "Panel Dispatched",
     "Dropped / Rejected",

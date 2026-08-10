@@ -281,16 +281,26 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
 
           {expandedSections["Media"] && (
             <div className="mt-6 space-y-6 animate-in fade-in duration-200">
-              <MediaUploader siteId={siteId} phase="assessment" section="media" />
+              <div className="flex items-start gap-3 p-4 bg-muted/30 border border-border rounded-lg">
+                <input
+                  type="checkbox"
+                  id="confirm-assessment-photos-drive"
+                  className="h-5 w-5 rounded border-gray-300 text-lime focus:ring-lime mt-0.5 cursor-pointer"
+                  checked={!!data.media_uploaded}
+                  onChange={(e) => patch({ media_uploaded: e.target.checked })}
+                />
+                <label htmlFor="confirm-assessment-photos-drive" className="text-sm text-text-primary select-none cursor-pointer">
+                  Are you sure you have uploaded the photos and videos to Google Drive?
+                </label>
+              </div>
               {renderCustomFields("Media")}
               <CompleteJobRow
                 checked={!!data.media_uploaded}
                 onToggle={async () => {
                   const next = !data.media_uploaded;
                   patch({ media_uploaded: next });
-                  if (next) advanceSiteVisitStatus(siteId, "Assessment Done");
                 }}
-                validate={() => validateSectionLinks("Media", ["media"])}
+                validate={() => validateSectionLinks("Media", [])}
               />
             </div>
           )}
