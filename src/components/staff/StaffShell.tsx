@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useAuth } from "@/lib/auth-store";
-import { LayoutDashboard, MapPin, Users, BarChart3, LogOut, Activity, Menu, X, Folder, PanelLeftClose, PanelLeftOpen, Boxes, Sun, Moon } from "lucide-react";
+import { LayoutDashboard, MapPin, Users, BarChart3, LogOut, Activity, Menu, X, Folder, PanelLeftClose, PanelLeftOpen, Boxes, Sun, Moon, ClipboardList } from "lucide-react";
 import { Button } from "../ui-kit";
 
 export function StaffShell({
@@ -50,6 +50,7 @@ export function StaffShell({
     { to: `${base}`, label: "Overview", icon: LayoutDashboard },
     { to: `${base}/sites`, label: "Sites", icon: MapPin },
     { to: `${base}/business-consultants`, label: "Business Consultants", icon: Users },
+    { to: `${base}/factory-data`, label: "Factory Form Data", icon: ClipboardList },
     { to: `${base}/performance`, label: "Performance", icon: Activity },
     { to: `${base}/drive-links`, label: "Links of Drive", icon: Folder },
     { to: `${base}/logistic`, label: "Logistic", icon: Boxes },
