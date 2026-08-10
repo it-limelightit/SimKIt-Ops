@@ -355,7 +355,7 @@ export function Overview() {
 
   // Calculate counts based on current filters and canonical status partitioning
   const countTotal = filteredForCounts.length; // First card represents total companies count
-  const countPending = filteredForCounts.filter((r) => r.workerIds.length === 0).length;
+  const countPending = filteredForCounts.filter((r) => r.workerIds.length === 0 && getCanonicalStatus(r) !== "Submitted").length;
   const countAssignedBc = filteredForCounts.filter((r) => r.workerIds.length > 0 && getCanonicalStatus(r) !== "Submitted").length;
   const countSubmitted = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Submitted").length;
   const countUnsubmitted = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Unsubmitted").length;
@@ -382,7 +382,7 @@ export function Overview() {
       case "commissioned":
         return status === "Commissioned";
       case "pending":
-        return row.workerIds.length === 0;
+        return row.workerIds.length === 0 && getCanonicalStatus(row) !== "Submitted";
       case "pending_portal":
         return status !== "Submitted";
       case "assigned_bc":
