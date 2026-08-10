@@ -324,7 +324,18 @@ export function InstallationTab({ siteId, workerId, hiddenSections, onSubmit }: 
 
           {expandedSections["Photos"] && (
             <div className="mt-6 space-y-6 animate-in fade-in duration-200">
-              <MediaUploader siteId={siteId} phase="installation" section="photos" />
+              <div className="flex items-start gap-3 p-4 bg-muted/30 border border-border rounded-lg">
+                <input
+                  type="checkbox"
+                  id="confirm-installation-photos-drive"
+                  className="h-5 w-5 rounded border-gray-300 text-lime focus:ring-lime mt-0.5 cursor-pointer"
+                  checked={!!data.photos_uploaded}
+                  onChange={(e) => patch({ photos_uploaded: e.target.checked })}
+                />
+                <label htmlFor="confirm-installation-photos-drive" className="text-sm text-text-primary select-none cursor-pointer">
+                  Are you sure you have uploaded the installation photos to Google Drive?
+                </label>
+              </div>
               {renderCustomFields("Photos")}
               <CompleteJobRow
                 checked={!!data.photos_uploaded}
@@ -333,7 +344,7 @@ export function InstallationTab({ siteId, workerId, hiddenSections, onSubmit }: 
                   patch({ photos_uploaded: next });
                   if (next) advanceSiteVisitStatus(siteId, "Installation Done");
                 }}
-                validate={() => validateSectionLinks("Photos", ["photos"])}
+                validate={() => validateSectionLinks("Photos", [])}
               />
             </div>
           )}

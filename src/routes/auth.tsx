@@ -53,11 +53,6 @@ function AuthPage() {
 }
 
 
-const SIGNUP_ROLES: { value: AppRole; label: string; icon: React.ComponentType<{ size?: number; strokeWidth?: number }>; desc: string }[] = [
-  { value: "supervisor", label: "Manager", icon: Shield, desc: "Manage sites, tasks & consultants" },
-  { value: "worker", label: "Business Consultant", icon: HardHat, desc: "Perform field assessments & installs" },
-];
-
 function LoginForm({ onDone }: { onDone: () => void }) {
   const [mobile, setMobile] = useState("");
   const [password, setPassword] = useState("");
@@ -207,15 +202,10 @@ function LoginForm({ onDone }: { onDone: () => void }) {
 
 function SignupForm({ onDone }: { onDone: () => void }) {
   const [f, setF] = useState({ name: "", email: "", mobile: "", whatsapp: "", password: "", confirm: "" });
-  const [role, setRole] = useState<AppRole | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!role) {
-      toast.error("Please select a role");
-      return;
-    }
     if (f.password !== f.confirm) {
       toast.error("Passwords do not match");
       return;
@@ -234,15 +224,11 @@ function SignupForm({ onDone }: { onDone: () => void }) {
             window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
               ? window.location.origin
               : undefined,
-          data: { name: f.name, mobile: f.mobile, whatsapp: f.whatsapp, role },
+          data: { name: f.name, mobile: f.mobile, whatsapp: f.whatsapp, role: "worker" },
         },
       });
       if (error) throw error;
-      toast.success(
-        role === "supervisor"
-          ? "Account created. You can sign in now."
-          : "Account created. Awaiting manager approval."
-      );
+      toast.success("Account created. Awaiting manager approval.");
       onDone();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Signup failed");
@@ -255,32 +241,6 @@ function SignupForm({ onDone }: { onDone: () => void }) {
 
   return (
     <form onSubmit={submit} className="space-y-6">
-      <div>
-        <Label>I am a <span className="text-[#A63D2F]">*</span></Label>
-        <div className="mt-2 grid grid-cols-2 gap-3">
-          {SIGNUP_ROLES.map((r) => {
-            const Icon = r.icon;
-            const active = role === r.value;
-            return (
-              <button
-                key={r.value}
-                type="button"
-                onClick={() => setRole(r.value)}
-                className={`flex flex-col items-start gap-2 border p-4 text-left transition-colors ${active
-                    ? "border-foreground bg-foreground text-background"
-                    : "border-border bg-surface hover:border-foreground/40"
-                  }`}
-              >
-                <Icon size={20} strokeWidth={1.5} />
-                <span className="text-sm font-medium leading-tight">{r.label}</span>
-                <span className={`text-xs leading-snug ${active ? "text-background/70" : "text-muted-foreground"}`}>
-                  {r.desc}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
       <div>
         <Label>Full Name <span className="text-[#A63D2F]">*</span></Label>
         <Input value={f.name} onChange={set("name")} required />

@@ -45,8 +45,6 @@ type FactoryRow = {
 };
 
 const STATUS_OPTIONS = [
-  "Pending Assignment",
-  "Assigned",
   "Assessed",
   "Panel Dispatched",
   "Installed",
@@ -140,6 +138,7 @@ export function ReportsPanel() {
           installationsRes,
           commissioningsRes,
           materialsRes,
+          rolesRes,
         ] = await Promise.all([
           supabase
             .from("sites")
@@ -155,6 +154,7 @@ export function ReportsPanel() {
             .from("inventory_materials")
             .select("state,notes,submitted,material_name,created_at")
             .order("created_at", { ascending: false }),
+          supabase.from("user_roles").select("user_id").eq("role", "worker"),
         ]);
 
         if (siteResult.error)
@@ -163,7 +163,8 @@ export function ReportsPanel() {
           toast.error("Could not load business consultants: " + consultantResult.error.message);
 
         setSites(siteResult.data ?? []);
-        setConsultants(consultantResult.data ?? []);
+        const workerIds = new Set((rolesRes.data ?? []).map((r: any) => r.user_id));
+        setConsultants((consultantResult.data ?? []).filter((c: any) => workerIds.has(c.id)));
         setAssessments(assessmentsRes.data ?? []);
         setInstallations(installationsRes.data ?? []);
         setCommissionings(commissioningsRes.data ?? []);
@@ -278,9 +279,7 @@ export function ReportsPanel() {
         if (meta.status === "Installed") return "Installed";
         if (meta.status === "Panel Dispatched") return "Panel Dispatched";
         if (meta.status === "Assessed" || meta.status === "In Assessment") return "Assessed";
-        if (meta.status === "Assigned") return "Assigned";
         if (meta.status === "Unsubmitted") return "Unsubmitted";
-        if (meta.status === "Pending Assignment") return "Pending Assignment";
 
         if (logisticsStatus === "Delivered") return "Panel Dispatched";
 
