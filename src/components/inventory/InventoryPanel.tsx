@@ -740,18 +740,29 @@ function OrderCard({
                 </span>
               </p>
             </div>
-            <Badge
-              tone={
-                isDeliveredAndTracked
-                  ? "success"
-                  : isYellowStatus
-                    ? "warning"
-                    : "info"
-              }
-              className="text-[10px] font-mono font-bold tracking-wider uppercase px-2.5 py-0.5 rounded-full"
-            >
-              {activeStatus}
-            </Badge>
+            <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+              <Badge
+                tone={
+                  isDeliveredAndTracked
+                    ? "success"
+                    : isYellowStatus
+                      ? "warning"
+                      : "info"
+                }
+                className="text-[10px] font-mono font-bold tracking-wider uppercase px-2.5 py-0.5 rounded-full"
+              >
+                {activeStatus}
+              </Badge>
+              {editable && (
+                <button
+                  onClick={handleDelete}
+                  className="p-1.5 rounded bg-red-500/10 hover:bg-red-500/20 text-red-500 transition"
+                  title="Delete Order"
+                >
+                  <Trash2 size={13} />
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Quick info list */}

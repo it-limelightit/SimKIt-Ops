@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ManagerRouteImport } from './routes/manager'
+import { Route as ClientFormRouteImport } from './routes/client-form'
 import { Route as BusinessConsultantRouteImport } from './routes/business-consultant'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as IndexRouteImport } from './routes/index'
@@ -26,6 +27,11 @@ import { Route as ManagerBusinessConsultantsRouteImport } from './routes/manager
 const ManagerRoute = ManagerRouteImport.update({
   id: '/manager',
   path: '/manager',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClientFormRoute = ClientFormRouteImport.update({
+  id: '/client-form',
+  path: '/client-form',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BusinessConsultantRoute = BusinessConsultantRouteImport.update({
@@ -94,6 +100,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/business-consultant': typeof BusinessConsultantRoute
+  '/client-form': typeof ClientFormRoute
   '/manager': typeof ManagerRouteWithChildren
   '/manager/business-consultants': typeof ManagerBusinessConsultantsRoute
   '/manager/drive-links': typeof ManagerDriveLinksRoute
@@ -109,6 +116,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/business-consultant': typeof BusinessConsultantRoute
+  '/client-form': typeof ClientFormRoute
   '/manager/business-consultants': typeof ManagerBusinessConsultantsRoute
   '/manager/drive-links': typeof ManagerDriveLinksRoute
   '/manager/factory-data': typeof ManagerFactoryDataRoute
@@ -124,6 +132,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/business-consultant': typeof BusinessConsultantRoute
+  '/client-form': typeof ClientFormRoute
   '/manager': typeof ManagerRouteWithChildren
   '/manager/business-consultants': typeof ManagerBusinessConsultantsRoute
   '/manager/drive-links': typeof ManagerDriveLinksRoute
@@ -141,6 +150,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/business-consultant'
+    | '/client-form'
     | '/manager'
     | '/manager/business-consultants'
     | '/manager/drive-links'
@@ -156,6 +166,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/business-consultant'
+    | '/client-form'
     | '/manager/business-consultants'
     | '/manager/drive-links'
     | '/manager/factory-data'
@@ -170,6 +181,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/business-consultant'
+    | '/client-form'
     | '/manager'
     | '/manager/business-consultants'
     | '/manager/drive-links'
@@ -186,6 +198,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthRoute: typeof AuthRoute
   BusinessConsultantRoute: typeof BusinessConsultantRoute
+  ClientFormRoute: typeof ClientFormRoute
   ManagerRoute: typeof ManagerRouteWithChildren
 }
 
@@ -196,6 +209,13 @@ declare module '@tanstack/react-router' {
       path: '/manager'
       fullPath: '/manager'
       preLoaderRoute: typeof ManagerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/client-form': {
+      id: '/client-form'
+      path: '/client-form'
+      fullPath: '/client-form'
+      preLoaderRoute: typeof ClientFormRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/business-consultant': {
@@ -316,6 +336,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthRoute: AuthRoute,
   BusinessConsultantRoute: BusinessConsultantRoute,
+  ClientFormRoute: ClientFormRoute,
   ManagerRoute: ManagerRouteWithChildren,
 }
 export const routeTree = rootRouteImport

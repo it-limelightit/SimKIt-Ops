@@ -22,6 +22,7 @@ import {
   Truck,
   Download,
   FileText,
+  Clock,
 } from "lucide-react";
 
 type Appt = {
@@ -87,6 +88,7 @@ const FACTORY_STATUS_OPTIONS = [
   "Commissioned",
   "Assessed",
   "Dropped / Rejected",
+  "Not Started Yet",
 ] as const;
 
 function getSiteWorkerIds(site: any): string[] {
@@ -193,6 +195,9 @@ export function Overview() {
         consultantStage = null;
         metaStatus = "Pending Assignment";
         updatedWorkers = [];
+      } else if (newStatus === "Not Started Yet") {
+        consultantStage = null;
+        metaStatus = "Not Started Yet";
       }
 
       const newNotes = serializeSiteMetadata(currentTaskNotes, { 
@@ -234,7 +239,7 @@ export function Overview() {
       toneClass = "bg-emerald-50 text-emerald-700 border-emerald-250";
     } else if (canonicalStatus === "Dropped / Rejected") {
       toneClass = "bg-red-50 text-red-700 border-red-200";
-    } else if (canonicalStatus === "Assigned") {
+    } else if (canonicalStatus === "Assigned" || canonicalStatus === "Not Started Yet") {
       toneClass = "bg-indigo-50 text-indigo-700 border-indigo-200";
     } else if (canonicalStatus === "Pending Assignment" || canonicalStatus === "Total Assignment Pending on Portal" || canonicalStatus === "Assessed" || canonicalStatus === "Unsubmitted" || canonicalStatus === "Certification Pending") {
       toneClass = "bg-amber-50 text-amber-700 border-amber-250";
@@ -342,26 +347,38 @@ export function Overview() {
     if (meta.status === "Panel Dispatched") return "Panel Dispatched";
     if (meta.status === "Assessed" || meta.status === "In Assessment") return "Assessed";
     if (meta.status === "Unsubmitted") return "Unsubmitted";
+    if (meta.status === "Not Started Yet") return "Not Started Yet";
 
     // 2. Logistics override (Panel Dispatched)
     if (row.logisticsStatus === "Delivered") return "Panel Dispatched";
 
     // 3. Auto-detection / Stage Fallbacks
     if (row.consultant_stage === "Completion" || row.consultant_stage === "Billing") return "Submitted";
-    if (isSiteSubmitted(row)) {
-      return isSiteCertification(row) ? "Submitted" : "Certification Pending";
-    }
-    if (isSiteCommissioned(row)) return "Commissioned";
-    if (isSiteInstalled(row)) return "Installed";
-    if (isSiteAssessment(row)) return "Assessed";
     if (isSiteDropped(row)) return "Dropped / Rejected";
 
+    const ar = aMap.get(row.id);
+    const ir = iMap.get(row.id);
+    const cr = cMap.get(row.id);
+
+    const isAssessmentSubmitted = !!ar?.data?.assessment_phase_submitted;
+    const isInstallationCompleted = (!!ir?.data?.delivery_confirmed && !!ir?.data?.coordination_done && !!ir?.data?.photos_uploaded) || row.progress.i === 100;
+    const isCommissioningCompleted = !!cr?.data?.commissioning_phase_submitted || row.progress.c === 100;
+    const isCertSent = !!cr?.data?.certificate_sent || !!ar?.data?.certificate_sent;
+
+    if (isAssessmentSubmitted) {
+      if (isCertSent) return "Submitted";
+      if (isCommissioningCompleted) return "Commissioned";
+      if (isInstallationCompleted) return "Installed";
+      return "Assessed";
+    }
+
     // 4. Default Assignment / Status Fallbacks
-    if (row.workerIds.length > 0) return "Assigned";
+    if (row.workerIds.length > 0) return "Not Started Yet";
     if (row.workerIds.length === 0) return "Pending Assignment";
 
     return "Unsubmitted";
   };
+
 
   const normalizeCompanyName = (name: string): string => {
     if (!name) return "";
@@ -521,6 +538,7 @@ export function Overview() {
   const countAssessment = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Assessed").length;
   const countDispatched = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Panel Dispatched").length;
   const countDropped = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Dropped / Rejected").length;
+  const countNotStarted = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Not Started Yet").length;
 
   // Apply selected KPI filter to table
   const filteredByKpi = filteredForCounts.filter((row) => {
@@ -543,6 +561,8 @@ export function Overview() {
         return status !== "Submitted";
       case "assigned_bc":
         return row.workerIds.length > 0 && getCanonicalStatus(row) !== "Submitted";
+      case "not_started":
+        return status === "Not Started Yet";
       case "assessment":
         return status === "Assessed";
       case "dispatched":
@@ -955,6 +975,15 @@ export function Overview() {
       badgeStyle: "text-red-600 bg-red-50 border-red-200",
       dotStyle: "bg-red-500",
     },
+    {
+      id: "not_started",
+      label: "Not Started Yet",
+      value: countNotStarted,
+      desc: "Assigned but no progress made",
+      icon: Clock,
+      badgeStyle: "text-indigo-600 bg-indigo-50 border-indigo-200",
+      dotStyle: "bg-indigo-500",
+    },
   ];
 
   return (
@@ -1261,41 +1290,49 @@ export function Overview() {
                 </div>
               </div>
 
-              {/* Dropped / Rejected */}
-              <div className="lg:col-span-3 h-full">
-                {(() => {
-                  const k = kpis.find(x => x.id === "dropped")!;
-                  if (!k) return null;
+              {/* Not Started Yet & Dropped Stack */}
+              <div className="lg:col-span-3 flex flex-col gap-3 justify-between h-full">
+                {[
+                  kpis.find(x => x.id === "not_started")!,
+                  kpis.find(x => x.id === "dropped")!
+                ].filter(Boolean).map((k) => {
                   const active = selectedKpi === k.id;
                   const Icon = k.icon;
+                  const isRed = k.id === "dropped";
+                  const hoverColor = isRed ? "hover:border-red-400" : "hover:border-indigo-400";
                   const cardBorder = active
-                    ? "border-red-500 ring-2 ring-red-500/10 bg-white scale-[1.01] shadow-md"
-                    : "border-border bg-white hover:border-red-400 hover:shadow-md transition-all";
+                    ? (isRed
+                      ? "border-red-500 ring-2 ring-red-500/10 bg-white scale-[1.01] shadow-md"
+                      : "border-indigo-500 ring-2 ring-indigo-500/10 bg-white scale-[1.01] shadow-md")
+                    : `border-border bg-white ${hoverColor} hover:shadow-md transition-all`;
                   return (
                     <button
+                      key={k.id}
                       onClick={() => setSelectedKpi(k.id)}
-                      className={`flex flex-col justify-between w-full text-left p-4 border rounded-xl shadow-xs transition-all duration-200 group cursor-pointer h-full min-h-[130px] ${cardBorder}`}
+                      className={`flex items-center justify-between w-full text-left px-3 py-2.5 border rounded-xl shadow-xs transition-all duration-200 group cursor-pointer flex-1 ${cardBorder}`}
                     >
-                      <div className="flex items-start justify-between w-full">
-                        <div className={`p-2 rounded-xl border ${k.badgeStyle}`}>
-                          <Icon size={16} strokeWidth={2.5} />
+                      <div className="flex items-center gap-3">
+                        <div className={`p-1.5 rounded-lg border shrink-0 ${k.badgeStyle}`}>
+                          <Icon size={14} strokeWidth={2.5} />
                         </div>
-                        <span className={`h-2 w-2 rounded-full ${k.dotStyle}`} />
+                        <div>
+                          <div className="text-xs font-bold text-text-primary">
+                            {k.label}
+                          </div>
+                          <div className="text-[9px] text-text-secondary leading-tight mt-0.5">
+                            {k.desc}
+                          </div>
+                        </div>
                       </div>
-                      <div className="mt-4">
-                        <div className="text-3xl font-extrabold text-text-primary tracking-tight font-mono">
+                      <div className="flex items-center gap-2">
+                        <div className="text-xl font-extrabold text-text-primary font-mono">
                           {k.value}
                         </div>
-                        <div className="text-xs font-bold mt-1 text-text-primary">
-                          {k.label}
-                        </div>
-                        <div className="text-[10px] mt-0.5 leading-snug text-text-secondary">
-                          {k.desc}
-                        </div>
+                        <span className={`h-2 w-2 rounded-full ${k.dotStyle} shrink-0`} />
                       </div>
                     </button>
                   );
-                })()}
+                })}
               </div>
             </div>
           </div>

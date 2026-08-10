@@ -18,8 +18,8 @@ import {
 import { MediaUploader } from "@/components/MediaUploader";
 import { usePhaseData } from "@/lib/use-phase-data";
 import { useAuth } from "@/lib/auth-store";
-import { advanceSiteVisitStatus } from "@/lib/site-metadata";
-import { Plus, Trash2, Users, Wrench, AlertTriangle, ChevronDown, ChevronUp, Building2, Check } from "lucide-react";
+import { advanceSiteVisitStatus, parseSiteMetadata, serializeSiteMetadata } from "@/lib/site-metadata";
+import { Plus, Trash2, Users, Wrench, AlertTriangle, ChevronDown, ChevronUp, Building2, Check, Mail } from "lucide-react";
 
 type Props = { siteId: string; workerId: string; hiddenSections?: string[]; onSubmit?: () => void };
 
@@ -607,6 +607,141 @@ function checkShiftOverlap(shifts: any[]): boolean {
 }
 
 function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperationsCardContentProps) {
+  const [clientShareEmail, setClientShareEmail] = useState("");
+  const [generatedLink, setGeneratedLink] = useState("");
+
+  useEffect(() => {
+    if (siteId) {
+      (async () => {
+        const { data: site } = await supabase
+          .from("sites")
+          .select("task_notes")
+          .eq("id", siteId)
+          .maybeSingle();
+        if (site) {
+          const siteMeta = parseSiteMetadata(site.task_notes);
+          setClientShareEmail(siteMeta.client_email || "");
+          if (siteMeta.client_token) {
+            setGeneratedLink(`${window.location.origin}/client-form?token=${siteMeta.client_token}`);
+          } else {
+            setGeneratedLink("");
+          }
+        }
+      })();
+    }
+  }, [siteId]);
+
+  const handleGenerateShareLink = async () => {
+    if (!siteId) return;
+    try {
+      const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      
+      const { data: site } = await supabase
+        .from("sites")
+        .select("task_notes")
+        .eq("id", siteId)
+        .maybeSingle();
+
+      const taskNotes = site ? site.task_notes : null;
+      const siteMeta = parseSiteMetadata(taskNotes);
+      siteMeta.client_email = clientShareEmail.trim();
+      siteMeta.client_token = token;
+
+      const serializedNotes = serializeSiteMetadata(taskNotes, siteMeta);
+
+      const { error } = await supabase
+        .from("sites")
+        .update({ task_notes: serializedNotes } as never)
+        .eq("id", siteId);
+
+      if (error) {
+        toast.error("Failed to generate link: " + error.message);
+      } else {
+        const link = `${window.location.origin}/client-form?token=${token}`;
+        setGeneratedLink(link);
+        toast.success("Share link generated successfully!");
+      }
+    } catch (err: any) {
+      toast.error("Error: " + err.message);
+    }
+  };
+
+  const handleCopyLink = () => {
+    if (!generatedLink) return;
+    navigator.clipboard.writeText(generatedLink);
+    toast.success("Copied client form link to clipboard!");
+  };
+
+  const [sendingEmail, setSendingEmail] = useState(false);
+
+  const handleSendEmail = async () => {
+    if (!siteId) return;
+    if (!clientShareEmail.trim()) {
+      toast.error("Please enter a client email address first.");
+      return;
+    }
+
+    setSendingEmail(true);
+    try {
+      const { data: site } = await supabase
+        .from("sites")
+        .select("name,company_name,task_notes")
+        .eq("id", siteId)
+        .maybeSingle();
+
+      if (!site) throw new Error("Site not found.");
+
+      let token = parseSiteMetadata(site.task_notes).client_token;
+      if (!token) {
+        token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+        const siteMeta = parseSiteMetadata(site.task_notes);
+        siteMeta.client_email = clientShareEmail.trim();
+        siteMeta.client_token = token;
+
+        const serializedNotes = serializeSiteMetadata(site.task_notes, siteMeta);
+        const { error } = await supabase
+          .from("sites")
+          .update({ task_notes: serializedNotes } as never)
+          .eq("id", siteId);
+
+        if (error) {
+          throw new Error("Failed to save client details: " + error.message);
+        }
+      }
+
+      const { sendClientFormEmailFn } = await import("../../routes/client-form");
+      const res = await sendClientFormEmailFn({
+        data: {
+          email: clientShareEmail.trim(),
+          token: token,
+          siteName: site.company_name || site.name,
+          origin: window.location.origin
+        }
+      });
+
+      if (res.success) {
+        if (res.previewUrl) {
+          toast.success(res.message, {
+            description: `Verify Ethereal mailbox here: ${res.previewUrl}`,
+            action: {
+              label: "Open Mail Inbox",
+              onClick: () => window.open(res.previewUrl!, "_blank")
+            },
+            duration: 15000
+          });
+        } else {
+          toast.success("Invitation email sent successfully to the client!");
+        }
+      } else {
+        toast.error("Failed to send email: " + res.error);
+      }
+    } catch (err: any) {
+      toast.error(err.message || "An unexpected error occurred while sending email.");
+    } finally {
+      setSendingEmail(false);
+    }
+  };
+
   useEffect(() => {
     if (!siteId) return;
     (async () => {
@@ -753,6 +888,58 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
 
   return (
     <div className="space-y-8 animate-in fade-in duration-200">
+      {/* Client Form Sharing */}
+      <div className="bg-surface-raised/40 p-4 rounded-xl border border-border/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <Mail className="text-lime w-5 h-5 shrink-0" />
+          <div>
+            <h4 className="font-syne font-bold text-xs uppercase tracking-wider text-text-primary">
+              Client Self-Submission Link
+            </h4>
+            <p className="text-[10px] text-text-secondary mt-0.5">
+              Enter the client's email address to generate and copy a secure link they can fill directly.
+            </p>
+          </div>
+        </div>
+        
+        <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center w-full md:max-w-lg">
+          <div className="flex-1 col-span-2">
+            <Input
+              placeholder="Client email address"
+              value={clientShareEmail}
+              onChange={(e) => setClientShareEmail(e.target.value)}
+              className="h-8 text-xs bg-surface"
+            />
+          </div>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              onClick={handleGenerateShareLink}
+              className="py-1 px-3 text-xs bg-surface border border-border text-text-primary hover:bg-surface-raised font-bold uppercase tracking-wider shrink-0"
+            >
+              Link Only
+            </Button>
+            <Button
+              type="button"
+              onClick={handleSendEmail}
+              disabled={sendingEmail}
+              className="py-1 px-3 text-xs bg-lime text-black hover:bg-lime/90 font-bold uppercase tracking-wider shrink-0"
+            >
+              {sendingEmail ? "Sending..." : "Send Mail"}
+            </Button>
+            {generatedLink && (
+              <Button
+                type="button"
+                onClick={handleCopyLink}
+                className="py-1 px-3 text-xs bg-surface border border-border text-text-primary hover:bg-surface-raised shrink-0 font-mono"
+              >
+                Copy
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* A. Factory Details */}
       <div className="space-y-4">
         <div className="font-mono text-[11px] font-bold text-lime uppercase tracking-widest border-b border-border pb-1">
