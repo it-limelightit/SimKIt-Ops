@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, Button, Input, Select, Badge, Skeleton, Label } from "@/components/ui-kit";
+import { toast } from "sonner";
 import {
   ClipboardList,
   Building2,
@@ -18,9 +19,14 @@ import {
   Calendar,
   CheckCircle2,
   HelpCircle,
-  ExternalLink
+  ExternalLink,
+  Plus,
+  Trash2,
+  Save,
+  FileJson,
+  XCircle
 } from "lucide-react";
-import { parseSiteMetadata } from "@/lib/site-metadata";
+import { parseSiteMetadata, serializeSiteMetadata } from "@/lib/site-metadata";
 
 type Site = {
   id: string;
@@ -67,6 +73,105 @@ export function FactoryDataPanel() {
   const [selectedSiteId, setSelectedSiteId] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [isEditing, setIsEditing] = useState(false);
+  const [editData, setEditData] = useState<Record<string, any>>({});
+  const [clientShareEmail, setClientShareEmail] = useState("");
+  const [generatedLink, setGeneratedLink] = useState("");
+
+  const handleGenerateShareLink = async () => {
+    if (!selectedSite) return;
+    try {
+      const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      const meta = parseSiteMetadata(selectedSite.task_notes);
+      meta.client_email = clientShareEmail.trim();
+      meta.client_token = token;
+
+      const serializedNotes = serializeSiteMetadata(selectedSite.task_notes, meta);
+
+      const { error } = await supabase
+        .from("sites")
+        .update({ task_notes: serializedNotes } as never)
+        .eq("id", selectedSite.id);
+
+      if (error) {
+        toast.error("Failed to generate link: " + error.message);
+      } else {
+        const link = `${window.location.origin}/client-form?token=${token}`;
+        setGeneratedLink(link);
+        toast.success("Share link generated successfully!");
+      }
+    } catch (err: any) {
+      toast.error("Error: " + err.message);
+    }
+  };
+
+  const handleCopyLink = () => {
+    if (!generatedLink) return;
+    navigator.clipboard.writeText(generatedLink);
+    toast.success("Copied client form link to clipboard!");
+  };
+
+  const [sendingEmail, setSendingEmail] = useState(false);
+
+  const handleSendEmail = async () => {
+    if (!selectedSite) return;
+    if (!clientShareEmail.trim()) {
+      toast.error("Please enter a client email address first.");
+      return;
+    }
+
+    setSendingEmail(true);
+    try {
+      let token = parseSiteMetadata(selectedSite.task_notes).client_token;
+      if (!token) {
+        token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+        const meta = parseSiteMetadata(selectedSite.task_notes);
+        meta.client_email = clientShareEmail.trim();
+        meta.client_token = token;
+
+        const serializedNotes = serializeSiteMetadata(selectedSite.task_notes, meta);
+        const { error } = await supabase
+          .from("sites")
+          .update({ task_notes: serializedNotes } as never)
+          .eq("id", selectedSite.id);
+
+        if (error) {
+          throw new Error("Failed to save client details: " + error.message);
+        }
+      }
+
+      const { sendClientFormEmailFn } = await import("../../routes/client-form");
+      const res = await sendClientFormEmailFn({
+        data: {
+          email: clientShareEmail.trim(),
+          token: token,
+          siteName: selectedSite.company_name || selectedSite.name,
+          origin: window.location.origin
+        }
+      });
+
+      if (res.success) {
+        if (res.previewUrl) {
+          toast.success(res.message, {
+            description: `Verify Ethereal mailbox here: ${res.previewUrl}`,
+            action: {
+              label: "Open Mail Inbox",
+              onClick: () => window.open(res.previewUrl!, "_blank")
+            },
+            duration: 15000
+          });
+        } else {
+          toast.success("Invitation email sent successfully to the client!");
+        }
+      } else {
+        toast.error("Failed to send email: " + res.error);
+      }
+    } catch (err: any) {
+      toast.error(err.message || "An unexpected error occurred while sending email.");
+    } finally {
+      setSendingEmail(false);
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -81,11 +186,6 @@ export function FactoryDataPanel() {
       setAssessments(assessmentsRes.data ?? []);
       setContacts(contactsRes.data ?? []);
       setMachines(machinesRes.data ?? []);
-      
-      // Auto-select first site if none selected and sites exist
-      if (sitesRes.data && sitesRes.data.length > 0 && !selectedSiteId) {
-        setSelectedSiteId(sitesRes.data[0].id);
-      }
     } catch (err) {
       console.error("Error loading factory form data:", err);
     } finally {
@@ -197,25 +297,71 @@ export function FactoryDataPanel() {
     return checkShiftOverlap(shifts);
   }, [selectedAssessment]);
 
-  // List of processed sites with their form completeness info
-  const processedSitesList = useMemo(() => {
-    return sites.map(s => {
-      const assess = assessments.find(a => a.site_id === s.id);
-      const isDone = !!assess?.data?.factory_operations_done;
-      const hasSomeData = assess && Object.keys(assess.data).some(k => k.startsWith("factory_op_"));
-      
-      let fillStatus: "completed" | "in_progress" | "no_data" = "no_data";
-      if (isDone) fillStatus = "completed";
-      else if (hasSomeData) fillStatus = "in_progress";
+  const editHasOverlap = useMemo(() => {
+    const shifts = editData.factory_op_shifts ?? [];
+    return checkShiftOverlap(shifts);
+  }, [editData.factory_op_shifts]);
 
-      return {
-        ...s,
-        fillStatus,
-        isDone,
-        updatedAt: assess?.updated_at
-      };
-    });
+  // List of processed sites with their form completeness info
+  // Filter out any site that does not have any form data filled.
+  const processedSitesList = useMemo(() => {
+    return sites
+      .map(s => {
+        const assess = assessments.find(a => a.site_id === s.id);
+        const isDone = !!assess?.data?.factory_operations_done;
+        const hasSomeData = assess && Object.keys(assess.data).some(k => k.startsWith("factory_op_") || k === "mom_notes");
+        
+        let fillStatus: "completed" | "in_progress" | "no_data" = "no_data";
+        if (isDone) fillStatus = "completed";
+        else if (hasSomeData) fillStatus = "in_progress";
+
+        return {
+          ...s,
+          fillStatus,
+          isDone,
+          updatedAt: assess?.updated_at
+        };
+      })
+      .filter(s => s.fillStatus !== "no_data");
   }, [sites, assessments]);
+
+  // Auto-select first site from the form-filled sites list if selection becomes invalid
+  useEffect(() => {
+    if (processedSitesList.length > 0) {
+      const isValid = processedSitesList.some(s => s.id === selectedSiteId);
+      if (!isValid) {
+        setSelectedSiteId(processedSitesList[0].id);
+      }
+    } else {
+      setSelectedSiteId("");
+    }
+  }, [processedSitesList, selectedSiteId]);
+
+  // Sync editData state when selected site changes
+  useEffect(() => {
+    if (selectedAssessment) {
+      setEditData(selectedAssessment.data || {});
+    } else {
+      setEditData({});
+    }
+    setIsEditing(false);
+  }, [selectedSiteId, selectedAssessment]);
+
+  // Sync client share email and link when selectedSite changes
+  useEffect(() => {
+    if (selectedSite) {
+      const meta = parseSiteMetadata(selectedSite.task_notes);
+      setClientShareEmail(meta.client_email || "");
+      if (meta.client_token) {
+        setGeneratedLink(`${window.location.origin}/client-form?token=${meta.client_token}`);
+      } else {
+        setGeneratedLink("");
+      }
+    } else {
+      setClientShareEmail("");
+      setGeneratedLink("");
+    }
+  }, [selectedSite]);
 
   // Filtered sites list
   const filteredSites = useMemo(() => {
@@ -242,6 +388,85 @@ export function FactoryDataPanel() {
     });
   };
 
+  const handleSave = async () => {
+    try {
+      const { error } = await supabase
+        .from("assessment")
+        .update({
+          data: editData,
+          updated_at: new Date().toISOString()
+        } as never)
+        .eq("site_id", selectedSiteId);
+
+      if (error) {
+        toast.error("Failed to save changes: " + error.message);
+      } else {
+        toast.success("Changes saved successfully");
+        setIsEditing(false);
+        await loadData();
+      }
+    } catch (err: any) {
+      toast.error("Error: " + err.message);
+    }
+  };
+
+  const handleExportJson = () => {
+    if (!selectedSite || !selectedAssessment) return;
+    const exportObj = {
+      site: {
+        id: selectedSite.id,
+        name: selectedSite.name,
+        company_name: selectedSite.company_name,
+        city: selectedSite.city,
+        address: selectedSite.address,
+      },
+      assessment_data: selectedAssessment.data,
+      contacts: selectedContacts,
+      machines: selectedMachines,
+    };
+    
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportObj, null, 2));
+    const downloadAnchor = document.createElement("a");
+    downloadAnchor.setAttribute("href", dataStr);
+    const fileName = `${selectedSite.name.toLowerCase().replace(/[^a-z0-9]/g, "_")}_factory_data.json`;
+    downloadAnchor.setAttribute("download", fileName);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+    toast.success("Data exported to JSON successfully");
+  };
+
+  const handleDeleteForm = async () => {
+    if (!selectedSiteId) return;
+    const confirmDelete = window.confirm(
+      `Are you sure you want to delete the submitted factory questionnaire form data for ${selectedSite?.name}? This action cannot be undone.`
+    );
+    if (!confirmDelete) return;
+
+    try {
+      const { error } = await supabase
+        .from("assessment")
+        .delete()
+        .eq("site_id", selectedSiteId);
+
+      if (error) {
+        toast.error("Failed to delete submission: " + error.message);
+      } else {
+        toast.success("Submission deleted successfully.");
+        setSelectedSiteId("");
+        await loadData();
+      }
+    } catch (err: any) {
+      toast.error("Error: " + err.message);
+    }
+  };
+
+  const handleShiftChange = (index: number, key: string, value: any) => {
+    const shifts = [...(editData.factory_op_shifts || [])];
+    shifts[index] = { ...shifts[index], [key]: value };
+    setEditData({ ...editData, factory_op_shifts: shifts });
+  };
+
   return (
     <div className="space-y-6 pb-24">
       {/* Title Header */}
@@ -254,7 +479,7 @@ export function FactoryDataPanel() {
             Factory Form Submissions
           </h1>
           <p className="text-text-secondary text-sm mt-1">
-            Browse and verify operational questionnaires submitted during assessment visits.
+            Browse, edit and verify operational questionnaires submitted during assessment visits.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -294,7 +519,6 @@ export function FactoryDataPanel() {
                   <option value="all">All Submissions</option>
                   <option value="completed">Completed Form</option>
                   <option value="in_progress">In Progress</option>
-                  <option value="no_data">No Form Data</option>
                 </Select>
               </div>
 
@@ -328,9 +552,6 @@ export function FactoryDataPanel() {
                             {s.fillStatus === "in_progress" && (
                               <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" title="In Progress" />
                             )}
-                            {s.fillStatus === "no_data" && (
-                              <span className="h-1.5 w-1.5 rounded-full bg-stone" title="No Data" />
-                            )}
                           </span>
                         </div>
                         <h4 className="font-bold text-sm text-text-primary uppercase tracking-tight leading-tight truncate">
@@ -340,9 +561,7 @@ export function FactoryDataPanel() {
                           <span className="text-[10px] text-text-secondary">
                             {s.fillStatus === "completed"
                               ? "Form Completed"
-                              : s.fillStatus === "in_progress"
-                              ? "In Progress"
-                              : "No Form Data"}
+                              : "In Progress"}
                           </span>
                           {s.updatedAt && (
                             <span className="text-[9px] font-mono text-text-dim">
@@ -388,20 +607,54 @@ export function FactoryDataPanel() {
                         </span>
                       </div>
                     </div>
-                    <div>
-                      {selectedAssessment?.data?.factory_operations_done ? (
-                        <Badge tone="success" className="font-mono font-bold uppercase tracking-wider text-[10px]">
-                          ✓ VERIFIED SUBMITTED
-                        </Badge>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="secondary"
+                        onClick={handleExportJson}
+                        className="py-1 px-3 text-xs flex items-center gap-1.5"
+                      >
+                        <FileJson size={13} /> Export JSON
+                      </Button>
+                      
+                      {isEditing ? (
+                        <>
+                          <Button
+                            variant="secondary"
+                            onClick={() => setIsEditing(false)}
+                            className="py-1 px-3 text-xs flex items-center gap-1"
+                          >
+                            <XCircle size={13} /> Cancel
+                          </Button>
+                          <Button
+                            onClick={handleSave}
+                            className="py-1 px-3 text-xs bg-lime text-black hover:bg-lime/90 flex items-center gap-1"
+                          >
+                            <Save size={13} /> Save Changes
+                          </Button>
+                        </>
                       ) : (
-                        <Badge tone="warning" className="font-mono font-bold uppercase tracking-wider text-[10px]">
-                          ⚠️ PENDING SUBMISSION
-                        </Badge>
+                        <>
+                          <Button
+                            onClick={() => {
+                              setEditData(selectedAssessment?.data || {});
+                              setIsEditing(true);
+                            }}
+                            className="py-1 px-3 text-xs flex items-center gap-1"
+                          >
+                            Edit Data
+                          </Button>
+                          <Button
+                            onClick={handleDeleteForm}
+                            className="py-1 px-3 text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20 hover:text-red-300 border border-red-500/20 flex items-center gap-1"
+                          >
+                            <Trash2 size={13} /> Delete Form
+                          </Button>
+                        </>
                       )}
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
                     <div className="bg-surface-raised/40 p-3.5 rounded-lg border border-border/60">
                       <div className="text-text-secondary font-mono text-[9px] uppercase tracking-wider">
                         Primary Contact (Metadata)
@@ -438,6 +691,48 @@ export function FactoryDataPanel() {
                         </p>
                       </div>
                     </div>
+
+                    <div className="bg-surface-raised/40 p-3.5 rounded-lg border border-border/60 flex flex-col justify-between">
+                      <div>
+                        <div className="text-text-secondary font-mono text-[9px] uppercase tracking-wider">
+                          Client Form Sharing
+                        </div>
+                        <div className="mt-1.5 flex gap-1.5 flex-col">
+                          <Input
+                            placeholder="Client email address"
+                            value={clientShareEmail}
+                            onChange={(e) => setClientShareEmail(e.target.value)}
+                            className="h-7 text-xs bg-surface-raised border border-border/80 rounded px-2 w-full"
+                          />
+                          <div className="flex gap-1 w-full">
+                            <Button
+                              onClick={handleGenerateShareLink}
+                              className="flex-1 py-1 text-[9px] uppercase font-bold tracking-wider bg-surface border border-border hover:bg-surface-raised text-text-primary rounded"
+                            >
+                              Link
+                            </Button>
+                            <Button
+                              onClick={handleSendEmail}
+                              disabled={sendingEmail}
+                              className="flex-1 py-1 text-[9px] uppercase font-bold tracking-wider bg-lime text-black hover:bg-lime/90 rounded"
+                            >
+                              {sendingEmail ? "Sending..." : "Send"}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                      {generatedLink && (
+                        <div className="mt-1.5 flex items-center justify-between gap-1.5 p-1 bg-surface border border-border/80 rounded">
+                          <span className="text-[8px] font-mono text-lime truncate max-w-[120px]">{generatedLink}</span>
+                          <Button
+                            onClick={handleCopyLink}
+                            className="py-0.5 px-1.5 text-[8px] uppercase tracking-wider bg-surface-raised border border-border hover:bg-surface text-text-primary rounded font-mono"
+                          >
+                            Copy
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -450,7 +745,577 @@ export function FactoryDataPanel() {
                       The Business Consultant has not started the Assessment phase for this site yet.
                     </p>
                   </Card>
+                ) : isEditing ? (
+                  /* Editable Mode View */
+                  <div className="space-y-6 animate-in fade-in duration-200">
+                    {/* SECTION 1: General Info */}
+                    <div className="space-y-3">
+                      <h3 className="font-syne font-extrabold text-base uppercase tracking-wider text-text-primary flex items-center gap-2">
+                        <span className="flex h-5 w-5 items-center justify-center rounded bg-lime/10 text-lime text-xs font-mono font-bold">1</span>
+                        General Info & Verification
+                      </h3>
+                      <Card className="p-4 bg-surface/40 border border-border/60 space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <Label>Official Company Name</Label>
+                            <Input
+                              value={editData.factory_op_name || ""}
+                              onChange={(e) => setEditData({ ...editData, factory_op_name: e.target.value })}
+                            />
+                          </div>
+                          <div>
+                            <Label>Registered Address</Label>
+                            <Input
+                              value={editData.factory_op_address || ""}
+                              onChange={(e) => setEditData({ ...editData, factory_op_address: e.target.value })}
+                            />
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-2 pt-2">
+                          <input
+                            type="checkbox"
+                            id="factory_operations_done"
+                            checked={!!editData.factory_operations_done}
+                            onChange={(e) => setEditData({ ...editData, factory_operations_done: e.target.checked })}
+                            className="rounded border-border text-lime focus:ring-lime h-4 w-4 bg-surface"
+                          />
+                          <label htmlFor="factory_operations_done" className="text-xs font-bold text-text-primary cursor-pointer select-none">
+                            Mark Assessment Form / Operations Questionnaire as Completed
+                          </label>
+                        </div>
+                      </Card>
+                    </div>
+
+                    {/* SECTION 2: Owners, Operators, Technicians */}
+                    <div className="space-y-3">
+                      <h3 className="font-syne font-extrabold text-base uppercase tracking-wider text-text-primary flex items-center gap-2">
+                        <span className="flex h-5 w-5 items-center justify-center rounded bg-lime/10 text-lime text-xs font-mono font-bold">2</span>
+                        People &amp; Personnel
+                      </h3>
+                      
+                      <div className="grid grid-cols-1 gap-6">
+                        {/* Owners array editor */}
+                        <Card className="p-4 bg-surface/40 border border-border/60 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-xs font-mono font-bold uppercase text-text-secondary">Factory Owners</h4>
+                            <Button
+                              variant="secondary"
+                              className="py-0.5 px-2 text-[10px]"
+                              onClick={() => {
+                                const owners = [...(editData.factory_op_owners || [])];
+                                owners.push({ name: "", contact: "", email: "" });
+                                setEditData({ ...editData, factory_op_owners: owners });
+                              }}
+                            >
+                              + Add Owner
+                            </Button>
+                          </div>
+                          
+                          <div className="space-y-3">
+                            {(editData.factory_op_owners || []).map((o: any, idx: number) => (
+                              <div key={idx} className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end border-b border-border/20 pb-3 last:border-0 last:pb-0">
+                                <div>
+                                  <Label className="text-[10px]">Owner Name</Label>
+                                  <Input
+                                    value={o.name || ""}
+                                    onChange={(e) => {
+                                      const owners = [...editData.factory_op_owners];
+                                      owners[idx] = { ...owners[idx], name: e.target.value };
+                                      setEditData({ ...editData, factory_op_owners: owners });
+                                    }}
+                                    className="h-8 text-xs"
+                                  />
+                                </div>
+                                <div>
+                                  <Label className="text-[10px]">Owner Contact</Label>
+                                  <Input
+                                    value={o.contact || ""}
+                                    onChange={(e) => {
+                                      const owners = [...editData.factory_op_owners];
+                                      owners[idx] = { ...owners[idx], contact: e.target.value };
+                                      setEditData({ ...editData, factory_op_owners: owners });
+                                    }}
+                                    className="h-8 text-xs"
+                                  />
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <div className="flex-1">
+                                    <Label className="text-[10px]">Owner Email</Label>
+                                    <Input
+                                      value={o.email || ""}
+                                      onChange={(e) => {
+                                        const owners = [...editData.factory_op_owners];
+                                        owners[idx] = { ...owners[idx], email: e.target.value };
+                                        setEditData({ ...editData, factory_op_owners: owners });
+                                      }}
+                                      className="h-8 text-xs"
+                                    />
+                                  </div>
+                                  <Button
+                                    variant="danger"
+                                    className="h-8 py-1 px-2.5 text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20"
+                                    onClick={() => {
+                                      const owners = (editData.factory_op_owners || []).filter((_: any, i: number) => i !== idx);
+                                      setEditData({ ...editData, factory_op_owners: owners });
+                                    }}
+                                  >
+                                    Delete
+                                  </Button>
+                                </div>
+                              </div>
+                            ))}
+                            {(!editData.factory_op_owners || editData.factory_op_owners.length === 0) && (
+                              <p className="text-xs text-text-dim italic">No owner records added</p>
+                            )}
+                          </div>
+                        </Card>
+
+                        {/* Operators array editor */}
+                        <Card className="p-4 bg-surface/40 border border-border/60 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-xs font-mono font-bold uppercase text-text-secondary">Machine Operators</h4>
+                            <Button
+                              variant="secondary"
+                              className="py-0.5 px-2 text-[10px]"
+                              onClick={() => {
+                                const operators = [...(editData.factory_op_operators || [])];
+                                operators.push({ name: "", contact: "", email: "" });
+                                setEditData({ ...editData, factory_op_operators: operators });
+                              }}
+                            >
+                              + Add Operator
+                            </Button>
+                          </div>
+                          
+                          <div className="space-y-3">
+                            {(editData.factory_op_operators || []).map((o: any, idx: number) => (
+                              <div key={idx} className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end border-b border-border/20 pb-3 last:border-0 last:pb-0">
+                                <div>
+                                  <Label className="text-[10px]">Operator Name</Label>
+                                  <Input
+                                    value={o.name || ""}
+                                    onChange={(e) => {
+                                      const operators = [...editData.factory_op_operators];
+                                      operators[idx] = { ...operators[idx], name: e.target.value };
+                                      setEditData({ ...editData, factory_op_operators: operators });
+                                    }}
+                                    className="h-8 text-xs"
+                                  />
+                                </div>
+                                <div>
+                                  <Label className="text-[10px]">Operator Contact</Label>
+                                  <Input
+                                    value={o.contact || ""}
+                                    onChange={(e) => {
+                                      const operators = [...editData.factory_op_operators];
+                                      operators[idx] = { ...operators[idx], contact: e.target.value };
+                                      setEditData({ ...editData, factory_op_operators: operators });
+                                    }}
+                                    className="h-8 text-xs"
+                                  />
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <div className="flex-1">
+                                    <Label className="text-[10px]">Operator Email</Label>
+                                    <Input
+                                      value={o.email || ""}
+                                      onChange={(e) => {
+                                        const operators = [...editData.factory_op_operators];
+                                        operators[idx] = { ...operators[idx], email: e.target.value };
+                                        setEditData({ ...editData, factory_op_operators: operators });
+                                      }}
+                                      className="h-8 text-xs"
+                                    />
+                                  </div>
+                                  <Button
+                                    variant="danger"
+                                    className="h-8 py-1 px-2.5 text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20"
+                                    onClick={() => {
+                                      const operators = (editData.factory_op_operators || []).filter((_: any, i: number) => i !== idx);
+                                      setEditData({ ...editData, factory_op_operators: operators });
+                                    }}
+                                  >
+                                    Delete
+                                  </Button>
+                                </div>
+                              </div>
+                            ))}
+                            {(!editData.factory_op_operators || editData.factory_op_operators.length === 0) && (
+                              <p className="text-xs text-text-dim italic">No operator records added</p>
+                            )}
+                          </div>
+                        </Card>
+
+                        {/* Technicians array editor */}
+                        <Card className="p-4 bg-surface/40 border border-border/60 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-xs font-mono font-bold uppercase text-text-secondary">Technicians / Engineers</h4>
+                            <Button
+                              variant="secondary"
+                              className="py-0.5 px-2 text-[10px]"
+                              onClick={() => {
+                                const technicians = [...(editData.factory_op_technicians || [])];
+                                technicians.push({ name: "", contact: "", email: "" });
+                                setEditData({ ...editData, factory_op_technicians: technicians });
+                              }}
+                            >
+                              + Add Technician
+                            </Button>
+                          </div>
+                          
+                          <div className="space-y-3">
+                            {(editData.factory_op_technicians || []).map((t: any, idx: number) => (
+                              <div key={idx} className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end border-b border-border/20 pb-3 last:border-0 last:pb-0">
+                                <div>
+                                  <Label className="text-[10px]">Technician Name</Label>
+                                  <Input
+                                    value={t.name || ""}
+                                    onChange={(e) => {
+                                      const technicians = [...editData.factory_op_technicians];
+                                      technicians[idx] = { ...technicians[idx], name: e.target.value };
+                                      setEditData({ ...editData, factory_op_technicians: technicians });
+                                    }}
+                                    className="h-8 text-xs"
+                                  />
+                                </div>
+                                <div>
+                                  <Label className="text-[10px]">Technician Contact</Label>
+                                  <Input
+                                    value={t.contact || ""}
+                                    onChange={(e) => {
+                                      const technicians = [...editData.factory_op_technicians];
+                                      technicians[idx] = { ...technicians[idx], contact: e.target.value };
+                                      setEditData({ ...editData, factory_op_technicians: technicians });
+                                    }}
+                                    className="h-8 text-xs"
+                                  />
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <div className="flex-1">
+                                    <Label className="text-[10px]">Technician Email</Label>
+                                    <Input
+                                      value={t.email || ""}
+                                      onChange={(e) => {
+                                        const technicians = [...editData.factory_op_technicians];
+                                        technicians[idx] = { ...technicians[idx], email: e.target.value };
+                                        setEditData({ ...editData, factory_op_technicians: technicians });
+                                      }}
+                                      className="h-8 text-xs"
+                                    />
+                                  </div>
+                                  <Button
+                                    variant="danger"
+                                    className="h-8 py-1 px-2.5 text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20"
+                                    onClick={() => {
+                                      const technicians = (editData.factory_op_technicians || []).filter((_: any, i: number) => i !== idx);
+                                      setEditData({ ...editData, factory_op_technicians: technicians });
+                                    }}
+                                  >
+                                    Delete
+                                  </Button>
+                                </div>
+                              </div>
+                            ))}
+                            {(!editData.factory_op_technicians || editData.factory_op_technicians.length === 0) && (
+                              <p className="text-xs text-text-dim italic">No technician records added</p>
+                            )}
+                          </div>
+                        </Card>
+                      </div>
+                    </div>
+
+                    {/* SECTION 3: Shift Management */}
+                    <div className="space-y-3">
+                      <h3 className="font-syne font-extrabold text-base uppercase tracking-wider text-text-primary flex items-center gap-2">
+                        <span className="flex h-5 w-5 items-center justify-center rounded bg-lime/10 text-lime text-xs font-mono font-bold">3</span>
+                        Shifts &amp; Downtime Analysis
+                      </h3>
+                      
+                      <Card className="p-4 bg-surface/40 border border-border/60 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-xs font-mono font-bold uppercase text-text-secondary">Shifts</h4>
+                            {editHasOverlap && (
+                              <span className="flex items-center gap-1 font-mono text-[9px] font-bold text-red-400 bg-red-500/10 border border-red-500/20 px-1.5 py-0.5 rounded">
+                                <AlertTriangle size={9} /> OVERLAP DETECTED
+                              </span>
+                            )}
+                          </div>
+                          <Button
+                            variant="secondary"
+                            className="py-0.5 px-2 text-[10px]"
+                            onClick={() => {
+                              const shifts = [...(editData.factory_op_shifts || [])];
+                              shifts.push({ name: "", type: "General", startTime: "", endTime: "" });
+                              setEditData({ ...editData, factory_op_shifts: shifts });
+                            }}
+                          >
+                            + Add Shift
+                          </Button>
+                        </div>
+                        
+                        <div className="space-y-3">
+                          {(editData.factory_op_shifts || []).map((s: any, idx: number) => (
+                            <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end border-b border-border/20 pb-3 last:border-0 last:pb-0">
+                              <div>
+                                <Label className="text-[10px]">Shift Name</Label>
+                                <Input
+                                  value={s.name || ""}
+                                  onChange={(e) => handleShiftChange(idx, "name", e.target.value)}
+                                  className="h-8 text-xs"
+                                />
+                              </div>
+                              <div>
+                                <Label className="text-[10px]">Shift Type</Label>
+                                <Input
+                                  value={s.type || ""}
+                                  onChange={(e) => handleShiftChange(idx, "type", e.target.value)}
+                                  className="h-8 text-xs"
+                                />
+                              </div>
+                              <div>
+                                <Label className="text-[10px]">Start Time</Label>
+                                <Input
+                                  type="time"
+                                  value={s.startTime || ""}
+                                  onChange={(e) => handleShiftChange(idx, "startTime", e.target.value)}
+                                  className="h-8 text-xs"
+                                />
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <div className="flex-1">
+                                  <Label className="text-[10px]">End Time</Label>
+                                  <Input
+                                    type="time"
+                                    value={s.endTime || ""}
+                                    onChange={(e) => handleShiftChange(idx, "endTime", e.target.value)}
+                                    className="h-8 text-xs"
+                                  />
+                                </div>
+                                <Button
+                                  variant="danger"
+                                  className="h-8 py-1 px-2.5 text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20"
+                                  onClick={() => {
+                                    const shifts = (editData.factory_op_shifts || []).filter((_: any, i: number) => i !== idx);
+                                    setEditData({ ...editData, factory_op_shifts: shifts });
+                                  }}
+                                >
+                                  Delete
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                          {(!editData.factory_op_shifts || editData.factory_op_shifts.length === 0) && (
+                            <p className="text-xs text-text-dim italic">No shift records added</p>
+                          )}
+                        </div>
+                        
+                        <div className="pt-2">
+                          <Label>Downtime Reasons (comma-separated)</Label>
+                          <Input
+                            value={(editData.factory_op_downtime_reasons || []).join(", ")}
+                            onChange={(e) => {
+                              const reasons = e.target.value.split(",").map(r => r.trim()).filter(Boolean);
+                              setEditData({ ...editData, factory_op_downtime_reasons: reasons });
+                            }}
+                            placeholder="e.g. Raw material shortage, Power cuts, Machine breakdown"
+                          />
+                        </div>
+                      </Card>
+                    </div>
+
+                    {/* SECTION 4: MOM Notes */}
+                    <div className="space-y-3">
+                      <h3 className="font-syne font-extrabold text-base uppercase tracking-wider text-text-primary flex items-center gap-2">
+                        <span className="flex h-5 w-5 items-center justify-center rounded bg-lime/10 text-lime text-xs font-mono font-bold">4</span>
+                        Survey Minutes Notes
+                      </h3>
+                      <Card className="p-4 bg-surface/40 border border-border/60">
+                        <textarea
+                          className="w-full min-h-[120px] rounded border border-border bg-surface px-3 py-2 text-xs text-text-primary placeholder:text-text-dim focus:border-lime focus:outline-none transition-colors"
+                          value={editData.mom_notes || ""}
+                          onChange={(e) => setEditData({ ...editData, mom_notes: e.target.value })}
+                          placeholder="Enter MOM survey notes here..."
+                        />
+                      </Card>
+                    </div>
+
+                    {/* SECTION 5: Business Profile & Machinery Details */}
+                    <div className="space-y-3">
+                      <h3 className="font-syne font-extrabold text-base uppercase tracking-wider text-text-primary flex items-center gap-2">
+                        <span className="flex h-5 w-5 items-center justify-center rounded bg-lime/10 text-lime text-xs font-mono font-bold">5</span>
+                        Business Profile &amp; Machinery Details
+                      </h3>
+                      <Card className="p-4 bg-surface/40 border border-border/60 space-y-4 text-xs">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <Label>Electricity Board</Label>
+                            <Select
+                              value={editData.factory_op_electricity_board || ""}
+                              onChange={(e) => setEditData({ ...editData, factory_op_electricity_board: e.target.value })}
+                              className="w-full bg-surface"
+                            >
+                              <option value="">Select Board...</option>
+                              <option value="PGVCL">PGVCL</option>
+                              <option value="UGVCL">UGVCL</option>
+                              <option value="MGVCL">MGVCL</option>
+                              <option value="DGVCL">DGVCL</option>
+                              <option value="Torrent">Torrent</option>
+                            </Select>
+                          </div>
+
+                          <div>
+                            <Label>Ideal Threshold Time (Minutes)</Label>
+                            <Input
+                              type="number"
+                              value={editData.factory_op_downtime_threshold ?? ""}
+                              onChange={(e) => setEditData({ ...editData, factory_op_downtime_threshold: e.target.value ? Number(e.target.value) : "" })}
+                              placeholder="e.g. 10"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <Label>Surveyed Machine Names (comma-separated)</Label>
+                          <Input
+                            value={(editData.factory_op_machines || []).join(", ")}
+                            onChange={(e) => {
+                              const machines = e.target.value.split(",").map(m => m.trim()).filter(Boolean);
+                              setEditData({ ...editData, factory_op_machines: machines });
+                            }}
+                            placeholder="e.g. Extruder-01, Mixer-A, Compressor"
+                          />
+                        </div>
+
+                        <div className="border-t border-border/40 pt-4 space-y-4">
+                          <div>
+                            <Label className="text-[10px] uppercase tracking-widest text-text-secondary">Company / Machine Tracking Type</Label>
+                            <Select
+                              value={editData.company_type || ""}
+                              onChange={(e) => setEditData({ ...editData, company_type: e.target.value })}
+                              className="w-full bg-surface mt-1"
+                            >
+                              <option value="">Select Type...</option>
+                              <option value="Runtime Machine">Runtime Machine (Time-based Tracking)</option>
+                              <option value="Length-based Machine">Length-based Machine (Continuous Extruder)</option>
+                            </Select>
+                          </div>
+
+                          {editData.company_type === "Runtime Machine" && (
+                            <div className="grid gap-4 md:grid-cols-3 bg-surface/20 p-3 rounded-lg border border-border/30">
+                              <div>
+                                <Label>Expected daily run (hours)</Label>
+                                <Input
+                                  type="number"
+                                  value={editData.expected_daily_run_hours ?? ""}
+                                  onChange={(e) => setEditData({ ...editData, expected_daily_run_hours: e.target.value ? Number(e.target.value) : "" })}
+                                  placeholder="e.g. 9"
+                                />
+                              </div>
+                              <div>
+                                <Label>Expected runtime / day (min)</Label>
+                                <Input
+                                  type="number"
+                                  value={editData.expected_runtime_day_min ?? ""}
+                                  onChange={(e) => setEditData({ ...editData, expected_runtime_day_min: e.target.value ? Number(e.target.value) : "" })}
+                                  placeholder="540"
+                                />
+                              </div>
+                              <div>
+                                <Label>Minimum stop duration (min)</Label>
+                                <Input
+                                  type="number"
+                                  value={editData.minimum_stop_duration_min ?? ""}
+                                  onChange={(e) => setEditData({ ...editData, minimum_stop_duration_min: e.target.value ? Number(e.target.value) : "" })}
+                                  placeholder="5"
+                                />
+                              </div>
+                              <div className="md:col-span-3 grid grid-cols-2 gap-4 pt-2">
+                                <label className="flex items-center gap-2 cursor-pointer select-none font-semibold">
+                                  <input
+                                    type="checkbox"
+                                    checked={!!editData.production_count_meaningful}
+                                    onChange={(e) => setEditData({ ...editData, production_count_meaningful: e.target.checked })}
+                                    className="rounded border-border text-lime focus:ring-lime h-4 w-4 bg-surface"
+                                  />
+                                  Production count is meaningful
+                                </label>
+                                <label className="flex items-center gap-2 cursor-pointer select-none font-semibold">
+                                  <input
+                                    type="checkbox"
+                                    checked={!!editData.vibration_monitoring_relevant}
+                                    onChange={(e) => setEditData({ ...editData, vibration_monitoring_relevant: e.target.checked })}
+                                    className="rounded border-border text-lime focus:ring-lime h-4 w-4 bg-surface"
+                                  />
+                                  Vibration monitoring relevant
+                                </label>
+                              </div>
+                            </div>
+                          )}
+
+                          {editData.company_type === "Length-based Machine" && (
+                            <div className="grid gap-4 md:grid-cols-3 bg-surface/20 p-3 rounded-lg border border-border/30">
+                              <div>
+                                <Label>Expected meters / shift (m)</Label>
+                                <Input
+                                  type="number"
+                                  value={editData.expected_meters_shift ?? ""}
+                                  onChange={(e) => setEditData({ ...editData, expected_meters_shift: e.target.value ? Number(e.target.value) : "" })}
+                                  placeholder="Target meters"
+                                />
+                              </div>
+                              <div>
+                                <Label>Target line speed (mpm)</Label>
+                                <Input
+                                  type="number"
+                                  value={editData.target_line_speed ?? ""}
+                                  onChange={(e) => setEditData({ ...editData, target_line_speed: e.target.value ? Number(e.target.value) : "" })}
+                                  placeholder="Ideal speed"
+                                />
+                              </div>
+                              <div>
+                                <Label>Minimum acceptable speed (mpm)</Label>
+                                <Input
+                                  type="number"
+                                  value={editData.minimum_acceptable_speed ?? ""}
+                                  onChange={(e) => setEditData({ ...editData, minimum_acceptable_speed: e.target.value ? Number(e.target.value) : "" })}
+                                  placeholder="Idle speed threshold"
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          {editData.company_type && (
+                            <div className="space-y-2">
+                              <Label>Machine Classification</Label>
+                              <div className="flex gap-1.5 flex-wrap">
+                                {["Production", "Utility", "Auxiliary", "Support"].map((type) => {
+                                  const isActive = (editData.machine_usage_type ?? "Production") === type;
+                                  return (
+                                    <button
+                                      key={type}
+                                      type="button"
+                                      onClick={() => setEditData({ ...editData, machine_usage_type: type })}
+                                      className={`px-3 py-1 text-xs font-semibold rounded transition-all cursor-pointer ${
+                                        isActive
+                                          ? "bg-lime text-black font-bold shadow-sm"
+                                          : "bg-surface-raised border border-border text-text-secondary hover:text-text-primary"
+                                      }`}
+                                    >
+                                      {type}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </Card>
+                    </div>
+                  </div>
                 ) : (
+                  /* Read Only Mode View */
                   <div className="space-y-6">
                     
                     {/* SECTION 1: Factory Info & Contacts */}
@@ -734,6 +1599,113 @@ export function FactoryDataPanel() {
                         </Card>
                       </div>
                     )}
+
+                    {/* SECTION 5: BUSINESS PROFILE & TRACKING CONFIG */}
+                    <div className="space-y-3">
+                      <h3 className="font-syne font-extrabold text-base uppercase tracking-wider text-text-primary flex items-center gap-2">
+                        <span className="flex h-5 w-5 items-center justify-center rounded bg-lime/10 text-lime text-xs font-mono font-bold">5</span>
+                        BUSINESS PROFILE &amp; TRACKING CONFIG
+                      </h3>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Core Details */}
+                        <Card className="p-4 bg-surface/40 border border-border/60 space-y-3 text-xs">
+                          <div>
+                            <span className="text-[10px] font-mono uppercase text-text-secondary">Electricity Board</span>
+                            <p className="text-sm font-bold text-text-primary mt-0.5">
+                              {selectedAssessment.data.factory_op_electricity_board || "Not selected"}
+                            </p>
+                          </div>
+                          <div>
+                            <span className="text-[10px] font-mono uppercase text-text-secondary">Ideal Threshold Time (Minutes)</span>
+                            <p className="text-sm font-bold text-text-primary mt-0.5">
+                              {selectedAssessment.data.factory_op_downtime_threshold !== undefined && selectedAssessment.data.factory_op_downtime_threshold !== null
+                                ? `${selectedAssessment.data.factory_op_downtime_threshold} Minutes` 
+                                : "Not specified"}
+                            </p>
+                          </div>
+                        </Card>
+
+                        {/* Machine classification & Tracking Mode */}
+                        <Card className="p-4 bg-surface/40 border border-border/60 space-y-3 text-xs">
+                          <div>
+                            <span className="text-[10px] font-mono uppercase text-text-secondary">Tracking / Machine Type</span>
+                            <p className="text-sm font-bold text-text-primary mt-0.5">
+                              {selectedAssessment.data.company_type || "Not configured"}
+                            </p>
+                          </div>
+                          <div>
+                            <span className="text-[10px] font-mono uppercase text-text-secondary">Machine Classification</span>
+                            <p className="text-sm font-bold text-text-primary mt-0.5">
+                              {selectedAssessment.data.machine_usage_type || "Production"}
+                            </p>
+                          </div>
+                        </Card>
+                      </div>
+
+                      {/* Detail Metrics depending on Type */}
+                      {selectedAssessment.data.company_type && (
+                        <Card className="p-4 bg-surface/40 border border-border/60 text-xs">
+                          <span className="text-[10px] font-mono uppercase text-text-secondary block mb-3">
+                            {selectedAssessment.data.company_type} Specifics
+                          </span>
+
+                          {selectedAssessment.data.company_type === "Runtime Machine" ? (
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                              <div className="bg-surface/20 p-2.5 rounded border border-border/40">
+                                <span className="text-[9px] text-text-secondary block font-mono">EXPECTED DAILY RUN</span>
+                                <span className="text-sm font-bold text-text-primary">
+                                  {selectedAssessment.data.expected_daily_run_hours ?? "—"} hrs
+                                </span>
+                              </div>
+                              <div className="bg-surface/20 p-2.5 rounded border border-border/40">
+                                <span className="text-[9px] text-text-secondary block font-mono">EXPECTED RUNTIME/DAY</span>
+                                <span className="text-sm font-bold text-text-primary">
+                                  {selectedAssessment.data.expected_runtime_day_min ?? "—"} mins
+                                </span>
+                              </div>
+                              <div className="bg-surface/20 p-2.5 rounded border border-border/40">
+                                <span className="text-[9px] text-text-secondary block font-mono">MIN STOP DURATION</span>
+                                <span className="text-sm font-bold text-text-primary">
+                                  {selectedAssessment.data.minimum_stop_duration_min ?? "—"} mins
+                                </span>
+                              </div>
+                              <div className="sm:col-span-3 flex gap-6 pt-2 font-mono text-[10px] text-text-secondary">
+                                <div className="flex items-center gap-2">
+                                  <span className={`h-2 w-2 rounded-full ${selectedAssessment.data.production_count_meaningful ? "bg-lime" : "bg-text-dim"}`} />
+                                  Production Count Meaningful: <strong>{selectedAssessment.data.production_count_meaningful ? "YES" : "NO"}</strong>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className={`h-2 w-2 rounded-full ${selectedAssessment.data.vibration_monitoring_relevant ? "bg-lime" : "bg-text-dim"}`} />
+                                  Vibration Monitoring: <strong>{selectedAssessment.data.vibration_monitoring_relevant ? "YES" : "NO"}</strong>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                              <div className="bg-surface/20 p-2.5 rounded border border-border/40">
+                                <span className="text-[9px] text-text-secondary block font-mono">EXPECTED METERS/SHIFT</span>
+                                <span className="text-sm font-bold text-text-primary">
+                                  {selectedAssessment.data.expected_meters_shift ?? "—"} m
+                                </span>
+                              </div>
+                              <div className="bg-surface/20 p-2.5 rounded border border-border/40">
+                                <span className="text-[9px] text-text-secondary block font-mono">TARGET LINE SPEED</span>
+                                <span className="text-sm font-bold text-text-primary">
+                                  {selectedAssessment.data.target_line_speed ?? "—"} mpm
+                                </span>
+                              </div>
+                              <div className="bg-surface/20 p-2.5 rounded border border-border/40">
+                                <span className="text-[9px] text-text-secondary block font-mono">MIN ACCEPTABLE SPEED</span>
+                                <span className="text-sm font-bold text-text-primary">
+                                  {selectedAssessment.data.minimum_acceptable_speed ?? "—"} mpm
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                        </Card>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

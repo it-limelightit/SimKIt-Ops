@@ -2,13 +2,13 @@ import { useEffect, useState } from "react";
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-store";
-import { Badge, Button, ProgressBar, Skeleton, Select, Label, Card } from "@/components/ui-kit";
+import { Badge, Button, ProgressBar, Skeleton, Select, Label, Card, Input } from "@/components/ui-kit";
 import { AssessmentTab } from "@/components/business-consultant/AssessmentTab";
 import { InstallationTab } from "@/components/business-consultant/InstallationTab";
 import { CommissioningTab } from "@/components/business-consultant/CommissioningTab";
 import { LogOut, Check, CheckCircle2, MapPin, Calendar, Clock, BookOpen, Boxes, Sun, Moon, User, Phone, Mail } from "lucide-react";
 import { parseTaskNotes } from "@/components/staff/TasksPanel";
-import { parseSiteMetadata } from "@/components/staff/SitesPanel";
+import { parseSiteMetadata, serializeSiteMetadata } from "@/lib/site-metadata";
 import { toast } from "sonner";
 import { InventoryPanel } from "@/components/inventory/InventoryPanel";
 import { OrderTab } from "@/components/business-consultant/OrderTab";
@@ -44,6 +44,120 @@ function BusinessConsultantPage() {
   const [progress, setProgress] = useState({ assessment: 0, installation: 0, commissioning: 0 });
   const [submittedPhases, setSubmittedPhases] = useState<Set<string>>(new Set());
   const [thankYou, setThankYou] = useState(false);
+  const [clientShareEmail, setClientShareEmail] = useState("");
+  const [generatedLink, setGeneratedLink] = useState("");
+  const [sendingEmail, setSendingEmail] = useState(false);
+
+  const handleSendEmail = async () => {
+    if (!site) return;
+    if (!clientShareEmail.trim()) {
+      toast.error("Please enter a client email address first.");
+      return;
+    }
+
+    setSendingEmail(true);
+    try {
+      let token = parseSiteMetadata(site.task_notes).client_token;
+      if (!token) {
+        token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+        const siteMeta = parseSiteMetadata(site.task_notes);
+        siteMeta.client_email = clientShareEmail.trim();
+        siteMeta.client_token = token;
+
+        const serializedNotes = serializeSiteMetadata(site.task_notes, siteMeta);
+        const { error } = await supabase
+          .from("sites")
+          .update({ task_notes: serializedNotes } as never)
+          .eq("id", site.id);
+
+        if (error) {
+          throw new Error("Failed to save client details: " + error.message);
+        }
+        await fetchSites();
+      }
+
+      const { sendClientFormEmailFn } = await import("./client-form");
+      const res = await sendClientFormEmailFn({
+        data: {
+          email: clientShareEmail.trim(),
+          token: token,
+          siteName: site.company_name || site.name,
+          origin: window.location.origin
+        }
+      });
+
+      if (res.success) {
+        if (res.previewUrl) {
+          toast.success(res.message, {
+            description: `Verify Ethereal mailbox here: ${res.previewUrl}`,
+            action: {
+              label: "Open Mail Inbox",
+              onClick: () => window.open(res.previewUrl!, "_blank")
+            },
+            duration: 15000
+          });
+        } else {
+          toast.success("Invitation email sent successfully to the client!");
+        }
+      } else {
+        toast.error("Failed to send email: " + res.error);
+      }
+    } catch (err: any) {
+      toast.error(err.message || "An unexpected error occurred while sending email.");
+    } finally {
+      setSendingEmail(false);
+    }
+  };
+
+  useEffect(() => {
+    if (site) {
+      const siteMeta = parseSiteMetadata(site.task_notes);
+      setClientShareEmail(siteMeta.client_email || "");
+      if (siteMeta.client_token) {
+        setGeneratedLink(`${window.location.origin}/client-form?token=${siteMeta.client_token}`);
+      } else {
+        setGeneratedLink("");
+      }
+    } else {
+      setClientShareEmail("");
+      setGeneratedLink("");
+    }
+  }, [site]);
+
+  const handleGenerateShareLink = async () => {
+    if (!site) return;
+    try {
+      const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      const siteMeta = parseSiteMetadata(site.task_notes);
+      siteMeta.client_email = clientShareEmail.trim();
+      siteMeta.client_token = token;
+
+      const serializedNotes = serializeSiteMetadata(site.task_notes, siteMeta);
+
+      const { error } = await supabase
+        .from("sites")
+        .update({ task_notes: serializedNotes } as never)
+        .eq("id", site.id);
+
+      if (error) {
+        toast.error("Failed to generate link: " + error.message);
+      } else {
+        const link = `${window.location.origin}/client-form?token=${token}`;
+        setGeneratedLink(link);
+        toast.success("Share link generated successfully!");
+        // Refresh site details
+        await fetchSites();
+      }
+    } catch (err: any) {
+      toast.error("Error: " + err.message);
+    }
+  };
+
+  const handleCopyLink = () => {
+    if (!generatedLink) return;
+    navigator.clipboard.writeText(generatedLink);
+    toast.success("Copied client form link to clipboard!");
+  };
 
   useEffect(() => {
     if (!ready) return;
@@ -355,6 +469,55 @@ function BusinessConsultantPage() {
               </div>
             </div>
           </div>
+
+          {/* Client Form Sharing */}
+          <div className="bg-surface-raised/40 p-4 rounded-xl border border-border/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <Mail className="text-lime w-5 h-5 shrink-0" />
+              <div>
+                <h4 className="font-syne font-bold text-xs uppercase tracking-wider text-text-primary">
+                  Client Self-Submission Link
+                </h4>
+                <p className="text-[10px] text-text-secondary mt-0.5">
+                  Generate a secure access key to invite the client to fill their factory details directly.
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center w-full md:max-w-lg">
+              <div className="flex-1 col-span-2">
+                <Input
+                  placeholder="Client email address"
+                  value={clientShareEmail}
+                  onChange={(e) => setClientShareEmail(e.target.value)}
+                  className="h-8 text-xs bg-surface"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleGenerateShareLink}
+                  className="py-1 px-3 text-xs bg-surface border border-border text-text-primary hover:bg-surface-raised font-bold uppercase tracking-wider shrink-0"
+                >
+                  Link Only
+                </Button>
+                <Button
+                  onClick={handleSendEmail}
+                  disabled={sendingEmail}
+                  className="py-1 px-3 text-xs bg-lime text-black hover:bg-lime/90 font-bold uppercase tracking-wider shrink-0"
+                >
+                  {sendingEmail ? "Sending..." : "Send Mail"}
+                </Button>
+                {generatedLink && (
+                  <Button
+                    onClick={handleCopyLink}
+                    className="py-1 px-3 text-xs bg-surface border border-border text-text-primary hover:bg-surface-raised shrink-0 font-mono"
+                  >
+                    Copy
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
           
           <div className="grid gap-4 md:grid-cols-2 pt-4 border-t border-border/60 items-center">
             {/* Appointment Pills */}
@@ -500,6 +663,7 @@ function siteStatusStyle(status: string) {
     case "Concept":       return { bg: "bg-warning/8", text: "text-warning", border: "border-warning/20" };
     case "Assessment & Visit": return { bg: "bg-[#C4E1F6]/20", text: "text-[#1D4ED8]", border: "border-[#1D4ED8]/20" };
     case "Assigned":      return { bg: "bg-[#800000]/10", text: "text-[#D07070]", border: "border-[#800000]/20" };
+    case "Not Started Yet": return { bg: "bg-indigo-600/10", text: "text-indigo-600", border: "border-indigo-600/20" };
     default:              return { bg: "bg-surface-raised", text: "text-text-secondary", border: "border-border" };
   }
 }

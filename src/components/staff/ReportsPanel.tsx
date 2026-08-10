@@ -53,11 +53,12 @@ const STATUS_OPTIONS = [
   "Unsubmitted",
   "Certification Pending",
   "Dropped / Rejected",
+  "Not Started Yet",
 ] as const;
 
 const isCompletedStatus = (status: string) => status === "Submitted";
 const isPendingStatus = (status: string) =>
-  ["Pending Assignment", "Assigned", "Assessed", "Panel Dispatched", "Installed", "Commissioned", "Unsubmitted"].includes(status);
+  ["Pending Assignment", "Assigned", "Assessed", "Panel Dispatched", "Installed", "Commissioned", "Unsubmitted", "Not Started Yet"].includes(status);
 const isAwaitingStatus = (status: string) => status === "Certification Pending";
 
 function statusStyle(status: string) {
@@ -67,7 +68,7 @@ function statusStyle(status: string) {
   if (status === "Commissioned") return "border-teal-250 bg-teal-50 text-teal-700";
   if (status === "Installed") return "border-cyan-200 bg-cyan-50 text-cyan-700";
   if (status === "Panel Dispatched" || status === "Assessed") return "border-blue-200 bg-blue-50 text-blue-700";
-  if (status === "Assigned") return "border-indigo-200 bg-indigo-50 text-indigo-700";
+  if (status === "Assigned" || status === "Not Started Yet") return "border-indigo-200 bg-indigo-50 text-indigo-700";
   if (status === "Pending Assignment") return "border-amber-200 bg-amber-50 text-amber-700";
   return "border-stone-200 bg-stone-50 text-stone-600";
 }
@@ -280,19 +281,30 @@ export function ReportsPanel() {
         if (meta.status === "Panel Dispatched") return "Panel Dispatched";
         if (meta.status === "Assessed" || meta.status === "In Assessment") return "Assessed";
         if (meta.status === "Unsubmitted") return "Unsubmitted";
+        if (meta.status === "Not Started Yet") return "Not Started Yet";
 
         if (logisticsStatus === "Delivered") return "Panel Dispatched";
 
         if (row.consultant_stage === "Completion" || row.consultant_stage === "Billing") return "Submitted";
-        if (isSiteSubmitted(row)) {
-          return isSiteCertification(row) ? "Submitted" : "Certification Pending";
-        }
-        if (isSiteCommissioned(row)) return "Commissioned";
-        if (isSiteInstalled(row)) return "Installed";
-        if (isSiteAssessment(row)) return "Assessed";
         if (isSiteDropped(row)) return "Dropped / Rejected";
 
-        if (workerIds.length > 0) return "Assigned";
+        const ar = aMap.get(row.id);
+        const ir = iMap.get(row.id);
+        const cr = cMap.get(row.id);
+
+        const isAssessmentSubmitted = !!ar?.data?.assessment_phase_submitted;
+        const isInstallationCompleted = (!!ir?.data?.delivery_confirmed && !!ir?.data?.coordination_done && !!ir?.data?.photos_uploaded) || pctKeys(ir?.data, INSTALLATION_KEYS) === 100;
+        const isCommissioningCompleted = !!cr?.data?.commissioning_phase_submitted || pctKeys(cr?.data, COMMISSIONING_KEYS) === 100;
+        const isCertSent = !!cr?.data?.certificate_sent || !!ar?.data?.certificate_sent;
+
+        if (isAssessmentSubmitted) {
+          if (isCertSent) return "Submitted";
+          if (isCommissioningCompleted) return "Commissioned";
+          if (isInstallationCompleted) return "Installed";
+          return "Assessed";
+        }
+
+        if (workerIds.length > 0) return "Not Started Yet";
         if (workerIds.length === 0) return "Pending Assignment";
 
         return "Unsubmitted";

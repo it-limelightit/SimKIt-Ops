@@ -27,6 +27,7 @@ const FACTORY_STATUS_OPTIONS = [
   "Commissioned",
   "Assessed",
   "Dropped / Rejected",
+  "Not Started Yet",
 ] as const;
 
 // ── Multi-select BC dropdown ──────────────────────────────────────────────────
@@ -301,7 +302,7 @@ export function SitesPanel() {
     const stage = (site.consultant_stage || meta.status || "").toLowerCase();
     const ar = aMap.get(site.id);
     const aP = ar?.data?.assessment_phase_submitted ? 100 : pctKeys(ar?.data, ASSESSMENT_KEYS);
-    return stage.includes("assessment") || aP === 100;
+    return stage.includes("assessment") || aP > 0;
   };
 
   const getCanonicalStatus = (site: any): string => {
@@ -317,19 +318,30 @@ export function SitesPanel() {
     if (meta.status === "Panel Dispatched") return "Panel Dispatched";
     if (meta.status === "Assessed" || meta.status === "In Assessment") return "Assessed";
     if (meta.status === "Unsubmitted") return "Unsubmitted";
+    if (meta.status === "Not Started Yet") return "Not Started Yet";
 
     // 2. Auto-detection / Stage Fallbacks
     if (site.consultant_stage === "Completion" || site.consultant_stage === "Billing") return "Submitted";
-    if (isSiteSubmitted(site)) {
-      return isSiteCertification(site) ? "Submitted" : "Certification Pending";
-    }
-    if (isSiteCommissioned(site)) return "Commissioned";
-    if (isSiteInstalled(site)) return "Installed";
-    if (isSiteAssessment(site)) return "Assessed";
     if (isSiteDropped(site)) return "Dropped / Rejected";
 
+    const ar = aMap.get(site.id);
+    const ir = iMap.get(site.id);
+    const cr = cMap.get(site.id);
+
+    const isAssessmentSubmitted = !!ar?.data?.assessment_phase_submitted;
+    const isInstallationCompleted = (!!ir?.data?.delivery_confirmed && !!ir?.data?.coordination_done && !!ir?.data?.photos_uploaded) || pctKeys(ir?.data, INSTALLATION_KEYS) === 100;
+    const isCommissioningCompleted = !!cr?.data?.commissioning_phase_submitted || pctKeys(cr?.data, COMMISSIONING_KEYS) === 100;
+    const isCertSent = !!cr?.data?.certificate_sent || !!ar?.data?.certificate_sent;
+
+    if (isAssessmentSubmitted) {
+      if (isCertSent) return "Submitted";
+      if (isCommissioningCompleted) return "Commissioned";
+      if (isInstallationCompleted) return "Installed";
+      return "Assessed";
+    }
+
     // 3. Default Assignment / Status Fallbacks
-    if (workerIds.length > 0) return "Assigned";
+    if (workerIds.length > 0) return "Not Started Yet";
     if (workerIds.length === 0) return "Pending Assignment";
 
     return "Unsubmitted";
@@ -636,6 +648,9 @@ export function SitesPanel() {
     } else if (newStatus === "Certification Pending") {
       consultantStage = null;
       metaStatus = "Certification Pending";
+    } else if (newStatus === "Not Started Yet") {
+      consultantStage = null;
+      metaStatus = "Not Started Yet";
     }
 
     const newNotes = serializeSiteMetadata(currentTaskNotes, { 

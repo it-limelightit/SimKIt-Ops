@@ -19,6 +19,8 @@ export type SiteMeta = {
   assessor_number: string;
   assessor_email: string;
   assessor_address: string;
+  client_email?: string;
+  client_token?: string;
 };
 
 const DEFAULT_META: SiteMeta = {
