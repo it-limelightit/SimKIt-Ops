@@ -23,7 +23,9 @@ const FACTORY_STATUS_OPTIONS = [
   "Unsubmitted",
   "Certification Pending",
   "Installed",
+  "Commissioned",
   "Pending Assignment",
+  "Assigned",
   "Assessed",
   "Dropped / Rejected",
 ] as const;
@@ -277,6 +279,13 @@ export function SitesPanel() {
     return stage.includes("installed") || pctKeys(ir?.data, INSTALLATION_KEYS) === 100;
   };
 
+  const isSiteCommissioned = (site: any) => {
+    const meta = parseSiteMetadata(site.task_notes);
+    const stage = (site.consultant_stage || meta.status || "").toLowerCase();
+    const cr = cMap.get(site.id);
+    return stage.includes("commissioned") || pctKeys(cr?.data, COMMISSIONING_KEYS) === 100;
+  };
+
   const isSiteAssessment = (site: any) => {
     const meta = parseSiteMetadata(site.task_notes);
     const stage = (site.consultant_stage || meta.status || "").toLowerCase();
@@ -294,10 +303,12 @@ export function SitesPanel() {
     if (meta.status === "Dropped / Rejected" || meta.status === "Reject") return "Dropped / Rejected";
     if (meta.status === "Submitted") return "Submitted";
     if (meta.status === "Certification Pending") return "Certification Pending";
+    if (meta.status === "Commissioned") return "Commissioned";
     if (meta.status === "Installed") return "Installed";
     // "Panel Dispatched" is auto-detected from logistics — kept for read display but not set manually
     if (meta.status === "Panel Dispatched") return "Panel Dispatched";
     if (meta.status === "Assessed" || meta.status === "In Assessment") return "Assessed";
+    if (meta.status === "Assigned") return "Assigned";
     if (meta.status === "Unsubmitted") return "Unsubmitted";
     if (meta.status === "Pending Assignment") return "Pending Assignment";
 
@@ -306,11 +317,13 @@ export function SitesPanel() {
     if (isSiteSubmitted(site)) {
       return isSiteCertification(site) ? "Submitted" : "Certification Pending";
     }
+    if (isSiteCommissioned(site)) return "Commissioned";
     if (isSiteInstalled(site)) return "Installed";
     if (isSiteAssessment(site)) return "Assessed";
     if (isSiteDropped(site)) return "Dropped / Rejected";
 
     // 3. Default Assignment / Status Fallbacks
+    if (workerIds.length > 0) return "Assigned";
     if (workerIds.length === 0) return "Pending Assignment";
 
     return "Unsubmitted";
@@ -350,6 +363,12 @@ export function SitesPanel() {
     } else if (form.status === "Installed") {
       consultantStage = null;
       metaStatus = "Installed";
+    } else if (form.status === "Commissioned") {
+      consultantStage = null;
+      metaStatus = "Commissioned";
+    } else if (form.status === "Assigned") {
+      consultantStage = null;
+      metaStatus = "Assigned";
     } else if (form.status === "Pending Assignment") {
       consultantStage = null;
       metaStatus = "Pending Assignment";
@@ -475,6 +494,12 @@ export function SitesPanel() {
     } else if (form.status === "Installed") {
       consultantStage = null;
       metaStatus = "Installed";
+    } else if (form.status === "Commissioned") {
+      consultantStage = null;
+      metaStatus = "Commissioned";
+    } else if (form.status === "Assigned") {
+      consultantStage = null;
+      metaStatus = "Assigned";
     } else if (form.status === "Pending Assignment") {
       consultantStage = null;
       metaStatus = "Pending Assignment";
@@ -603,6 +628,12 @@ export function SitesPanel() {
     } else if (newStatus === "Installed") {
       consultantStage = null;
       metaStatus = "Installed";
+    } else if (newStatus === "Commissioned") {
+      consultantStage = null;
+      metaStatus = "Commissioned";
+    } else if (newStatus === "Assigned") {
+      consultantStage = null;
+      metaStatus = "Assigned";
     } else if (newStatus === "Pending Assignment") {
       consultantStage = null;
       metaStatus = "Pending Assignment";
@@ -681,8 +712,11 @@ export function SitesPanel() {
     "Unsubmitted",
     "Certification Pending",
     "Installed",
+    "Commissioned",
     "Pending Assignment",
+    "Assigned",
     "Assessed",
+    "Panel Dispatched",
     "Dropped / Rejected",
   ];
   const assessors = Array.from(
@@ -1233,15 +1267,19 @@ export function SitesPanel() {
                                   ? "bg-coral-dim text-coral border-coral/20"
                                   : canonicalStatus === "Certification Pending"
                                     ? "bg-violet/10 text-violet border-violet/20"
-                                    : canonicalStatus === "Installed"
-                                      ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
-                                      : canonicalStatus === "Pending Assignment" || canonicalStatus === "Total Assignment Pending on Portal"
-                                        ? "bg-warning/8 text-warning border-warning/20"
-                                        : canonicalStatus === "Panel Dispatched"
-                                          ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
-                                          : canonicalStatus === "Assessed"
-                                          ? "bg-lime/10 text-lime border-lime/20"
-                                          : "bg-surface text-text-dim border-border"
+                                    : canonicalStatus === "Commissioned"
+                                      ? "bg-mint-dim text-mint border-mint/20"
+                                      : canonicalStatus === "Installed"
+                                        ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                                        : canonicalStatus === "Assigned"
+                                          ? "bg-violet/10 text-violet border-violet/20"
+                                          : canonicalStatus === "Pending Assignment" || canonicalStatus === "Total Assignment Pending on Portal"
+                                            ? "bg-warning/8 text-warning border-warning/20"
+                                            : canonicalStatus === "Panel Dispatched"
+                                              ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                                              : canonicalStatus === "Assessed"
+                                              ? "bg-lime/10 text-lime border-lime/20"
+                                              : "bg-surface text-text-dim border-border"
                             }`}
                           >
                             <option value="">— None —</option>

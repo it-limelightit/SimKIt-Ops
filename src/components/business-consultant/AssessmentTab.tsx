@@ -602,7 +602,7 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
     (async () => {
       const { data: site } = await supabase
         .from("sites")
-        .select("name,company_name,address")
+        .select("name,company_name,address,city,state")
         .eq("id", siteId)
         .maybeSingle();
       if (site) {
@@ -610,8 +610,11 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
         if (!data.factory_op_name) {
           updates.factory_op_name = site.company_name || site.name;
         }
-        if (!data.factory_op_address && site.address) {
-          updates.factory_op_address = site.address;
+        if (!data.factory_op_address) {
+          const parts = [site.address, site.city, site.state].filter(Boolean);
+          if (parts.length > 0) {
+            updates.factory_op_address = parts.join(", ");
+          }
         }
         if (Object.keys(updates).length > 0) {
           patch(updates);
