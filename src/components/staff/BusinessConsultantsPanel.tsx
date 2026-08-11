@@ -1,11 +1,107 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Button, Badge } from "@/components/ui-kit";
+import { Button, Badge, Input, Label } from "@/components/ui-kit";
 import { toast } from "sonner";
 import { parseSiteMetadata, serializeSiteMetadata } from "@/lib/site-metadata";
+import { createServerFn } from "@tanstack/react-start";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { X } from "lucide-react";
+
+export const updateConsultantProfileFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => data as {
+    userId: string;
+    name: string;
+    email: string;
+    mobile: string;
+    whatsapp?: string;
+    password?: string;
+  })
+  .handler(async ({ data }) => {
+    const { userId, name, email, mobile, whatsapp, password } = data;
+    try {
+      const updateData: any = {};
+      if (email) updateData.email = email;
+      if (password) updateData.password = password;
+
+      if (Object.keys(updateData).length > 0) {
+        const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(
+          userId,
+          updateData
+        );
+        if (authError) {
+          return { success: false, error: authError.message };
+        }
+      }
+
+      // Update profiles table
+      const { error: profileError } = await supabaseAdmin
+        .from("profiles")
+        .update({
+          name,
+          email,
+          mobile,
+          whatsapp: whatsapp || mobile,
+        })
+        .eq("id", userId);
+
+      if (profileError) {
+        return { success: false, error: profileError.message };
+      }
+
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message || String(e) };
+    }
+  });
 
 export function BusinessConsultantsPanel() {
   const [rows, setRows] = useState<any[]>([]);
+  const [editingConsultant, setEditingConsultant] = useState<any | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editMobile, setEditMobile] = useState("");
+  const [editWhatsapp, setEditWhatsapp] = useState("");
+  const [editPassword, setEditPassword] = useState("");
+  const [updating, setUpdating] = useState(false);
+
+  useEffect(() => {
+    if (editingConsultant) {
+      setEditName(editingConsultant.name || "");
+      setEditEmail(editingConsultant.email || "");
+      setEditMobile(editingConsultant.mobile || "");
+      setEditWhatsapp(editingConsultant.whatsapp || "");
+      setEditPassword("");
+    }
+  }, [editingConsultant]);
+
+  const handleUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingConsultant) return;
+    setUpdating(true);
+    try {
+      const res = await updateConsultantProfileFn({
+        data: {
+          userId: editingConsultant.id,
+          name: editName,
+          email: editEmail,
+          mobile: editMobile,
+          whatsapp: editWhatsapp,
+          password: editPassword || undefined,
+        }
+      });
+      if (res.success) {
+        toast.success("Consultant profile updated successfully!");
+        setEditingConsultant(null);
+        await load();
+      } else {
+        toast.error(res.error || "Failed to update profile");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update profile");
+    } finally {
+      setUpdating(false);
+    }
+  };
 
   const load = async () => {
     // Only show users whose role is 'worker'
@@ -212,19 +308,26 @@ export function BusinessConsultantsPanel() {
                 </td>
                 <td className="px-4 py-4 align-middle text-right">
                   <div className="flex items-center justify-end gap-2.5 whitespace-nowrap">
-                    <Button variant="secondary" className="py-1 px-2.5 text-xs font-semibold" onClick={() => toggle(r.id, !r.is_active)}>
+                    <Button
+                      variant="secondary"
+                      className="py-1 px-2.5 text-xs font-semibold cursor-pointer"
+                      onClick={() => setEditingConsultant(r)}
+                    >
+                      Edit
+                    </Button>
+                    <Button variant="secondary" className="py-1 px-2.5 text-xs font-semibold cursor-pointer" onClick={() => toggle(r.id, !r.is_active)}>
                       {r.is_active ? "Deactivate" : "Activate"}
                     </Button>
                     <Button
                       variant="danger"
-                      className="bg-coral/10 text-coral border border-coral/20 hover:bg-coral-dim py-1 px-2.5 text-xs font-semibold"
+                      className="bg-coral/10 text-coral border border-coral/20 hover:bg-coral-dim py-1 px-2.5 text-xs font-semibold cursor-pointer"
                       onClick={() => clearConsultantData(r.id)}
                     >
                       Clear Consultant Side
                     </Button>
                     <Button
                       variant="danger"
-                      className="py-1 px-2.5 text-xs font-semibold"
+                      className="py-1 px-2.5 text-xs font-semibold cursor-pointer"
                       onClick={() => deleteConsultant(r.id, r.name ?? r.email ?? "Consultant")}
                     >
                       Delete
@@ -236,6 +339,96 @@ export function BusinessConsultantsPanel() {
           </tbody>
         </table>
       </div>
+
+      {editingConsultant && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="relative w-full max-w-md bg-surface border border-border rounded-xl shadow-xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="flex justify-between items-center p-5 border-b border-border bg-surface-raised/40">
+              <div>
+                <h3 className="text-lg font-bold text-text-primary">Edit Consultant Profile</h3>
+                <p className="text-xs text-text-secondary">Update details or change password for {editingConsultant.name || "Consultant"}</p>
+              </div>
+              <button
+                onClick={() => setEditingConsultant(null)}
+                className="p-1.5 rounded-full hover:bg-surface-raised text-text-secondary hover:text-text-primary transition cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleUpdate} className="p-5 space-y-4">
+              <div>
+                <Label>Full Name</Label>
+                <Input
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  placeholder="e.g. John Doe"
+                  required
+                />
+              </div>
+
+              <div>
+                <Label>Email Address</Label>
+                <Input
+                  type="email"
+                  value={editEmail}
+                  onChange={(e) => setEditEmail(e.target.value)}
+                  placeholder="e.g. john@example.com"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Mobile Number</Label>
+                  <Input
+                    value={editMobile}
+                    onChange={(e) => setEditMobile(e.target.value)}
+                    placeholder="e.g. 9876543210"
+                    required
+                  />
+                </div>
+                <div>
+                  <Label>WhatsApp Number</Label>
+                  <Input
+                    value={editWhatsapp}
+                    onChange={(e) => setEditWhatsapp(e.target.value)}
+                    placeholder="e.g. 9876543210"
+                  />
+                </div>
+              </div>
+
+              <div className="border-t border-border pt-3">
+                <Label className="text-text-primary font-bold">Change Password</Label>
+                <p className="text-[10px] text-text-secondary mb-2">Enter a new password to change it, or leave blank to keep current password.</p>
+                <Input
+                  type="password"
+                  value={editPassword}
+                  onChange={(e) => setEditPassword(e.target.value)}
+                  placeholder="New password (min 6 chars)"
+                  minLength={6}
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-border mt-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setEditingConsultant(null)}
+                  className="cursor-pointer"
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={updating} className="cursor-pointer">
+                  {updating ? "Saving..." : "Save Changes"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

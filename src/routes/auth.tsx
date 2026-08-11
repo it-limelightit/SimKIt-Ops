@@ -16,11 +16,22 @@ function AuthPage() {
   const navigate = useNavigate();
   const { ready, userId, role, refresh } = useAuth();
   const [tab, setTab] = useState<"login" | "signup">("login");
+  const [isRecovery, setIsRecovery] = useState(false);
+
   useEffect(() => {
-    if (ready && userId && role) {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      const hasRecovery = params.get("type") === "recovery" || hashParams.get("type") === "recovery" || window.location.href.includes("type=recovery");
+      setIsRecovery(!!hasRecovery);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (ready && userId && role && !isRecovery) {
       navigate({ to: role === "worker" ? "/business-consultant" : `/${role}` as "/business-consultant" });
     }
-  }, [ready, userId, role, navigate]);
+  }, [ready, userId, role, navigate, isRecovery]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -32,21 +43,27 @@ function AuthPage() {
           </p>
         </div>
 
-        <div className="mb-8 flex border-b border-border">
-          {(["login", "signup"] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`relative -mb-px px-5 py-3 text-sm transition-colors ${tab === t ? "text-foreground" : "text-muted-foreground"
-                }`}
-            >
-              {t === "login" ? "Login" : "Sign Up"}
-              {tab === t && <span className="absolute -bottom-px left-0 right-0 h-[2px] bg-primary" />}
-            </button>
-          ))}
-        </div>
+        {isRecovery ? (
+          <RecoveryForm />
+        ) : (
+          <>
+            <div className="mb-8 flex border-b border-border">
+              {(["login", "signup"] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setTab(t)}
+                  className={`relative -mb-px px-5 py-3 text-sm transition-colors ${tab === t ? "text-foreground" : "text-muted-foreground"
+                    }`}
+                >
+                  {t === "login" ? "Login" : "Sign Up"}
+                  {tab === t && <span className="absolute -bottom-px left-0 right-0 h-[2px] bg-primary" />}
+                </button>
+              ))}
+            </div>
 
-        {tab === "login" ? <LoginForm onDone={refresh} /> : <SignupForm onDone={() => setTab("login")} />}
+            {tab === "login" ? <LoginForm onDone={refresh} /> : <SignupForm onDone={() => setTab("login")} />}
+          </>
+        )}
       </div>
     </div>
   );
@@ -58,7 +75,7 @@ function LoginForm({ onDone }: { onDone: () => void }) {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [resetMode, setResetMode] = useState(false);
-  const [resetId, setResetId] = useState("");
+  const [resetEmail, setResetEmail] = useState("");
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -96,27 +113,23 @@ function LoginForm({ onDone }: { onDone: () => void }) {
     }
   }
 
-  const [resetNewPw, setResetNewPw] = useState("");
-  const [resetConfirm, setResetConfirm] = useState("");
-
   async function sendReset(e: React.FormEvent) {
     e.preventDefault();
-    if (resetNewPw !== resetConfirm) { toast.error("Passwords do not match"); return; }
-    if (resetNewPw.length < 6) { toast.error("Password must be at least 6 characters"); return; }
     setLoading(true);
     try {
-      const { error } = await supabase.rpc("reset_password_by_identifier" as any, {
-        identifier: resetId.trim(),
-        new_password: resetNewPw,
+      const emailVal = resetEmail.trim();
+      if (!emailVal.includes("@")) {
+        throw new Error("Please enter a valid email address to receive the password reset link.");
+      }
+      const { error } = await supabase.auth.resetPasswordForEmail(emailVal, {
+        redirectTo: window.location.origin + "/auth?type=recovery",
       });
-      if (error) throw new Error(error.message);
-      toast.success("Password reset successfully. You can now sign in.");
+      if (error) throw error;
+      toast.success("Password reset link sent! Please check your email inbox.");
       setResetMode(false);
-      setResetId("");
-      setResetNewPw("");
-      setResetConfirm("");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to reset password");
+      setResetEmail("");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to send reset link");
     } finally {
       setLoading(false);
     }
@@ -127,53 +140,33 @@ function LoginForm({ onDone }: { onDone: () => void }) {
       <div className="space-y-6">
         <div>
           <h2 className="text-lg font-semibold text-text-primary">Reset Password</h2>
-          <p className="mt-1 text-sm text-text-secondary">Enter your mobile or email and choose a new password.</p>
+          <p className="mt-1 text-sm text-text-secondary">Enter your email address to receive a secure recovery link.</p>
         </div>
         <form onSubmit={sendReset} className="space-y-5">
           <div>
-            <Label>Mobile Number / Email</Label>
+            <Label>Email Address</Label>
             <Input
-              value={resetId}
-              onChange={(e) => setResetId(e.target.value)}
-              placeholder="9876543210 or email@example.com"
-              required
-            />
-          </div>
-          <div>
-            <Label>New Password</Label>
-            <Input
-              type="password"
-              value={resetNewPw}
-              onChange={(e) => setResetNewPw(e.target.value)}
-              placeholder="Min. 6 characters"
-              required
-            />
-          </div>
-          <div>
-            <Label>Confirm New Password</Label>
-            <Input
-              type="password"
-              value={resetConfirm}
-              onChange={(e) => setResetConfirm(e.target.value)}
-              placeholder="Repeat password"
+              type="email"
+              value={resetEmail}
+              onChange={(e) => setResetEmail(e.target.value)}
+              placeholder="email@example.com"
               required
             />
           </div>
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? "Resetting…" : "Reset Password"}
+            {loading ? "Sending…" : "Send Reset Link"}
           </Button>
         </form>
         <button
           type="button"
-          onClick={() => { setResetMode(false); setResetId(""); setResetNewPw(""); setResetConfirm(""); }}
-          className="text-sm text-text-secondary hover:text-text-primary transition-colors"
+          onClick={() => { setResetMode(false); setResetEmail(""); }}
+          className="text-sm text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
         >
-          ← Back to Sign In
+          &larr; Back to Sign In
         </button>
       </div>
     );
   }
-
   return (
     <form onSubmit={submit} className="space-y-8">
       <div>
@@ -186,7 +179,7 @@ function LoginForm({ onDone }: { onDone: () => void }) {
           <button
             type="button"
             onClick={() => setResetMode(true)}
-            className="text-xs text-text-secondary hover:text-lime transition-colors font-mono"
+            className="text-xs text-text-secondary hover:text-lime transition-colors font-mono cursor-pointer"
           >
             Forgot password?
           </button>
@@ -197,6 +190,69 @@ function LoginForm({ onDone }: { onDone: () => void }) {
         {loading ? "Signing in…" : "Sign In"}
       </Button>
     </form>
+  );
+}
+
+function RecoveryForm() {
+  const [newPw, setNewPw] = useState("");
+  const [confirmPw, setConfirmPw] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleResetSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (newPw !== confirmPw) {
+      toast.error("Passwords do not match");
+      return;
+    }
+    if (newPw.length < 6) {
+      toast.error("Password must be at least 6 characters");
+      return;
+    }
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPw });
+      if (error) throw error;
+      toast.success("Password updated successfully! You can now sign in.");
+      window.location.href = window.location.origin + "/auth";
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update password");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-200">
+      <div>
+        <h2 className="text-lg font-semibold text-text-primary">Set New Password</h2>
+        <p className="mt-1 text-sm text-text-secondary">Please enter your new secure password.</p>
+      </div>
+      <form onSubmit={handleResetSubmit} className="space-y-5">
+        <div>
+          <Label>New Password</Label>
+          <Input
+            type="password"
+            value={newPw}
+            onChange={(e) => setNewPw(e.target.value)}
+            placeholder="Min. 6 characters"
+            required
+          />
+        </div>
+        <div>
+          <Label>Confirm New Password</Label>
+          <Input
+            type="password"
+            value={confirmPw}
+            onChange={(e) => setConfirmPw(e.target.value)}
+            placeholder="Repeat password"
+            required
+          />
+        </div>
+        <Button type="submit" className="w-full cursor-pointer" disabled={loading}>
+          {loading ? "Updating..." : "Update Password"}
+        </Button>
+      </form>
+    </div>
   );
 }
 
