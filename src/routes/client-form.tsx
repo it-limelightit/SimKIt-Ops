@@ -25,6 +25,29 @@ import {
   ShieldAlert
 } from "lucide-react";
 
+const COMMON_DOWNTIME_REASONS = [
+  "Machine Breakdown",
+  "Power Failure",
+  "Material Shortage",
+  "Die / Mould Change",
+  "Planned Preventive Maintenance",
+  "Setup & Changeover",
+  "Tool Breakage / Tool Change",
+  "Quality Rejection / Rework",
+  "Operator Absence",
+  "Electrical Fault",
+  "Hydraulic / Pneumatic Failure",
+  "Lubrication Issue",
+  "Cooling System Failure",
+  "PLC / Sensor Fault",
+  "Raw Material Quality Issue",
+  "Safety Issue / Accident",
+  "Shift Changeover",
+  "Material Jam / Choking",
+  "Vendor / External Delay",
+  "Machine Warm-up"
+];
+
 // Server Function to fetch Site details and Assessment data by Token
 export const getClientFormSiteByTokenFn = createServerFn({ method: "POST" })
   .validator((data: unknown) => data as { token: string })
@@ -817,17 +840,90 @@ function ClientFormPage() {
                 </div>
               </div>
 
-              {/* Downtime Reasons tag list */}
-              <div className="space-y-2">
-                <Label>Downtime Reasons (comma-separated)</Label>
-                <Input
-                  value={(formData.factory_op_downtime_reasons || []).join(", ")}
-                  onChange={(e) => {
-                    const list = e.target.value.split(",").map(r => r.trim()).filter(Boolean);
-                    setFormData({ ...formData, factory_op_downtime_reasons: list });
-                  }}
-                  placeholder="e.g. Raw material shortage, Power cuts, Maintenance"
-                />
+              {/* Downtime Reasons selection */}
+              <div className="space-y-3">
+                <Label>Downtime Reasons (Select all that apply)</Label>
+                <div className="flex flex-wrap gap-2 py-1">
+                  {[...COMMON_DOWNTIME_REASONS, ...(formData.factory_op_downtime_custom_reasons || [])].map((reason: string) => {
+                    const isChecked = (formData.factory_op_downtime_reasons || []).includes(reason);
+                    return (
+                      <button
+                        key={reason}
+                        type="button"
+                        onClick={() => {
+                          const current = formData.factory_op_downtime_reasons || [];
+                          let updated;
+                          if (current.includes(reason)) {
+                            updated = current.filter((r: string) => r !== reason);
+                          } else {
+                            updated = [...current, reason];
+                          }
+                          setFormData({ ...formData, factory_op_downtime_reasons: updated });
+                        }}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[6px] border text-xs font-mono font-medium transition-all duration-150 cursor-pointer ${
+                          isChecked
+                            ? "border-lime bg-lime-dim/40 text-lime"
+                            : "border-border hover:border-border-bright text-text-secondary bg-surface-raised/20"
+                        }`}
+                      >
+                        {isChecked && <span className="h-1.5 w-1.5 rounded-full bg-lime" />}
+                        <span>{reason}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                
+                {/* Custom add downtime reason */}
+                <div className="flex gap-2 max-w-md pt-1">
+                  <Input
+                    id="new-custom-downtime"
+                    placeholder="Enter custom downtime reason"
+                    className="h-8 text-xs bg-surface"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        const val = e.currentTarget.value.trim();
+                        if (val) {
+                          const customList = formData.factory_op_downtime_custom_reasons || [];
+                          if (!customList.includes(val)) {
+                            const nextCustom = [...customList, val];
+                            const nextReasons = [...(formData.factory_op_downtime_reasons || []), val];
+                            setFormData({
+                              ...formData,
+                              factory_op_downtime_custom_reasons: nextCustom,
+                              factory_op_downtime_reasons: nextReasons
+                            });
+                          }
+                          e.currentTarget.value = "";
+                        }
+                      }
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="h-8 py-1 px-3 text-[10px] uppercase font-bold tracking-wider"
+                    onClick={() => {
+                      const input = document.getElementById("new-custom-downtime") as HTMLInputElement;
+                      const val = input?.value.trim();
+                      if (val) {
+                        const customList = formData.factory_op_downtime_custom_reasons || [];
+                        if (!customList.includes(val)) {
+                          const nextCustom = [...customList, val];
+                          const nextReasons = [...(formData.factory_op_downtime_reasons || []), val];
+                          setFormData({
+                            ...formData,
+                            factory_op_downtime_custom_reasons: nextCustom,
+                            factory_op_downtime_reasons: nextReasons
+                          });
+                        }
+                        input.value = "";
+                      }
+                    }}
+                  >
+                    + Add
+                  </Button>
+                </div>
               </div>
             </div>
           )}
