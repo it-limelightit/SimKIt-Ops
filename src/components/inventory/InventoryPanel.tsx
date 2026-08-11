@@ -29,6 +29,7 @@ import {
   Package,
   Trash2,
   X,
+  FileText,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -304,8 +305,8 @@ export function InventoryPanel({ editable = false }: { editable?: boolean }) {
                           key={page}
                           onClick={() => setCurrentPage(page)}
                           className={`inline-flex items-center justify-center text-xs font-mono font-bold h-8 w-8 rounded-[6px] transition-all cursor-pointer ${isActive
-                              ? "bg-lime text-background shadow-sm"
-                              : "border border-border bg-surface text-text-secondary hover:bg-surface-raised"
+                            ? "bg-lime text-background shadow-sm"
+                            : "border border-border bg-surface text-text-secondary hover:bg-surface-raised"
                             }`}
                         >
                           {page}
@@ -391,6 +392,29 @@ function OrderCard({
   const [step, setStep] = useState<1 | 2>(1);
   const [saving, setSaving] = useState(false);
 
+  // Date parsing for Notes JSON
+  const initialNotes: CourierNotes = useMemo(() => {
+    try {
+      if (material.notes && material.notes.startsWith("{")) {
+        const parsed = JSON.parse(material.notes);
+        if (!parsed.logistics_status) {
+          parsed.logistics_status = material.state === "In transit" ? "Transit" : (material.state || "Pending");
+        }
+        return parsed;
+      }
+    } catch (e) {
+      // ignore
+    }
+    return {
+      courier_partner: "",
+      packing_date: "",
+      transit_date: "",
+      arrived_date: "",
+      courier_id: "",
+      logistics_status: material.state === "In transit" ? "Transit" : (material.state || "Pending")
+    };
+  }, [material.notes, material.state]);
+
   const handleDelete = async () => {
     const confirmDelete = window.confirm(
       `Are you sure you want to delete the order for ${material.material_name}? This action cannot be undone.`
@@ -416,28 +440,202 @@ function OrderCard({
     }
   };
 
-  // Date parsing for Notes JSON
-  const initialNotes: CourierNotes = useMemo(() => {
+  const downloadPDF = async () => {
     try {
-      if (material.notes && material.notes.startsWith("{")) {
-        const parsed = JSON.parse(material.notes);
-        if (!parsed.logistics_status) {
-          parsed.logistics_status = material.state === "In transit" ? "Transit" : (material.state || "Pending");
+      const [{ jsPDF }] = await Promise.all([
+        import("jspdf"),
+      ]);
+
+      // Query database for recipient's mobile number dynamically
+      let recipientMobile = "+91 ";
+      try {
+        const { data: byCompany } = await supabase
+          .from("sites")
+          .select("id")
+          .eq("company_name", material.material_name)
+          .limit(1)
+          .maybeSingle();
+
+        let siteId = byCompany?.id;
+
+        if (!siteId) {
+          const { data: byName } = await supabase
+            .from("sites")
+            .select("id")
+            .eq("name", material.material_name)
+            .limit(1)
+            .maybeSingle();
+          siteId = byName?.id;
         }
-        return parsed;
+
+        if (siteId) {
+          const { data: contactData } = await supabase
+            .from("contacts")
+            .select("mobile")
+            .eq("site_id", siteId)
+            .limit(1)
+            .maybeSingle();
+          if (contactData?.mobile) {
+            recipientMobile = contactData.mobile.startsWith("+91") ? contactData.mobile : `+91 ${contactData.mobile}`;
+          } else {
+            recipientMobile = "N/A";
+          }
+        } else {
+          recipientMobile = "N/A";
+        }
+      } catch (err) {
+        console.error("Error fetching recipient contact:", err);
+        recipientMobile = "N/A";
       }
-    } catch (e) {
-      // ignore
+
+      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+
+      const locationText = material.location || "N/A";
+      const wrapWidth = 160;
+
+      // Wrap address text at base font size first to calculate line count
+      doc.setFont("Helvetica", "normal");
+      doc.setFontSize(11);
+      let splitLocation = doc.splitTextToSize(locationText, wrapWidth);
+      const addressLinesCount = splitLocation.length;
+
+      // Adjust typography and spacing so each label card fits beautifully within a half A4 page (max 130mm height)
+      let fontSizeTitle = 20;
+      let fontSizeHeader = 15;
+      let fontSizeContent = 11;
+      let lineSpacing = 7;
+      let sectionSpacing = 8;
+
+      if (addressLinesCount <= 2) {
+        fontSizeTitle = 22;
+        fontSizeHeader = 17;
+        fontSizeContent = 12;
+        lineSpacing = 9;
+        sectionSpacing = 11;
+      } else if (addressLinesCount > 5) {
+        fontSizeTitle = 18;
+        fontSizeHeader = 14;
+        fontSizeContent = 10;
+        lineSpacing = 6;
+        sectionSpacing = 7;
+      }
+
+      // Re-evaluate wrap width at actual target font size
+      doc.setFontSize(fontSizeContent);
+      splitLocation = doc.splitTextToSize(locationText, wrapWidth);
+
+      // Compute relative offsets from startY of each label box
+      const titleOffset = 10;
+      const headerDividerOffset = 16;
+
+      const fromHeaderOffset = headerDividerOffset + sectionSpacing;
+      const fromCompanyOffset = fromHeaderOffset + lineSpacing;
+      const fromAddr1Offset = fromCompanyOffset + lineSpacing;
+      const fromAddr2Offset = fromAddr1Offset + lineSpacing;
+      const fromMobileOffset = fromAddr2Offset + lineSpacing;
+      const fromToDividerOffset = fromMobileOffset + sectionSpacing;
+
+      const toHeaderOffset = fromToDividerOffset + sectionSpacing;
+      const toCompanyOffset = toHeaderOffset + lineSpacing;
+
+      let currentOffset = toCompanyOffset + lineSpacing;
+      const toAddressOffsets: number[] = [];
+      splitLocation.forEach(() => {
+        toAddressOffsets.push(currentOffset);
+        currentOffset += lineSpacing;
+      });
+
+      const toMobileOffset = currentOffset;
+      const toBottomOffset = toMobileOffset + sectionSpacing;
+
+      // The height of a single label
+      const totalBoxHeight = toBottomOffset;
+
+      // Setup common dimensions
+      const startX = 15;
+      const width = 180;
+
+      // Helper function to render a single label
+      const renderLabel = (startY: number) => {
+        // Outer rounded rectangle box enclosing the entire label (border)
+        doc.setDrawColor(0, 0, 0);
+        doc.setLineWidth(0.8);
+        doc.roundedRect(startX, startY, width, totalBoxHeight, 5, 5, "D");
+
+        // Draw horizontal dividing lines
+        doc.setLineWidth(0.5);
+        doc.line(startX, startY + headerDividerOffset, startX + width, startY + headerDividerOffset); // Header divider
+        doc.line(startX, startY + fromToDividerOffset, startX + width, startY + fromToDividerOffset); // FROM-TO divider
+
+        // Render Title Section
+        doc.setFont("Helvetica", "bold");
+        doc.setFontSize(fontSizeTitle);
+        doc.setTextColor(0, 0, 0);
+        doc.text("COURIER ADDRESS LABEL", startX + width / 2, startY + titleOffset, { align: "center" });
+
+        // Render FROM Section (upper half)
+        doc.setFont("Helvetica", "bold");
+        doc.setFontSize(fontSizeHeader);
+        doc.text("FROM", startX + 7, startY + fromHeaderOffset);
+
+        doc.setFont("Helvetica", "bold");
+        doc.setFontSize(fontSizeContent);
+        doc.text("LimelightIT", startX + 7, startY + fromCompanyOffset);
+
+        doc.setFont("Helvetica", "normal");
+        doc.text("A/448, Money Plant High Street,", startX + 7, startY + fromAddr1Offset);
+        doc.text("Gota, Ahmedabad, Gujarat - 382470", startX + 7, startY + fromAddr2Offset);
+        doc.text("Mobile: +91 93130 48188", startX + 7, startY + fromMobileOffset);
+
+        // Render TO Section (lower half)
+        doc.setFont("Helvetica", "bold");
+        doc.setFontSize(fontSizeHeader);
+        doc.text("TO", startX + 7, startY + toHeaderOffset);
+
+        // Recipient Company Name (bold & uppercase)
+        doc.setFont("Helvetica", "bold");
+        doc.setFontSize(fontSizeContent);
+        const recipientName = (material.material_name || "N/A").toUpperCase();
+        doc.text(recipientName, startX + 7, startY + toCompanyOffset);
+
+        // Recipient Address (split to wrap nicely)
+        doc.setFont("Helvetica", "normal");
+        splitLocation.forEach((line: string, index: number) => {
+          doc.text(line, startX + 7, startY + toAddressOffsets[index]);
+        });
+
+        // Recipient Mobile
+        doc.text(`Mobile: ${recipientMobile}`, startX + 7, startY + toMobileOffset);
+      };
+
+      // Calculate vertical positioning to center each label in its respective half page
+      const halfPageHeight = 297 / 2; // 148.5 mm
+      const topStartY = Math.max(10, (halfPageHeight - totalBoxHeight) / 2);
+      const bottomStartY = halfPageHeight + Math.max(10, (halfPageHeight - totalBoxHeight) / 2);
+
+      // Render Label 1 on the top half
+      renderLabel(topStartY);
+
+      // Draw a middle divider/dashed line for cutting
+      doc.setDrawColor(180, 180, 180);
+      doc.setLineWidth(0.3);
+      doc.setLineDashPattern([2, 2], 0);
+      doc.line(10, 148.5, 200, 148.5);
+
+      // Reset dash pattern back to solid for the second label
+      doc.setLineDashPattern([], 0);
+
+      // Render Label 2 on the bottom half
+      renderLabel(bottomStartY);
+
+      // Save Label PDF
+      const fileName = `courier_label_${material.material_name.toLowerCase().replace(/[^a-z0-9]/g, "_")}.pdf`;
+      doc.save(fileName);
+      toast.success("Courier address label downloaded!");
+    } catch (error: any) {
+      toast.error("Failed to generate PDF label: " + error.message);
     }
-    return {
-      courier_partner: "",
-      packing_date: "",
-      transit_date: "",
-      arrived_date: "",
-      courier_id: "",
-      logistics_status: material.state === "In transit" ? "Transit" : (material.state || "Pending")
-    };
-  }, [material.notes, material.state]);
+  };
 
   // Form State - Step 1 (Default unchecked)
   const [ct1, setCt1] = useState(false);
@@ -741,6 +939,17 @@ function OrderCard({
               </p>
             </div>
             <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+              <Button
+                variant="secondary"
+                className="py-1 px-2 text-[10px] font-bold flex items-center gap-1 bg-surface-raised border border-border h-7 shrink-0 cursor-pointer"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void downloadPDF();
+                }}
+                title="Download Challan PDF"
+              >
+                <FileText size={11} /> PDF
+              </Button>
               <Badge
                 tone={
                   isDeliveredAndTracked
@@ -756,7 +965,7 @@ function OrderCard({
               {editable && (
                 <button
                   onClick={handleDelete}
-                  className="p-1.5 rounded bg-red-500/10 hover:bg-red-500/20 text-red-500 transition"
+                  className="p-1.5 rounded bg-red-500/10 hover:bg-red-500/20 text-red-500 transition cursor-pointer"
                   title="Delete Order"
                 >
                   <Trash2 size={13} />
@@ -778,8 +987,8 @@ function OrderCard({
           </div>
           {/* Quick Courier & Status Editor */}
           {editable && (
-            <div 
-              onClick={(e) => e.stopPropagation()} 
+            <div
+              onClick={(e) => e.stopPropagation()}
               className="mt-3 p-3 bg-surface-raised border border-border rounded-lg space-y-2"
             >
               <div className="text-[9px] uppercase font-mono tracking-wider text-text-secondary font-bold">
@@ -849,10 +1058,17 @@ function OrderCard({
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  className="py-1.5 px-3 text-xs font-semibold flex items-center gap-1.5 bg-surface-raised border border-border h-9 cursor-pointer shrink-0"
+                  onClick={() => void downloadPDF()}
+                >
+                  <FileText size={14} /> Download Challan PDF
+                </Button>
                 {editable && (
                   <button
                     onClick={handleDelete}
-                    className="p-1.5 rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-600 transition"
+                    className="p-1.5 rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-600 transition cursor-pointer"
                     title="Delete Order"
                   >
                     <Trash2 size={18} />
