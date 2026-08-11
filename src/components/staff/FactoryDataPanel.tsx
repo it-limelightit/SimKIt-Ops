@@ -75,103 +75,7 @@ export function FactoryDataPanel() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<Record<string, any>>({});
-  const [clientShareEmail, setClientShareEmail] = useState("");
-  const [generatedLink, setGeneratedLink] = useState("");
 
-  const handleGenerateShareLink = async () => {
-    if (!selectedSite) return;
-    try {
-      const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-      const meta = parseSiteMetadata(selectedSite.task_notes);
-      meta.client_email = clientShareEmail.trim();
-      meta.client_token = token;
-
-      const serializedNotes = serializeSiteMetadata(selectedSite.task_notes, meta);
-
-      const { error } = await supabase
-        .from("sites")
-        .update({ task_notes: serializedNotes } as never)
-        .eq("id", selectedSite.id);
-
-      if (error) {
-        toast.error("Failed to generate link: " + error.message);
-      } else {
-        const link = `${window.location.origin}/client-form?token=${token}`;
-        setGeneratedLink(link);
-        toast.success("Share link generated successfully!");
-      }
-    } catch (err: any) {
-      toast.error("Error: " + err.message);
-    }
-  };
-
-  const handleCopyLink = () => {
-    if (!generatedLink) return;
-    navigator.clipboard.writeText(generatedLink);
-    toast.success("Copied client form link to clipboard!");
-  };
-
-  const [sendingEmail, setSendingEmail] = useState(false);
-
-  const handleSendEmail = async () => {
-    if (!selectedSite) return;
-    if (!clientShareEmail.trim()) {
-      toast.error("Please enter a client email address first.");
-      return;
-    }
-
-    setSendingEmail(true);
-    try {
-      let token = parseSiteMetadata(selectedSite.task_notes).client_token;
-      if (!token) {
-        token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-        const meta = parseSiteMetadata(selectedSite.task_notes);
-        meta.client_email = clientShareEmail.trim();
-        meta.client_token = token;
-
-        const serializedNotes = serializeSiteMetadata(selectedSite.task_notes, meta);
-        const { error } = await supabase
-          .from("sites")
-          .update({ task_notes: serializedNotes } as never)
-          .eq("id", selectedSite.id);
-
-        if (error) {
-          throw new Error("Failed to save client details: " + error.message);
-        }
-      }
-
-      const { sendClientFormEmailFn } = await import("../../routes/client-form");
-      const res = await sendClientFormEmailFn({
-        data: {
-          email: clientShareEmail.trim(),
-          token: token,
-          siteName: selectedSite.company_name || selectedSite.name,
-          origin: window.location.origin
-        }
-      });
-
-      if (res.success) {
-        if (res.previewUrl) {
-          toast.success(res.message, {
-            description: `Verify Ethereal mailbox here: ${res.previewUrl}`,
-            action: {
-              label: "Open Mail Inbox",
-              onClick: () => window.open(res.previewUrl!, "_blank")
-            },
-            duration: 15000
-          });
-        } else {
-          toast.success("Invitation email sent successfully to the client!");
-        }
-      } else {
-        toast.error("Failed to send email: " + res.error);
-      }
-    } catch (err: any) {
-      toast.error(err.message || "An unexpected error occurred while sending email.");
-    } finally {
-      setSendingEmail(false);
-    }
-  };
 
   const loadData = async () => {
     try {
@@ -303,26 +207,28 @@ export function FactoryDataPanel() {
   }, [editData.factory_op_shifts]);
 
   // List of processed sites with their form completeness info
-  // Filter out any site that does not have any form data filled.
+  // Filter out any site that does not have the form submitted by business consultant or client.
   const processedSitesList = useMemo(() => {
     return sites
       .map(s => {
         const assess = assessments.find(a => a.site_id === s.id);
+        const isSubmitted = !!assess?.data?.assessment_phase_submitted;
         const isDone = !!assess?.data?.factory_operations_done;
-        const hasSomeData = assess && Object.keys(assess.data).some(k => k.startsWith("factory_op_") || k === "mom_notes");
         
         let fillStatus: "completed" | "in_progress" | "no_data" = "no_data";
-        if (isDone) fillStatus = "completed";
-        else if (hasSomeData) fillStatus = "in_progress";
+        if (isSubmitted) {
+          fillStatus = isDone ? "completed" : "in_progress";
+        }
 
         return {
           ...s,
           fillStatus,
           isDone,
+          isSubmitted,
           updatedAt: assess?.updated_at
         };
       })
-      .filter(s => s.fillStatus !== "no_data");
+      .filter(s => s.isSubmitted);
   }, [sites, assessments]);
 
   // Auto-select first site from the form-filled sites list if selection becomes invalid
@@ -347,21 +253,6 @@ export function FactoryDataPanel() {
     setIsEditing(false);
   }, [selectedSiteId, selectedAssessment]);
 
-  // Sync client share email and link when selectedSite changes
-  useEffect(() => {
-    if (selectedSite) {
-      const meta = parseSiteMetadata(selectedSite.task_notes);
-      setClientShareEmail(meta.client_email || "");
-      if (meta.client_token) {
-        setGeneratedLink(`${window.location.origin}/client-form?token=${meta.client_token}`);
-      } else {
-        setGeneratedLink("");
-      }
-    } else {
-      setClientShareEmail("");
-      setGeneratedLink("");
-    }
-  }, [selectedSite]);
 
   // Filtered sites list
   const filteredSites = useMemo(() => {
@@ -654,7 +545,7 @@ export function FactoryDataPanel() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
                     <div className="bg-surface-raised/40 p-3.5 rounded-lg border border-border/60">
                       <div className="text-text-secondary font-mono text-[9px] uppercase tracking-wider">
                         Primary Contact (Metadata)
@@ -690,48 +581,6 @@ export function FactoryDataPanel() {
                           Last Updated: <strong>{formatDate(selectedAssessment?.updated_at)}</strong>
                         </p>
                       </div>
-                    </div>
-
-                    <div className="bg-surface-raised/40 p-3.5 rounded-lg border border-border/60 flex flex-col justify-between">
-                      <div>
-                        <div className="text-text-secondary font-mono text-[9px] uppercase tracking-wider">
-                          Client Form Sharing
-                        </div>
-                        <div className="mt-1.5 flex gap-1.5 flex-col">
-                          <Input
-                            placeholder="Client email address"
-                            value={clientShareEmail}
-                            onChange={(e) => setClientShareEmail(e.target.value)}
-                            className="h-7 text-xs bg-surface-raised border border-border/80 rounded px-2 w-full"
-                          />
-                          <div className="flex gap-1 w-full">
-                            <Button
-                              onClick={handleGenerateShareLink}
-                              className="flex-1 py-1 text-[9px] uppercase font-bold tracking-wider bg-surface border border-border hover:bg-surface-raised text-text-primary rounded"
-                            >
-                              Link
-                            </Button>
-                            <Button
-                              onClick={handleSendEmail}
-                              disabled={sendingEmail}
-                              className="flex-1 py-1 text-[9px] uppercase font-bold tracking-wider bg-lime text-black hover:bg-lime/90 rounded"
-                            >
-                              {sendingEmail ? "Sending..." : "Send"}
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                      {generatedLink && (
-                        <div className="mt-1.5 flex items-center justify-between gap-1.5 p-1 bg-surface border border-border/80 rounded">
-                          <span className="text-[8px] font-mono text-lime truncate max-w-[120px]">{generatedLink}</span>
-                          <Button
-                            onClick={handleCopyLink}
-                            className="py-0.5 px-1.5 text-[8px] uppercase tracking-wider bg-surface-raised border border-border hover:bg-surface text-text-primary rounded font-mono"
-                          >
-                            Copy
-                          </Button>
-                        </div>
-                      )}
                     </div>
                   </div>
                 </div>

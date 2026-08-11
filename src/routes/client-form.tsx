@@ -2,6 +2,11 @@ import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { useState, useEffect } from "react";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { supabase } from "@/integrations/supabase/client";
+
+// Use admin client if service role key is set, otherwise fall back to standard client
+const db = process.env.SUPABASE_SERVICE_ROLE_KEY ? supabaseAdmin : supabase;
+
 import { Card, Button, Input, Select, Label, Badge } from "@/components/ui-kit";
 import { toast } from "sonner";
 import {
@@ -27,72 +32,28 @@ export const getClientFormSiteByTokenFn = createServerFn({ method: "POST" })
     const { token } = data;
     if (!token) return { success: false, error: "No token provided" };
 
-    // Query all sites to search their task_notes for the client token
-    const { data: sites, error: sitesError } = await supabaseAdmin
-      .from("sites")
-      .select("id, name, company_name, address, city, task_notes, consultant_stage");
+    const { data: res, error } = await supabase.rpc("get_client_form_site_by_token", {
+      token_val: token
+    });
 
-    if (sitesError) {
-      console.error("Error fetching sites via admin:", sitesError);
-      return { success: false, error: sitesError.message };
+    if (error) {
+      console.error("Error executing RPC get_client_form_site_by_token:", error);
+      return { success: false, error: error.message };
     }
 
-    // Find the site with the matching token
-    let matchedSite: any = null;
-    for (const site of sites ?? []) {
-      const notes = site.task_notes || "";
-      const prefix = "[METADATA:";
-      const idx = notes.indexOf(prefix);
-      if (idx !== -1) {
-        const start = idx + prefix.length;
-        let depth = 0;
-        let jsonStr = "";
-        for (let i = start; i < notes.length; i++) {
-          if (notes[i] === "{") depth++;
-          else if (notes[i] === "}") {
-            depth--;
-            if (depth === 0) {
-              jsonStr = notes.slice(start, i + 1);
-              break;
-            }
-          }
-        }
-        if (jsonStr) {
-          try {
-            const meta = JSON.parse(jsonStr);
-            if (meta.client_token === token) {
-              matchedSite = site;
-              break;
-            }
-          } catch {
-            // ignore parse errors
-          }
-        }
-      }
-    }
-
-    if (!matchedSite) {
-      return { success: false, error: "Invalid client access link or form has expired" };
-    }
-
-    // Now get the existing assessment data for this site if it exists
-    const { data: assessData, error: assessError } = await supabaseAdmin
-      .from("assessment")
-      .select("data")
-      .eq("site_id", matchedSite.id)
-      .maybeSingle();
-
-    return {
-      success: true,
-      site: {
-        id: matchedSite.id,
-        name: matchedSite.name,
-        company_name: matchedSite.company_name,
-        address: matchedSite.address,
-        city: matchedSite.city,
-        consultant_stage: matchedSite.consultant_stage
-      },
-      assessmentData: assessData?.data || {}
+    return res as {
+      success: boolean;
+      error?: string;
+      site?: {
+        id: string;
+        name: string;
+        company_name: string;
+        address: string;
+        city: string;
+        consultant_stage: string;
+        client_email: string;
+      };
+      assessmentData?: Record<string, any>;
     };
   });
 
@@ -103,90 +64,17 @@ export const saveClientFormByTokenFn = createServerFn({ method: "POST" })
     const { token, assessmentData } = data;
     if (!token) return { success: false, error: "No token provided" };
 
-    // Query all sites to search their task_notes for the client token
-    const { data: sites, error: sitesError } = await supabaseAdmin
-      .from("sites")
-      .select("id, name, company_name, address, city, task_notes, consultant_stage");
+    const { data: res, error } = await supabase.rpc("save_client_form_by_token", {
+      token_val: token,
+      assessment_data: assessmentData
+    });
 
-    if (sitesError) return { success: false, error: sitesError.message };
-
-    let matchedSite: any = null;
-    for (const site of sites ?? []) {
-      const notes = site.task_notes || "";
-      const prefix = "[METADATA:";
-      const idx = notes.indexOf(prefix);
-      if (idx !== -1) {
-        const start = idx + prefix.length;
-        let depth = 0;
-        let jsonStr = "";
-        for (let i = start; i < notes.length; i++) {
-          if (notes[i] === "{") depth++;
-          else if (notes[i] === "}") {
-            depth--;
-            if (depth === 0) {
-              jsonStr = notes.slice(start, i + 1);
-              break;
-            }
-          }
-        }
-        if (jsonStr) {
-          try {
-            const meta = JSON.parse(jsonStr);
-            if (meta.client_token === token) {
-              matchedSite = site;
-              break;
-            }
-          } catch {}
-        }
-      }
+    if (error) {
+      console.error("Error executing RPC save_client_form_by_token:", error);
+      return { success: false, error: error.message };
     }
 
-    if (!matchedSite) {
-      return { success: false, error: "Invalid client access link or form has expired" };
-    }
-
-    // Save/upsert assessment data.
-    // Setting assessment_phase_submitted: true and factory_operations_done: true.
-    const finalData = {
-      ...assessmentData,
-      factory_operations_done: true,
-      assessment_phase_submitted: true
-    };
-
-    // Check if assessment record exists
-    const { data: existingAssess } = await supabaseAdmin
-      .from("assessment")
-      .select("site_id")
-      .eq("site_id", matchedSite.id)
-      .maybeSingle();
-
-    let saveError: any = null;
-    if (existingAssess) {
-      const { error } = await supabaseAdmin
-        .from("assessment")
-        .update({
-          data: finalData,
-          updated_at: new Date().toISOString()
-        })
-        .eq("site_id", matchedSite.id);
-      saveError = error;
-    } else {
-      const { error } = await supabaseAdmin
-        .from("assessment")
-        .insert({
-          site_id: matchedSite.id,
-          data: finalData,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        });
-      saveError = error;
-    }
-
-    if (saveError) {
-      return { success: false, error: saveError.message };
-    }
-
-    return { success: true };
+    return res as { success: boolean; error?: string };
   });
 
 // Server Function to send email invitation
@@ -199,6 +87,58 @@ export const sendClientFormEmailFn = createServerFn({ method: "POST" })
     }
 
     try {
+      const resendApiKey = process.env.RESEND_API_KEY;
+      const smtpHost = process.env.SMTP_HOST;
+      const smtpPort = process.env.SMTP_PORT;
+      const smtpUser = process.env.SMTP_USER;
+      const smtpPass = process.env.SMTP_PASS;
+      const smtpFrom = process.env.SMTP_FROM || '"SIM-Kit Ops" <no-reply@simkitops.com>';
+      const formUrl = `${origin}/client-form?token=${token}`;
+      const subject = `Invitation to complete Factory Operations Form - ${siteName}`;
+      const htmlContent = `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 8px;">
+          <h2 style="color: #22c55e; margin-bottom: 20px;">Factory Assessment Invitation</h2>
+          <p>Hello,</p>
+          <p>You have been invited to complete the <strong>Factory Operations Form</strong> for <strong>${siteName}</strong>.</p>
+          <p>Please click the button below to access the secure, login-free questionnaire wizard and fill out the details:</p>
+          <div style="margin: 30px 0; text-align: center;">
+            <a href="${formUrl}" style="background-color: #22c55e; color: #000; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; text-transform: uppercase; font-size: 13px;">Complete Factory Form</a>
+          </div>
+          <p style="font-size: 12px; color: #666;">Or copy and paste this link into your browser:</p>
+          <p style="font-size: 12px; color: #3b82f6; word-break: break-all;">${formUrl}</p>
+          <hr style="border: 0; border-top: 1px solid #eee; margin: 30px 0;" />
+          <p style="font-size: 10px; color: #999; text-align: center;">This is an automated invitation sent via SIM-Kit Ops.</p>
+        </div>
+      `;
+
+      // Option 1: Use Resend API if API Key is configured
+      if (resendApiKey) {
+        const response = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${resendApiKey}`
+          },
+          body: JSON.stringify({
+            from: smtpFrom,
+            to: [email],
+            subject,
+            html: htmlContent
+          })
+        });
+
+        if (!response.ok) {
+          const errBody = await response.json().catch(() => ({ message: "Unknown API error" }));
+          throw new Error(`Resend API failed: ${errBody.message || response.statusText}`);
+        }
+
+        return {
+          success: true,
+          message: "Email sent successfully via Resend API!"
+        };
+      }
+
+      // Option 2: Fallback to standard SMTP if SMTP_HOST is configured
       let nodemailer: any;
       try {
         nodemailer = await import("nodemailer");
@@ -208,12 +148,6 @@ export const sendClientFormEmailFn = createServerFn({ method: "POST" })
           error: "Nodemailer package is not installed. Please run 'npm install nodemailer' in your terminal."
         };
       }
-
-      const smtpHost = process.env.SMTP_HOST;
-      const smtpPort = process.env.SMTP_PORT;
-      const smtpUser = process.env.SMTP_USER;
-      const smtpPass = process.env.SMTP_PASS;
-      const smtpFrom = process.env.SMTP_FROM || '"SIM-Kit Ops" <no-reply@simkitops.com>';
 
       let transporter;
       let previewUrl = null;
@@ -229,7 +163,7 @@ export const sendClientFormEmailFn = createServerFn({ method: "POST" })
           },
         });
       } else {
-        // Fallback: create ethereal test account
+        // Fallback Option 3: Ethereal test mail
         try {
           const testAccount = await nodemailer.default.createTestAccount();
           transporter = nodemailer.default.createTransport({
@@ -244,32 +178,16 @@ export const sendClientFormEmailFn = createServerFn({ method: "POST" })
         } catch (etherealErr: any) {
           return {
             success: false,
-            error: "SMTP is not configured, and failed to generate temporary Ethereal test mail account. Please add SMTP config (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS) to your .env file."
+            error: "No Resend API Key or SMTP credentials are configured, and failed to generate a test Ethereal account."
           };
         }
       }
 
-      const formUrl = `${origin}/client-form?token=${token}`;
-
       const info = await transporter.sendMail({
         from: smtpFrom,
         to: email,
-        subject: `Invitation to complete Factory Operations Form - ${siteName}`,
-        html: `
-          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 8px;">
-            <h2 style="color: #22c55e; margin-bottom: 20px;">Factory Assessment Invitation</h2>
-            <p>Hello,</p>
-            <p>You have been invited to complete the <strong>Factory Operations Form</strong> for <strong>${siteName}</strong>.</p>
-            <p>Please click the button below to access the secure, login-free questionnaire wizard and fill out the details:</p>
-            <div style="margin: 30px 0; text-align: center;">
-              <a href="${formUrl}" style="background-color: #22c55e; color: #000; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; text-transform: uppercase; font-size: 13px;">Complete Factory Form</a>
-            </div>
-            <p style="font-size: 12px; color: #666;">Or copy and paste this link into your browser:</p>
-            <p style="font-size: 12px; color: #3b82f6; word-break: break-all;">${formUrl}</p>
-            <hr style="border: 0; border-top: 1px solid #eee; margin: 30px 0;" />
-            <p style="font-size: 10px; color: #999; text-align: center;">This is an automated invitation sent via SIM-Kit Ops.</p>
-          </div>
-        `,
+        subject,
+        html: htmlContent,
       });
 
       if (!smtpHost) {
@@ -278,7 +196,7 @@ export const sendClientFormEmailFn = createServerFn({ method: "POST" })
 
       return {
         success: true,
-        message: smtpHost ? "Email sent successfully!" : "Test email sent via Ethereal!",
+        message: smtpHost ? "Email sent successfully via SMTP!" : "Test email sent via Ethereal!",
         previewUrl
       };
     } catch (err: any) {
@@ -310,8 +228,21 @@ function ClientFormPage() {
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [submittedSuccess, setSubmittedSuccess] = useState(false);
+  
+  const [emailInput, setEmailInput] = useState("");
+  const [isEmailVerified, setIsEmailVerified] = useState(() => {
+    if (typeof window !== "undefined" && token) {
+      return sessionStorage.getItem(`client_verified_email_${token}`) === "true";
+    }
+    return false;
+  });
 
   useEffect(() => {
+    // Force clean light theme on client form page load
+    const htmlEl = document.documentElement;
+    const hadLightTheme = htmlEl.classList.contains("light-theme");
+    htmlEl.classList.add("light-theme");
+
     const fetchFormDetails = async () => {
       if (!token) {
         setErrorMsg("No access token provided. Please use the complete link shared by your consultant.");
@@ -322,6 +253,9 @@ function ClientFormPage() {
         const res = await getClientFormSiteByTokenFn({ data: { token } });
         if (res.success) {
           setSite(res.site);
+          if (!res.site.client_email) {
+            setIsEmailVerified(true);
+          }
           // Initialize pre-filled company name/address in the form itself if they aren't set
           const initialData = { ...res.assessmentData };
           if (!initialData.factory_op_name && res.site.company_name) {
@@ -342,6 +276,12 @@ function ClientFormPage() {
     };
 
     void fetchFormDetails();
+
+    return () => {
+      if (!hadLightTheme) {
+        htmlEl.classList.remove("light-theme");
+      }
+    };
   }, [token]);
 
   const saveForm = async () => {
@@ -417,9 +357,63 @@ function ClientFormPage() {
     );
   }
 
+  if (!isEmailVerified) {
+    const handleVerifyEmail = (e: React.FormEvent) => {
+      e.preventDefault();
+      const entered = emailInput.trim().toLowerCase();
+      const expected = (site?.client_email || "").trim().toLowerCase();
+      
+      if (!expected || entered === expected) {
+        setIsEmailVerified(true);
+        if (token) {
+          sessionStorage.setItem(`client_verified_email_${token}`, "true");
+        }
+        toast.success("Identity verified successfully!");
+      } else {
+        toast.error("The email address entered does not match the invitation.");
+      }
+    };
+
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6">
+        <Card className="max-w-md w-full p-8 border border-border/80 bg-surface/40 space-y-6">
+          <div className="text-center space-y-2">
+            <div className="mx-auto h-12 w-12 rounded-full bg-lime/10 flex items-center justify-center mb-2">
+              <Building2 className="h-6 w-6 text-lime" />
+            </div>
+            <h2 className="text-lg font-syne font-extrabold uppercase tracking-wide text-text-primary">
+              Verify Your Email
+            </h2>
+            <p className="text-xs text-text-secondary leading-relaxed">
+              Please enter the email address where you received the invitation to access the factory form for <strong>{site?.company_name || site?.name}</strong>.
+            </p>
+          </div>
+          
+          <form onSubmit={handleVerifyEmail} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="verification_email">Email Address</Label>
+              <Input
+                id="verification_email"
+                type="email"
+                placeholder="email@example.com"
+                value={emailInput}
+                onChange={(e) => setEmailInput(e.target.value)}
+                required
+                className="w-full bg-surface"
+              />
+            </div>
+            
+            <Button type="submit" className="w-full bg-lime text-black hover:bg-lime/90 font-bold uppercase tracking-wider text-xs py-2.5">
+              Verify & Access Form
+            </Button>
+          </form>
+        </Card>
+      </div>
+    );
+  }
+
   const stepsList = [
-    { title: "General Info", icon: Building2 },
-    { title: "Personnel", icon: Users },
+    { title: "General & Personnel", icon: Building2 },
     { title: "Shifts & Downtime", icon: Clock },
     { title: "Machinery Details", icon: Wrench },
     { title: "Extra Notes", icon: FileText }
@@ -442,7 +436,7 @@ function ClientFormPage() {
 
       <main className="flex-1 max-w-4xl w-full mx-auto p-4 md:p-6 space-y-6">
         {/* Progress Bar & Wizard Steps */}
-        <div className="grid grid-cols-5 gap-2 text-center select-none">
+        <div className="grid grid-cols-4 gap-2 text-center select-none">
           {stepsList.map((s, idx) => {
             const num = idx + 1;
             const Icon = s.icon;
@@ -472,15 +466,15 @@ function ClientFormPage() {
 
         {/* Form Area */}
         <Card className="p-6 bg-surface/40 border border-border/60 space-y-6">
-          {/* STEP 1: General Info */}
+          {/* STEP 1: General Info & Personnel */}
           {step === 1 && (
-            <div className="space-y-4 animate-in fade-in duration-200">
+            <div className="space-y-6 animate-in fade-in duration-200">
               <div>
-                <h3 className="text-sm font-mono uppercase text-lime mb-1">Company Details</h3>
-                <p className="text-[10px] text-text-secondary mb-4">Please verify or update your registered factory details.</p>
+                <h3 className="text-sm font-mono uppercase text-lime mb-1">Company Details & Personnel</h3>
+                <p className="text-[10px] text-text-secondary mb-4">Please verify company info and add factory owner/operator contacts below.</p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-b border-border/40 pb-6">
                 <div>
                   <Label>Official Company Name</Label>
                   <Input
@@ -497,16 +491,6 @@ function ClientFormPage() {
                     placeholder="Enter address"
                   />
                 </div>
-              </div>
-            </div>
-          )}
-
-          {/* STEP 2: Personnel */}
-          {step === 2 && (
-            <div className="space-y-6 animate-in fade-in duration-200">
-              <div>
-                <h3 className="text-sm font-mono uppercase text-lime mb-1">Factory Personnel</h3>
-                <p className="text-[10px] text-text-secondary mb-4">Add your factory contact information, machine operators, and technical engineers.</p>
               </div>
 
               {/* Owners list */}
@@ -736,8 +720,8 @@ function ClientFormPage() {
             </div>
           )}
 
-          {/* STEP 3: Shifts & Downtime */}
-          {step === 3 && (
+          {/* STEP 2: Shifts & Downtime */}
+          {step === 2 && (
             <div className="space-y-6 animate-in fade-in duration-200">
               <div>
                 <h3 className="text-sm font-mono uppercase text-lime mb-1">Operational Shifts & Downtimes</h3>
@@ -801,7 +785,7 @@ function ClientFormPage() {
                         />
                       </div>
                       <div className="flex items-center gap-2">
-                        <div className="flex-1">
+                        <div>
                           <Label className="text-[10px]">End Time</Label>
                           <Input
                             type="time"
@@ -848,8 +832,8 @@ function ClientFormPage() {
             </div>
           )}
 
-          {/* STEP 4: Machinery Details */}
-          {step === 4 && (
+          {/* STEP 3: Machinery Details */}
+          {step === 3 && (
             <div className="space-y-6 animate-in fade-in duration-200">
               <div>
                 <h3 className="text-sm font-mono uppercase text-lime mb-1">Machinery & Tracking Configuration</h3>
@@ -1021,8 +1005,8 @@ function ClientFormPage() {
             </div>
           )}
 
-          {/* STEP 5: Extra Notes */}
-          {step === 5 && (
+          {/* STEP 4: Extra Notes */}
+          {step === 4 && (
             <div className="space-y-4 animate-in fade-in duration-200">
               <div>
                 <h3 className="text-sm font-mono uppercase text-lime mb-1">Survey Remarks / MOM Notes</h3>
@@ -1049,7 +1033,7 @@ function ClientFormPage() {
               <ArrowLeft size={13} /> Back
             </Button>
 
-            {step < 5 ? (
+            {step < 4 ? (
               <Button
                 onClick={() => setStep(step + 1)}
                 className="py-1 px-4 text-xs bg-lime text-black hover:bg-lime/90 flex items-center gap-1.5"

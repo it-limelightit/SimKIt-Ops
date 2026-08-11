@@ -60,15 +60,11 @@ function BusinessConsultantPage() {
       let token = parseSiteMetadata(site.task_notes).client_token;
       if (!token) {
         token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-        const siteMeta = parseSiteMetadata(site.task_notes);
-        siteMeta.client_email = clientShareEmail.trim();
-        siteMeta.client_token = token;
-
-        const serializedNotes = serializeSiteMetadata(site.task_notes, siteMeta);
-        const { error } = await supabase
-          .from("sites")
-          .update({ task_notes: serializedNotes } as never)
-          .eq("id", site.id);
+        const { error } = await supabase.rpc("save_client_invitation", {
+          site_id: site.id,
+          client_email: clientShareEmail.trim(),
+          token_val: token
+        });
 
         if (error) {
           throw new Error("Failed to save client details: " + error.message);
@@ -128,16 +124,12 @@ function BusinessConsultantPage() {
     if (!site) return;
     try {
       const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-      const siteMeta = parseSiteMetadata(site.task_notes);
-      siteMeta.client_email = clientShareEmail.trim();
-      siteMeta.client_token = token;
-
-      const serializedNotes = serializeSiteMetadata(site.task_notes, siteMeta);
-
-      const { error } = await supabase
-        .from("sites")
-        .update({ task_notes: serializedNotes } as never)
-        .eq("id", site.id);
+      
+      const { error } = await supabase.rpc("save_client_invitation", {
+        site_id: site.id,
+        client_email: clientShareEmail.trim(),
+        token_val: token
+      });
 
       if (error) {
         toast.error("Failed to generate link: " + error.message);
