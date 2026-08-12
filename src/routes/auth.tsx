@@ -5,6 +5,181 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth, type AppRole } from "@/lib/auth-store";
 import { Button, Card, Input, Label } from "@/components/ui-kit";
 import { HardHat, Shield } from "lucide-react";
+import { createServerFn } from "@tanstack/react-start";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
+
+// Server Function: Request password reset link (sent via Resend/SMTP)
+export const requestCustomPasswordResetFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => data as { email: string; origin: string })
+  .handler(async ({ data }) => {
+    const { email, origin } = data;
+    try {
+      // Generate secure token
+      const crypto = await import("crypto");
+      const token = crypto.randomUUID();
+      const expires = new Date(Date.now() + 3600000).toISOString(); // 1 hour
+
+      // Call database RPC to check email and set token (SECURITY DEFINER bypasses RLS)
+      const { data: rpcResult, error: rpcErr } = await supabase.rpc("set_reset_token", {
+        user_email: email,
+        token_val: token,
+        expires_val: expires
+      });
+
+      if (rpcErr) {
+        throw new Error(rpcErr.message);
+      }
+
+      const result = rpcResult as { success: boolean; name?: string; error?: string };
+
+      if (!result.success) {
+        return { success: false, error: result.error || "Failed to initiate reset." };
+      }
+
+      const userName = result.name || "User";
+
+      // Send email via Resend / SMTP
+      const resendApiKey = process.env.RESEND_API_KEY;
+      const smtpHost = process.env.SMTP_HOST;
+      const smtpPort = process.env.SMTP_PORT;
+      const smtpUser = process.env.SMTP_USER;
+      const smtpPass = process.env.SMTP_PASS;
+      const smtpFrom = process.env.SMTP_FROM || '"SIM-Kit Ops" <no-reply@simkitops.com>';
+
+      const resetUrl = `${origin}/auth?type=recovery&token=${token}`;
+      const subject = "Reset your SIM-Kit Ops password";
+      const htmlContent = `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 8px; background-color: #fff; color: #000;">
+          <h2 style="color: #800000; margin-bottom: 20px;">Password Reset Request</h2>
+          <p>Hello ${userName},</p>
+          <p>We received a request to reset the password for your SIM-Kit Ops account.</p>
+          <p>Please click the button below to set a new password. This link is valid for 1 hour:</p>
+          <div style="margin: 30px 0; text-align: center;">
+            <a href="${resetUrl}" style="background-color: #800000; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; text-transform: uppercase; font-size: 13px;">Reset Password</a>
+          </div>
+          <p style="font-size: 12px; color: #666;">Or copy and paste this link into your browser:</p>
+          <p style="font-size: 12px; color: #3b82f6; word-break: break-all;">${resetUrl}</p>
+          <hr style="border: 0; border-top: 1px solid #eee; margin: 30px 0;" />
+          <p style="font-size: 10px; color: #999; text-align: center;">If you did not request this, you can safely ignore this email.</p>
+        </div>
+      `;
+
+      if (resendApiKey) {
+        const response = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${resendApiKey}`
+          },
+          body: JSON.stringify({
+            from: smtpFrom,
+            to: [email],
+            subject,
+            html: htmlContent
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error("Resend API failed to deliver email");
+        }
+      } else if (smtpHost && smtpUser && smtpPass) {
+        const nodemailer = await import("nodemailer");
+        const transporter = nodemailer.default.createTransport({
+          host: smtpHost,
+          port: Number(smtpPort || 587),
+          secure: Number(smtpPort) === 465,
+          auth: { user: smtpUser, pass: smtpPass }
+        });
+        await transporter.sendMail({
+          from: smtpFrom,
+          to: email,
+          subject,
+          html: htmlContent
+        });
+      } else {
+        const nodemailer = await import("nodemailer");
+        const testAccount = await nodemailer.default.createTestAccount();
+        const transporter = nodemailer.default.createTransport({
+          host: "smtp.ethereal.email",
+          port: 587,
+          secure: false,
+          auth: { user: testAccount.user, pass: testAccount.pass }
+        });
+        const info = await transporter.sendMail({
+          from: smtpFrom,
+          to: email,
+          subject,
+          html: htmlContent
+        });
+        const previewUrl = nodemailer.default.getTestMessageUrl(info);
+        return {
+          success: true,
+          previewUrl,
+          message: "Email sent successfully via Ethereal (Development mode)"
+        };
+      }
+
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message || String(e) };
+    }
+  });
+
+// Server Function: Reset password with valid token
+export const resetPasswordWithTokenFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => data as { token: string; newPw: string })
+  .handler(async ({ data }) => {
+    const { token, newPw } = data;
+    try {
+      const hasAdminKey = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+      if (hasAdminKey) {
+        // Find user with valid token
+        const { data: profile, error: profileErr } = await supabaseAdmin
+          .from("profiles")
+          .select("id")
+          .eq("reset_token", token)
+          .gt("reset_token_expires", new Date().toISOString())
+          .maybeSingle();
+
+        if (profileErr || !profile) {
+          return { success: false, error: "Invalid or expired password reset link." };
+        }
+
+        // Update password in Supabase Auth
+        const { error: authErr } = await supabaseAdmin.auth.admin.updateUserById(
+          profile.id,
+          { password: newPw }
+        );
+
+        if (authErr) {
+          return { success: false, error: authErr.message };
+        }
+
+        // Clear token
+        await supabaseAdmin
+          .from("profiles")
+          .update({
+            reset_token: null,
+            reset_token_expires: null
+          } as any)
+          .eq("id", profile.id);
+      } else {
+        // Fallback to RPC function
+        const { data: rpcSuccess, error: rpcErr } = await supabase.rpc("reset_password_by_token", {
+          token_val: token,
+          new_pw: newPw
+        });
+        if (rpcErr || !rpcSuccess) {
+          return { success: false, error: rpcErr?.message || "Invalid or expired password reset link. Make sure the database SQL migration has been run." };
+        }
+      }
+
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message || String(e) };
+    }
+  });
 
 export const Route = createFileRoute("/auth")({
   ssr: false,
@@ -17,13 +192,19 @@ function AuthPage() {
   const { ready, userId, role, refresh } = useAuth();
   const [tab, setTab] = useState<"login" | "signup">("login");
   const [isRecovery, setIsRecovery] = useState(false);
+  const [token, setToken] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const hashParams = new URLSearchParams(window.location.hash.substring(1));
       const hasRecovery = params.get("type") === "recovery" || hashParams.get("type") === "recovery" || window.location.href.includes("type=recovery");
       setIsRecovery(!!hasRecovery);
+
+      const resetToken = params.get("token") || hashParams.get("token");
+      setToken(resetToken);
     }
   }, []);
 
@@ -32,6 +213,16 @@ function AuthPage() {
       navigate({ to: role === "worker" ? "/business-consultant" : `/${role}` as "/business-consultant" });
     }
   }, [ready, userId, role, navigate, isRecovery]);
+
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="font-mono text-xs uppercase tracking-widest text-stone animate-pulse">
+          Loading...
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -44,7 +235,7 @@ function AuthPage() {
         </div>
 
         {isRecovery ? (
-          <RecoveryForm />
+          <RecoveryForm token={token} />
         ) : (
           <>
             <div className="mb-8 flex border-b border-border">
@@ -121,11 +312,25 @@ function LoginForm({ onDone }: { onDone: () => void }) {
       if (!emailVal.includes("@")) {
         throw new Error("Please enter a valid email address to receive the password reset link.");
       }
-      const { error } = await supabase.auth.resetPasswordForEmail(emailVal, {
-        redirectTo: window.location.origin + "/auth?type=recovery",
+
+      const res = await requestCustomPasswordResetFn({
+        data: {
+          email: emailVal,
+          origin: window.location.origin
+        }
       });
-      if (error) throw error;
-      toast.success("Password reset link sent! Please check your email inbox.");
+
+      if (!res.success) {
+        throw new Error(res.error);
+      }
+
+      if (res.previewUrl) {
+        console.log("Ethereal Link:", res.previewUrl);
+        toast.success(`Development mode: Reset link generated! Check console for Ethereal URL.`);
+      } else {
+        toast.success("Password reset link sent! Please check your email inbox.");
+      }
+
       setResetMode(false);
       setResetEmail("");
     } catch (err: any) {
@@ -193,7 +398,7 @@ function LoginForm({ onDone }: { onDone: () => void }) {
   );
 }
 
-function RecoveryForm() {
+function RecoveryForm({ token }: { token: string | null }) {
   const [newPw, setNewPw] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
   const [loading, setLoading] = useState(false);
@@ -210,8 +415,17 @@ function RecoveryForm() {
     }
     setLoading(true);
     try {
-      const { error } = await supabase.auth.updateUser({ password: newPw });
-      if (error) throw error;
+      if (token) {
+        const res = await resetPasswordWithTokenFn({
+          data: { token, newPw }
+        });
+        if (!res.success) {
+          throw new Error(res.error);
+        }
+      } else {
+        const { error } = await supabase.auth.updateUser({ password: newPw });
+        if (error) throw error;
+      }
       toast.success("Password updated successfully! You can now sign in.");
       window.location.href = window.location.origin + "/auth";
     } catch (err: any) {
@@ -276,15 +490,12 @@ function SignupForm({ onDone }: { onDone: () => void }) {
         email: f.email,
         password: f.password,
         options: {
-          emailRedirectTo:
-            window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
-              ? window.location.origin
-              : undefined,
+          emailRedirectTo: window.location.origin,
           data: { name: f.name, mobile: f.mobile, whatsapp: f.whatsapp, role: "worker" },
         },
       });
       if (error) throw error;
-      toast.success("Account created. Awaiting manager approval.");
+      toast.success("Account created successfully! Please wait for manager approval.");
       onDone();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Signup failed");
