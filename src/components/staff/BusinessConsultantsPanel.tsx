@@ -12,18 +12,31 @@ export const updateConsultantProfileFn = createServerFn({ method: "POST" })
     userId: string;
     name: string;
     email: string;
+    originalEmail?: string;
     mobile: string;
     whatsapp?: string;
     password?: string;
   })
   .handler(async ({ data }) => {
-    const { userId, name, email, mobile, whatsapp, password } = data;
+    const { userId, name, email, originalEmail, mobile, whatsapp, password } = data;
     try {
+      const hasAdminKey = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+
       const updateData: any = {};
-      if (email) updateData.email = email;
-      if (password) updateData.password = password;
+      if (email && email.toLowerCase() !== originalEmail?.toLowerCase()) {
+        updateData.email = email;
+      }
+      if (password) {
+        updateData.password = password;
+      }
 
       if (Object.keys(updateData).length > 0) {
+        if (!hasAdminKey) {
+          return {
+            success: false,
+            error: "Changing email or password requires the Supabase Service Role Key to be configured in Vercel settings. Please configure SUPABASE_SERVICE_ROLE_KEY."
+          };
+        }
         const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(
           userId,
           updateData
@@ -34,7 +47,8 @@ export const updateConsultantProfileFn = createServerFn({ method: "POST" })
       }
 
       // Update profiles table
-      const { error: profileError } = await supabaseAdmin
+      const dbClient = hasAdminKey ? supabaseAdmin : supabase;
+      const { error: profileError } = await dbClient
         .from("profiles")
         .update({
           name,
@@ -79,23 +93,39 @@ export function BusinessConsultantsPanel() {
     if (!editingConsultant) return;
     setUpdating(true);
     try {
-      const res = await updateConsultantProfileFn({
-        data: {
-          userId: editingConsultant.id,
-          name: editName,
-          email: editEmail,
-          mobile: editMobile,
-          whatsapp: editWhatsapp,
-          password: editPassword || undefined,
+      const isEmailOrPasswordChanged = (editEmail.toLowerCase() !== editingConsultant.email?.toLowerCase()) || !!editPassword;
+
+      if (isEmailOrPasswordChanged) {
+        const res = await updateConsultantProfileFn({
+          data: {
+            userId: editingConsultant.id,
+            name: editName,
+            email: editEmail,
+            originalEmail: editingConsultant.email,
+            mobile: editMobile,
+            whatsapp: editWhatsapp,
+            password: editPassword || undefined,
+          }
+        });
+        if (!res.success) {
+          throw new Error(res.error || "Failed to update profile");
         }
-      });
-      if (res.success) {
-        toast.success("Consultant profile updated successfully!");
-        setEditingConsultant(null);
-        await load();
       } else {
-        toast.error(res.error || "Failed to update profile");
+        const { error: profileError } = await supabase
+          .from("profiles")
+          .update({
+            name: editName,
+            mobile: editMobile,
+            whatsapp: editWhatsapp,
+          })
+          .eq("id", editingConsultant.id);
+
+        if (profileError) throw profileError;
       }
+
+      toast.success("Consultant profile updated successfully!");
+      setEditingConsultant(null);
+      await load();
     } catch (err: any) {
       toast.error(err.message || "Failed to update profile");
     } finally {
@@ -135,6 +165,22 @@ export function BusinessConsultantsPanel() {
   };
   useEffect(() => {
     void load();
+
+    // Subscribe to realtime updates on profiles table
+    const channel = supabase
+      .channel("profiles-realtime-changes")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "profiles" },
+        () => {
+          void load();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
   }, []);
 
   const toggle = async (id: string, active: boolean) => {
