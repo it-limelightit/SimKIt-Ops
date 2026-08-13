@@ -114,7 +114,8 @@ function getSiteWorkerIds(site: any): string[] {
 
 export function Overview() {
   const navigate = useNavigate();
-  const { userId } = useAuth();
+  const { userId, ready: authReady, roles } = useAuth();
+  const isDualRole = roles.includes("supervisor") && roles.includes("worker");
   const [rawSites, setRawSites] = useState<any[]>([]);
   const [rawAssessments, setRawAssessments] = useState<any[]>([]);
   const [rawInstallations, setRawInstallations] = useState<any[]>([]);
@@ -129,8 +130,23 @@ export function Overview() {
   const [cityFilter, setCityFilter] = useState("");
   const [executiveFilter, setExecutiveFilter] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [showMyTasks, setShowMyTasks] = useState(true); // default: show my tasks on Overview load
-  const [kpiSelected, setKpiSelected] = useState(false); // table hidden until a KPI card is clicked
+  const [showMyTasks, setShowMyTasks] = useState(false);
+  const [kpiSelected, setKpiSelected] = useState(true);
+
+  useEffect(() => {
+    if (!authReady) return;
+    // Dual-role managers start on their personal tasks. A manager-only user
+    // starts directly on the complete Companies Assigned list.
+    if (isDualRole) {
+      setSelectedKpi("assigned");
+      setShowMyTasks(true);
+      setKpiSelected(false);
+    } else {
+      setSelectedKpi("assigned");
+      setShowMyTasks(false);
+      setKpiSelected(true);
+    }
+  }, [authReady, isDualRole]);
 
   // Consultant Modal States
   const [consultantSiteId, setConsultantSiteId] = useState<string | null>(null);
@@ -346,6 +362,9 @@ export function Overview() {
       if (newStatus === "Dropped / Rejected") {
         consultantStage = null;
         metaStatus = "Dropped / Rejected";
+        // A dropped company remains in the overall company total, but it no
+        // longer belongs to a Field Associate's active workload.
+        updatedWorkers = [];
       } else if (newStatus === "Submitted") {
         consultantStage = "Completion";
         metaStatus = "Submitted";
@@ -400,7 +419,26 @@ export function Overview() {
         const siteObj = rawSites.find(s => s.id === siteId);
         const workerId = siteObj?.assigned_worker_id || null;
 
-        if (metaStatus === "Commissioned") {
+        if (metaStatus === "Dropped / Rejected") {
+          // Clear all phase ownership and progress when a company is dropped.
+          await Promise.all([
+            supabase.from("assessment").upsert({
+              site_id: siteId,
+              worker_id: null,
+              data: {}
+            }, { onConflict: "site_id" }),
+            supabase.from("installation").upsert({
+              site_id: siteId,
+              worker_id: null,
+              data: {}
+            }, { onConflict: "site_id" }),
+            supabase.from("commissioning").upsert({
+              site_id: siteId,
+              worker_id: null,
+              data: {}
+            }, { onConflict: "site_id" })
+          ]);
+        } else if (metaStatus === "Commissioned") {
           await Promise.all([
             supabase.from("assessment").upsert({
               site_id: siteId,
@@ -734,10 +772,19 @@ export function Overview() {
       aP = 0;
       iP = 0;
       cP = 0;
+    } else if (status === "Dropped / Rejected") {
+      // Also normalize legacy dropped records that still contain old phase
+      // data or an associate assignment in the database.
+      aP = 0;
+      iP = 0;
+      cP = 0;
     }
 
     return {
       ...draftRow,
+      assigned_worker_id: status === "Dropped / Rejected" ? null : draftRow.assigned_worker_id,
+      assigned_at: status === "Dropped / Rejected" ? null : draftRow.assigned_at,
+      workerIds: status === "Dropped / Rejected" ? [] : draftRow.workerIds,
       progress: { a: aP, i: iP, c: cP, updated, appt },
     };
   });
@@ -803,9 +850,19 @@ export function Overview() {
 
   // Calculate counts based on current filters and canonical status partitioning
   const countTotal = filteredForCounts.length; // First card represents total companies count
-  const countPending = filteredForCounts.filter((r) => r.workerIds.length === 0 && getCanonicalStatus(r) !== "Submitted").length;
-  const countAssignedBc = filteredForCounts.filter((r) => r.workerIds.length > 0 && getCanonicalStatus(r) !== "Submitted").length;
+  const countPending = filteredForCounts.filter((r) => {
+    const status = getCanonicalStatus(r);
+    return r.workerIds.length === 0 && status !== "Submitted" && status !== "Dropped / Rejected";
+  }).length;
+  const countAssignedBc = filteredForCounts.filter((r) => {
+    const status = getCanonicalStatus(r);
+    return r.workerIds.length > 0 && status !== "Submitted" && status !== "Dropped / Rejected";
+  }).length;
   const countSubmitted = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Submitted").length;
+  const countPendingPortal = filteredForCounts.filter((r) => {
+    const status = getCanonicalStatus(r);
+    return status !== "Submitted" && status !== "Dropped / Rejected";
+  }).length;
   const countUnsubmitted = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Unsubmitted").length;
   const countCertification = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Certification Pending").length;
   const countInstalled = filteredForCounts.filter((r) => getCanonicalStatus(r) === "Installed").length;
@@ -831,11 +888,11 @@ export function Overview() {
       case "commissioned":
         return status === "Commissioned";
       case "pending":
-        return row.workerIds.length === 0 && getCanonicalStatus(row) !== "Submitted";
+        return row.workerIds.length === 0 && status !== "Submitted" && status !== "Dropped / Rejected";
       case "pending_portal":
-        return status !== "Submitted";
+        return status !== "Submitted" && status !== "Dropped / Rejected";
       case "assigned_bc":
-        return row.workerIds.length > 0 && getCanonicalStatus(row) !== "Submitted";
+        return row.workerIds.length > 0 && status !== "Submitted" && status !== "Dropped / Rejected";
       case "not_started":
         return status === "Not Started Yet";
       case "assessment":
@@ -850,7 +907,7 @@ export function Overview() {
   });
 
   // Apply My Tasks Filter
-  const myTasksFiltered = showMyTasks && userId
+  const myTasksFiltered = isDualRole && showMyTasks && userId
     ? filteredByKpi.filter((row) => row.workerIds.includes(userId))
     : filteredByKpi;
 
@@ -929,7 +986,7 @@ export function Overview() {
     setExecutiveFilter("");
     setSearchQuery("");
     setShowMyTasks(false);
-    setKpiSelected(false);
+    setKpiSelected(!isDualRole);
   };
 
   const handleKpiClick = (kpiId: string) => {
@@ -1203,8 +1260,8 @@ export function Overview() {
     {
       id: "pending_portal",
       label: "Total Assignment Pending on Portal",
-      value: countTotal - countSubmitted,
-      desc: `Companies assigned (${countTotal}) - submitted (${countSubmitted})`,
+      value: countPendingPortal,
+      desc: "Active companies pending submission",
       icon: AlertCircle,
       badgeStyle: "text-amber-600 bg-amber-50 border-amber-200",
       dotStyle: "bg-amber-500",
@@ -1627,7 +1684,7 @@ export function Overview() {
         )}
 
         {/* My Tasks Section — shown by default before any KPI card is clicked */}
-        {!kpiSelected && (() => {
+        {isDualRole && !kpiSelected && (() => {
           const myRows = allProcessedRows.filter(r => r.workerIds.includes(userId ?? ""));
           return (
             <div className="border border-border rounded-xl bg-surface p-5 space-y-4 shadow-sm">
@@ -1756,7 +1813,7 @@ export function Overview() {
                 </div>
 
                 {/* Show My Tasks Toggle */}
-                {userId && (
+                {isDualRole && userId && (
                   <button
                     onClick={() => setShowMyTasks((prev) => !prev)}
                     className={`flex items-center gap-1.5 border rounded-md px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
