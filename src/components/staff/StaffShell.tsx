@@ -49,7 +49,7 @@ export function StaffShell({
   const items = [
     { to: `${base}`, label: "Overview", icon: LayoutDashboard },
     { to: `${base}/sites`, label: "Sites", icon: MapPin },
-    { to: `${base}/business-consultants`, label: "Business Consultants", icon: Users },
+    { to: `${base}/business-consultants`, label: "Field Associates", icon: Users },
     { to: `${base}/factory-data`, label: "Factory Form Data", icon: ClipboardList },
     { to: `${base}/performance`, label: "Performance", icon: Activity },
     { to: `${base}/drive-links`, label: "Links of Drive", icon: Folder },

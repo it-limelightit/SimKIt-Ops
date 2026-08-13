@@ -110,12 +110,12 @@ export function PerformancePanel() {
         <p className="font-mono text-[11px] uppercase tracking-widest text-stone">Team</p>
         <h1 className="mt-2 text-4xl">Performance</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Detailed data submitted by each Business Consultant, organised by site and phase.
+          Detailed data submitted by each Field Associate, organised by site and phase.
         </p>
       </header>
 
       {rows.length === 0 ? (
-        <div className="py-16 text-center text-muted-foreground">No Business Consultants yet</div>
+        <div className="py-16 text-center text-muted-foreground">No Field Associates yet</div>
       ) : (
         <div className="space-y-4">
           {rows.map((row) => {

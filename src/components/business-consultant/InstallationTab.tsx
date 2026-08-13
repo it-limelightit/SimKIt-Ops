@@ -352,7 +352,13 @@ export function InstallationTab({ siteId, workerId, hiddenSections, onSubmit }: 
       )}
 
       <div className="mt-8 flex justify-end">
-        <Button onClick={onSubmit} className="w-full sm:w-auto text-base py-3 px-8">
+        <Button 
+          onClick={async () => {
+            await save({ ...data, installation_phase_submitted: true });
+            if (onSubmit) onSubmit();
+          }} 
+          className="w-full sm:w-auto text-base py-3 px-8"
+        >
           Submit Installation Phase
         </Button>
       </div>

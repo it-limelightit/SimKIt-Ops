@@ -864,7 +864,7 @@ function OrderCard({
   if (material.ct1 === "TRUE") checklistItems.push({ label: "CT 1 Clamp", checked: ct1, onChange: setCt1, id: `pack-ct1-${material.id}` });
   if (material.ct2 === "TRUE") checklistItems.push({ label: "CT 2 Clamp", checked: ct2, onChange: setCt2, id: `pack-ct2-${material.id}` });
   if (material.ct3 === "TRUE") checklistItems.push({ label: "CT 3 Clamp", checked: ct3, onChange: setCt3, id: `pack-ct3-${material.id}` });
-  if (material.proxy1 === "TRUE" || material.proxy_model) {
+  if (material.proxy1 === "TRUE") {
     checklistItems.push({
       label: `Proxy 1 ${material.proxy_model ? `(${material.proxy_model})` : ""}`,
       checked: proxy1,
@@ -874,7 +874,7 @@ function OrderCard({
   }
   if (material.proxy2 === "TRUE") checklistItems.push({ label: "Proxy 2", checked: proxy2, onChange: setProxy2, id: `pack-p2-${material.id}` });
   if (material.encoder === "TRUE") checklistItems.push({ label: "Encoder", checked: encoder, onChange: setEncoder, id: `pack-enc-${material.id}` });
-  if (material.vibration === "TRUE" || material.vibration_model) {
+  if (material.vibration === "TRUE") {
     checklistItems.push({
       label: `Vibration ${material.vibration_model ? `(${material.vibration_model})` : ""}`,
       checked: vibration,
@@ -886,16 +886,16 @@ function OrderCard({
   if (material.tower_light === "TRUE") checklistItems.push({ label: "Tower Light", checked: towerLight, onChange: setTowerLight, id: `pack-twr-${material.id}` });
   if (material.energy_meter === "TRUE") checklistItems.push({ label: "Energy Meter", checked: energyMeter, onChange: setEnergyMeter, id: `pack-en-${material.id}` });
   if (material.plc === "TRUE") checklistItems.push({ label: "PLC", checked: plc, onChange: setPlc, id: `pack-plc-${material.id}` });
-
+ 
   // Quick fill all checkboxes
   const handleQuickFill = () => {
     if (material.ct1 === "TRUE") setCt1(true);
     if (material.ct2 === "TRUE") setCt2(true);
     if (material.ct3 === "TRUE") setCt3(true);
-    if (material.proxy1 === "TRUE" || material.proxy_model) setProxy1(true);
+    if (material.proxy1 === "TRUE") setProxy1(true);
     if (material.proxy2 === "TRUE") setProxy2(true);
     if (material.encoder === "TRUE") setEncoder(true);
-    if (material.vibration === "TRUE" || material.vibration_model) setVibration(true);
+    if (material.vibration === "TRUE") setVibration(true);
     if (material.antenna === "TRUE") setAntenna(true);
     if (material.tower_light === "TRUE") setTowerLight(true);
     if (material.energy_meter === "TRUE") setEnergyMeter(true);
@@ -1039,8 +1039,14 @@ function OrderCard({
 
       {/* 2. Central Screen Modal Popup Box */}
       {expanded && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="relative w-full max-w-2xl bg-surface border border-border/80 rounded-[16px] shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
+        <div 
+          onClick={() => setExpanded(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-2xl bg-surface border border-border/80 rounded-[16px] shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200"
+          >
 
             {/* Modal Header */}
             <div className="flex justify-between items-start p-6 border-b border-border/50 bg-surface-raised/30">
@@ -1187,7 +1193,15 @@ function OrderCard({
                         </div>
                       </div>
 
-                      <div className="flex justify-end pt-4 border-t border-border/50">
+                      <div className="flex justify-between items-center pt-4 border-t border-border/50">
+                        <Button 
+                          type="button" 
+                          variant="ghost" 
+                          onClick={() => setExpanded(false)}
+                          className="px-4 py-2 border border-border bg-surface text-text-secondary hover:text-text-primary h-9 shrink-0 cursor-pointer"
+                        >
+                          Cancel & Close
+                        </Button>
                         <Button type="submit" disabled={saving} className="px-6 py-2.5">
                           {saving && <RefreshCw size={12} className="animate-spin mr-1.5" />}
                           Save & Continue

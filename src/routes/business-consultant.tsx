@@ -6,7 +6,7 @@ import { Badge, Button, ProgressBar, Skeleton, Select, Label, Card, Input } from
 import { AssessmentTab } from "@/components/business-consultant/AssessmentTab";
 import { InstallationTab } from "@/components/business-consultant/InstallationTab";
 import { CommissioningTab } from "@/components/business-consultant/CommissioningTab";
-import { LogOut, Check, CheckCircle2, MapPin, Calendar, Clock, BookOpen, Boxes, Sun, Moon, User, Phone, Mail } from "lucide-react";
+import { LogOut, Check, CheckCircle2, MapPin, Calendar, Clock, BookOpen, Boxes, Sun, Moon, User, Phone, Mail, Lock } from "lucide-react";
 import { parseTaskNotes } from "@/components/staff/TasksPanel";
 import { parseSiteMetadata, serializeSiteMetadata } from "@/lib/site-metadata";
 import { toast } from "sonner";
@@ -16,7 +16,7 @@ import { OrderTab } from "@/components/business-consultant/OrderTab";
 
 export const Route = createFileRoute("/business-consultant")({
   ssr: false,
-  head: () => ({ meta: [{ title: "Business Consultant — SIM-Kit Ops" }] }),
+  head: () => ({ meta: [{ title: "Field Associate — SIM-Kit Ops" }] }),
   component: BusinessConsultantPage,
 });
 
@@ -311,11 +311,22 @@ function BusinessConsultantPage() {
         supabase.from("installation").select("data").eq("site_id", site.id).maybeSingle(),
         supabase.from("commissioning").select("data").eq("site_id", site.id).maybeSingle(),
       ]);
+      
+      const aData = a.data?.data as Record<string, any> | undefined;
+      const iData = i.data?.data as Record<string, any> | undefined;
+      const cData = c.data?.data as Record<string, any> | undefined;
+
       setProgress({
-        assessment: pctCount(a.data?.data, ASSESSMENT_KEYS),
-        installation: pctCount(i.data?.data, INSTALLATION_KEYS),
-        commissioning: pctCount(c.data?.data, COMMISSIONING_KEYS),
+        assessment: pctCount(aData, ASSESSMENT_KEYS),
+        installation: pctCount(iData, INSTALLATION_KEYS),
+        commissioning: pctCount(cData, COMMISSIONING_KEYS),
       });
+
+      const nextSubmitted = new Set<string>();
+      if (aData?.assessment_phase_submitted) nextSubmitted.add("assessment");
+      if (iData?.installation_phase_submitted) nextSubmitted.add("installation");
+      if (cData?.commissioning_phase_submitted) nextSubmitted.add("commissioning");
+      setSubmittedPhases(nextSubmitted);
     })();
   }, [site, tab]);
 
@@ -373,11 +384,15 @@ function BusinessConsultantPage() {
 
   const overall = Math.round((progress.assessment + progress.installation + progress.commissioning) / 3);
 
+  // Submission-only: no dependency on progress %
+  const isAssessmentDone = submittedPhases.has("assessment");
+  const isInstallationDone = submittedPhases.has("installation");
+
   const segments = [
     { k: "assessment", label: "ASSESSMENT", pct: progress.assessment },
+    { k: "order", label: "DEVICE ORDER", pct: 100 },
     { k: "installation", label: "INSTALLATION", pct: progress.installation },
     { k: "commissioning", label: "COMMISSIONING", pct: progress.commissioning },
-    { k: "order", label: "DEVICE ORDER", pct: 100 },
   ] as const;
 
   return (
@@ -556,14 +571,30 @@ function BusinessConsultantPage() {
         <nav className="flex flex-col md:flex-row gap-4 mt-6">
           {segments.map((s) => {
             const isActive = tab === s.k;
+            const isLocked = (() => {
+              if (s.k === "order")         return !submittedPhases.has("assessment");
+              if (s.k === "installation")  return !submittedPhases.has("assessment");
+              if (s.k === "commissioning") return !submittedPhases.has("installation");
+              return false;
+            })();
+
             return (
               <button
                 key={s.k}
-                onClick={() => setTab(s.k)}
-                className={`relative flex-1 h-[58px] bg-surface/80 backdrop-blur-sm border rounded-xl overflow-hidden flex items-center px-5 transition-all duration-300 cursor-pointer ${
-                  isActive 
-                    ? "border-lime ring-2 ring-lime/20 scale-[1.02] shadow-[0_0_20px_rgba(200,255,74,0.1)]" 
-                    : "border-border hover:border-border-bright hover:bg-surface-raised/20"
+                onClick={() => {
+                  if (isLocked) {
+                    const needed = s.k === "commissioning" ? "Installation" : "Assessment";
+                  toast.error(`Please submit the ${needed} phase first to unlock this tab.`);
+                    return;
+                  }
+                  setTab(s.k);
+                }}
+                className={`relative flex-1 h-[58px] bg-surface/80 backdrop-blur-sm border rounded-xl overflow-hidden flex items-center px-5 transition-all duration-300 ${
+                  isLocked
+                    ? "opacity-50 border-border/40 cursor-not-allowed"
+                    : isActive 
+                      ? "border-lime ring-2 ring-lime/20 scale-[1.02] shadow-[0_0_20px_rgba(200,255,74,0.1)] cursor-pointer" 
+                      : "border-border hover:border-border-bright hover:bg-surface-raised/20 cursor-pointer"
                 }`}
               >
                 <div
@@ -572,7 +603,11 @@ function BusinessConsultantPage() {
                 />
                 <div className="relative z-10 w-full flex items-center justify-between font-mono text-[11px] font-bold tracking-widest text-text-primary">
                   <span className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${isActive ? "bg-lime animate-pulse" : "bg-text-dim"}`} />
+                    {isLocked ? (
+                      <Lock size={12} className="text-text-secondary" />
+                    ) : (
+                      <span className={`w-2 h-2 rounded-full ${isActive ? "bg-lime animate-pulse" : "bg-text-dim"}`} />
+                    )}
                     {s.label}
                   </span>
                   <span className="bg-surface-raised px-2 py-0.5 rounded text-[10px] border border-border">
@@ -596,16 +631,38 @@ function BusinessConsultantPage() {
       <main className="mt-8 space-y-4 pb-24">
         {tab === "assessment" && (
           submittedPhases.has("assessment")
-            ? <PhaseSubmittedCard label="Assessment Visit" onNext={() => setTab("installation")} nextLabel="Go to Installation" />
+            ? <PhaseSubmittedCard label="Assessment Visit" onNext={() => setTab("order")} nextLabel="Go to Device Order" />
             : <AssessmentTab siteId={site.id} workerId={userId!} onSubmit={() => { setSubmittedPhases(prev => new Set([...prev, "assessment"])); }} />
         )}
         {tab === "installation" && (
-          submittedPhases.has("installation")
+          !isAssessmentDone ? (
+            <Card className="p-8 text-center space-y-4 border border-border flex flex-col items-center">
+              <div className="w-12 h-12 rounded-full bg-surface-raised border border-border flex items-center justify-center text-text-secondary">
+                <Lock size={20} />
+              </div>
+              <h3 className="text-lg font-bold text-text-primary font-syne uppercase">Phase Locked</h3>
+              <p className="text-sm text-text-secondary max-w-md mx-auto">
+                Please complete or submit the Assessment Visit phase first. Once assessment progress is 100%, the Installation phase will unlock automatically.
+              </p>
+              <Button onClick={() => setTab("assessment")}>Go to Assessment</Button>
+            </Card>
+          ) : submittedPhases.has("installation")
             ? <PhaseSubmittedCard label="Installation" onNext={() => setTab("commissioning")} nextLabel="Go to Commissioning" />
             : <InstallationTab siteId={site.id} workerId={userId!} onSubmit={() => { setSubmittedPhases(prev => new Set([...prev, "installation"])); }} />
         )}
         {tab === "commissioning" && (
-          submittedPhases.has("commissioning")
+          !isInstallationDone ? (
+            <Card className="p-8 text-center space-y-4 border border-border flex flex-col items-center">
+              <div className="w-12 h-12 rounded-full bg-surface-raised border border-border flex items-center justify-center text-text-secondary">
+                <Lock size={20} />
+              </div>
+              <h3 className="text-lg font-bold text-text-primary font-syne uppercase">Phase Locked</h3>
+              <p className="text-sm text-text-secondary max-w-md mx-auto">
+                Please complete or submit the Installation phase first. Once installation progress is 100%, the Commissioning phase will unlock automatically.
+              </p>
+              <Button onClick={() => setTab("installation")}>Go to Installation</Button>
+            </Card>
+          ) : submittedPhases.has("commissioning")
             ? null
             : <CommissioningTab
                 siteId={site.id}

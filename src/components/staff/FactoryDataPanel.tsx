@@ -207,7 +207,7 @@ export function FactoryDataPanel() {
   }, [editData.factory_op_shifts]);
 
   // List of processed sites with their form completeness info
-  // Filter out any site that does not have the form submitted by business consultant or client.
+  // Filter out any site that does not have the form submitted by Field Associate or client.
   const processedSitesList = useMemo(() => {
     return sites
       .map(s => {
@@ -591,7 +591,7 @@ export function FactoryDataPanel() {
                     <AlertCircle className="mx-auto h-10 w-10 text-text-dim stroke-[1.5] mb-3" />
                     <h4 className="text-sm font-bold text-text-primary">No Assessment Form Filled</h4>
                     <p className="text-text-secondary text-xs mt-1">
-                      The Business Consultant has not started the Assessment phase for this site yet.
+                      The Field Associate has not started the Assessment phase for this site yet.
                     </p>
                   </Card>
                 ) : isEditing ? (
