@@ -144,11 +144,21 @@ export function BusinessConsultantsPanel() {
       setRows([]);
       return;
     }
-    const { data } = await supabase
-      .from("profiles")
-      .select("id,name,email,mobile,whatsapp,is_active,last_login,created_at")
-      .in("id", ids)
-      .order("created_at", { ascending: false });
+    const [profilesRes, supervisorRolesRes] = await Promise.all([
+      supabase
+        .from("profiles")
+        .select("id,name,email,mobile,whatsapp,is_active,last_login,created_at")
+        .in("id", ids)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("user_roles")
+        .select("user_id")
+        .eq("role", "supervisor")
+        .in("user_id", ids),
+    ]);
+
+    const data = profilesRes.data ?? [];
+    const supervisorIds = new Set((supervisorRolesRes.data ?? []).map((r: any) => r.user_id));
 
     // Retrieve local stages from localStorage
     let localStages: Record<string, string> = {};
@@ -157,9 +167,9 @@ export function BusinessConsultantsPanel() {
       if (stored) localStages = JSON.parse(stored);
     } catch (e) {}
 
-    const rowsWithStatus = (data ?? []).map((r: any) => {
+    const rowsWithStatus = data.map((r: any) => {
       const status = localStages[r.id] || "assigned";
-      return { ...r, status };
+      return { ...r, status, isManager: supervisorIds.has(r.id) };
     });
     setRows(rowsWithStatus);
   };
@@ -189,6 +199,21 @@ export function BusinessConsultantsPanel() {
     else {
       toast.success(active ? "Activated" : "Deactivated");
       await load();
+    }
+  };
+
+  const handleToggleManager = async (userId: string, isCurrentlyManager: boolean) => {
+    try {
+      // Use SECURITY DEFINER RPC to bypass RLS on user_roles (no INSERT/DELETE policy for authenticated)
+      const { error } = await supabase.rpc("toggle_user_manager_role", {
+        _target_user_id: userId,
+        _make_manager: !isCurrentlyManager,
+      });
+      if (error) throw error;
+      toast.success(isCurrentlyManager ? "Manager role revoked" : "Manager role granted");
+      await load();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update role");
     }
   };
 
@@ -264,12 +289,12 @@ export function BusinessConsultantsPanel() {
       toast.success(`${name} deleted`);
       await load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete consultant");
+      toast.error(err instanceof Error ? err.message : "Failed to delete field associate");
     }
   };
 
   const clearConsultantData = async (workerId: string) => {
-    if (!window.confirm("Are you sure you want to clear all assigned tasks, appointments, and progress data for this consultant? This will reset their app screen to 'Task will be assigned'.")) return;
+    if (!window.confirm("Are you sure you want to clear all assigned tasks, appointments, and progress data for this field associate? This will reset their app screen to 'Task will be assigned'.")) return;
     try {
       const { data: workerSites, error: sitesError } = await supabase
         .from("sites")
@@ -306,10 +331,10 @@ export function BusinessConsultantsPanel() {
 
       if (updateError) throw updateError;
 
-      toast.success("Consultant side cleared successfully");
+      toast.success("Field Associate side cleared successfully");
       await load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to clear consultant data");
+      toast.error(err instanceof Error ? err.message : "Failed to clear field associate data");
     }
   };
 
@@ -317,7 +342,7 @@ export function BusinessConsultantsPanel() {
     <div className="space-y-8">
       <header>
         <p className="font-mono text-[11px] uppercase tracking-widest text-stone">Manage</p>
-        <h1 className="mt-2 text-4xl">Business Consultants</h1>
+        <h1 className="mt-2 text-4xl">Field Associates</h1>
       </header>
 
       <div className="overflow-x-auto border border-border bg-surface">
@@ -335,7 +360,7 @@ export function BusinessConsultantsPanel() {
           </thead>
           <tbody>
             {rows.length === 0 ? (
-              <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">No business consultants yet</td></tr>
+              <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">No field associates yet</td></tr>
             ) : rows.map((r) => (
               <tr key={r.id} className="border-b border-border last:border-0 hover:bg-surface-raised/30 transition-colors">
                 <td className="px-4 py-4 align-middle font-medium text-text-primary">{r.name ?? "—"}</td>
@@ -361,6 +386,17 @@ export function BusinessConsultantsPanel() {
                     >
                       Edit
                     </Button>
+                    <Button
+                      variant="secondary"
+                      className={`py-1 px-2.5 text-xs font-semibold cursor-pointer ${
+                        r.isManager 
+                          ? "bg-lime/10 text-lime border border-lime/20 hover:bg-lime-dim" 
+                          : ""
+                      }`}
+                      onClick={() => handleToggleManager(r.id, !!r.isManager)}
+                    >
+                      {r.isManager ? "Revoke Manager" : "Make Manager"}
+                    </Button>
                     <Button variant="secondary" className="py-1 px-2.5 text-xs font-semibold cursor-pointer" onClick={() => toggle(r.id, !r.is_active)}>
                       {r.is_active ? "Deactivate" : "Activate"}
                     </Button>
@@ -369,12 +405,12 @@ export function BusinessConsultantsPanel() {
                       className="bg-coral/10 text-coral border border-coral/20 hover:bg-coral-dim py-1 px-2.5 text-xs font-semibold cursor-pointer"
                       onClick={() => clearConsultantData(r.id)}
                     >
-                      Clear Consultant Side
+                      Clear Field Associate Side
                     </Button>
                     <Button
                       variant="danger"
                       className="py-1 px-2.5 text-xs font-semibold cursor-pointer"
-                      onClick={() => deleteConsultant(r.id, r.name ?? r.email ?? "Consultant")}
+                      onClick={() => deleteConsultant(r.id, r.name ?? r.email ?? "Field Associate")}
                     >
                       Delete
                     </Button>
@@ -392,8 +428,8 @@ export function BusinessConsultantsPanel() {
             {/* Modal Header */}
             <div className="flex justify-between items-center p-5 border-b border-border bg-surface-raised/40">
               <div>
-                <h3 className="text-lg font-bold text-text-primary">Edit Consultant Profile</h3>
-                <p className="text-xs text-text-secondary">Update details or change password for {editingConsultant.name || "Consultant"}</p>
+                <h3 className="text-lg font-bold text-text-primary">Edit Field Associate Profile</h3>
+                <p className="text-xs text-text-secondary">Update details or change password for {editingConsultant.name || "Field Associate"}</p>
               </div>
               <button
                 onClick={() => setEditingConsultant(null)}

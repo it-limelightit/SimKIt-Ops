@@ -3,7 +3,13 @@ import { useNavigate } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { parseSiteMetadata, serializeSiteMetadata } from "@/lib/site-metadata";
 import { toast } from "sonner";
-import { Skeleton } from "@/components/ui-kit";
+import { Skeleton, Button, ProgressBar, Select, Label, Input, Card } from "@/components/ui-kit";
+import { useAuth } from "@/lib/auth-store";
+import { AssessmentTab } from "@/components/business-consultant/AssessmentTab";
+import { InstallationTab } from "@/components/business-consultant/InstallationTab";
+import { CommissioningTab } from "@/components/business-consultant/CommissioningTab";
+import { OrderTab } from "@/components/business-consultant/OrderTab";
+import { parseTaskNotes } from "./TasksPanel";
 import {
   Building,
   CheckCircle2,
@@ -23,6 +29,14 @@ import {
   Download,
   FileText,
   Clock,
+  Lock,
+  Calendar,
+  Mail,
+  Phone,
+  User,
+  BookOpen,
+  X,
+  Check,
 } from "lucide-react";
 
 type Appt = {
@@ -100,6 +114,7 @@ function getSiteWorkerIds(site: any): string[] {
 
 export function Overview() {
   const navigate = useNavigate();
+  const { userId } = useAuth();
   const [rawSites, setRawSites] = useState<any[]>([]);
   const [rawAssessments, setRawAssessments] = useState<any[]>([]);
   const [rawInstallations, setRawInstallations] = useState<any[]>([]);
@@ -114,6 +129,164 @@ export function Overview() {
   const [cityFilter, setCityFilter] = useState("");
   const [executiveFilter, setExecutiveFilter] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [showMyTasks, setShowMyTasks] = useState(true); // default: show my tasks on Overview load
+  const [kpiSelected, setKpiSelected] = useState(false); // table hidden until a KPI card is clicked
+
+  // Consultant Modal States
+  const [consultantSiteId, setConsultantSiteId] = useState<string | null>(null);
+  const [modalTab, setModalTab] = useState<"assessment" | "installation" | "commissioning" | "order">("assessment");
+  const [modalProgress, setModalProgress] = useState({ assessment: 0, installation: 0, commissioning: 0 });
+  const [modalSubmittedPhases, setModalSubmittedPhases] = useState<Set<string>>(new Set());
+  const [clientShareEmail, setClientShareEmail] = useState("");
+  const [generatedLink, setGeneratedLink] = useState("");
+  const [sendingEmail, setSendingEmail] = useState(false);
+
+  useEffect(() => {
+    if (!consultantSiteId) return;
+    const site = rawSites.find(s => s.id === consultantSiteId);
+    if (!site) return;
+    
+    // Parse client share details
+    const siteMeta = parseSiteMetadata(site.task_notes);
+    setClientShareEmail(siteMeta.client_email || "");
+    if (siteMeta.client_token) {
+      setGeneratedLink(`${window.location.origin}/client-form?token=${siteMeta.client_token}`);
+    } else {
+      setGeneratedLink("");
+    }
+    
+    // Calculate progress and submitted phases
+    const a = rawAssessments.find((x) => x.site_id === site.id);
+    const i = rawInstallations.find((x) => x.site_id === site.id);
+    const c = rawCommissionings.find((x) => x.site_id === site.id);
+    
+    const aData = a?.data as Record<string, any> | undefined;
+    const iData = i?.data as Record<string, any> | undefined;
+    const cData = c?.data as Record<string, any> | undefined;
+
+    setModalProgress({
+      assessment: pctKeys(aData, ASSESSMENT_KEYS),
+      installation: pctKeys(iData, INSTALLATION_KEYS),
+      commissioning: pctKeys(cData, COMMISSIONING_KEYS),
+    });
+
+    const nextSubmitted = new Set<string>();
+    if (aData?.assessment_phase_submitted) nextSubmitted.add("assessment");
+    if (iData?.installation_phase_submitted) nextSubmitted.add("installation");
+    if (cData?.commissioning_phase_submitted) nextSubmitted.add("commissioning");
+    setModalSubmittedPhases(nextSubmitted);
+    
+    // Default tab to active phase from task_notes
+    const { phase: activePhase } = parseTaskNotes(site.task_notes);
+    if (activePhase && (activePhase === "assessment" || activePhase === "installation" || activePhase === "commissioning")) {
+      setModalTab(activePhase);
+    } else {
+      setModalTab("assessment");
+    }
+  }, [consultantSiteId, rawSites, rawAssessments, rawInstallations, rawCommissionings]);
+
+  const handleGenerateShareLink = async () => {
+    if (!consultantSiteId) return;
+    try {
+      const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      
+      const { error } = await supabase.rpc("save_client_invitation", {
+        site_id: consultantSiteId,
+        client_email: clientShareEmail.trim(),
+        token_val: token
+      });
+
+      if (error) {
+        toast.error("Failed to generate link: " + error.message);
+      } else {
+        const link = `${window.location.origin}/client-form?token=${token}`;
+        setGeneratedLink(link);
+        toast.success("Share link generated successfully!");
+        await loadData();
+      }
+    } catch (err: any) {
+      toast.error("Error: " + err.message);
+    }
+  };
+
+  const handleSendEmail = async () => {
+    if (!consultantSiteId) return;
+    const site = rawSites.find(s => s.id === consultantSiteId);
+    if (!site) return;
+    if (!clientShareEmail.trim()) {
+      toast.error("Please enter a client email address first.");
+      return;
+    }
+
+    setSendingEmail(true);
+    try {
+      let token = parseSiteMetadata(site.task_notes).client_token;
+      if (!token) {
+        token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+        const { error } = await supabase.rpc("save_client_invitation", {
+          site_id: site.id,
+          client_email: clientShareEmail.trim(),
+          token_val: token
+        });
+
+        if (error) {
+          throw new Error("Failed to save client details: " + error.message);
+        }
+        await loadData();
+      }
+
+      const { sendClientFormEmailFn } = await import("../../routes/client-form");
+      const res = await sendClientFormEmailFn({
+        data: {
+          email: clientShareEmail.trim(),
+          token: token,
+          siteName: site.company_name || site.name,
+          origin: window.location.origin
+        }
+      });
+
+      if (res.success) {
+        if (res.previewUrl) {
+          toast.success(res.message, {
+            description: `Verify Ethereal mailbox here: ${res.previewUrl}`,
+            action: {
+              label: "Open Mail Inbox",
+              onClick: () => window.open(res.previewUrl!, "_blank")
+            },
+            duration: 15000
+          });
+        } else {
+          toast.success("Invitation email sent successfully to the client!");
+        }
+      } else {
+        toast.error("Failed to send email: " + res.error);
+      }
+    } catch (err: any) {
+      toast.error(err.message || "An unexpected error occurred while sending email.");
+    } finally {
+      setSendingEmail(false);
+    }
+  };
+
+  const handleCopyLink = () => {
+    if (!generatedLink) return;
+    navigator.clipboard.writeText(generatedLink);
+    toast.success("Copied client form link to clipboard!");
+  };
+
+  const updateConsultantStage = async (stage: "Billing" | "Completion") => {
+    if (!consultantSiteId) return;
+    const { error } = await supabase.rpc("set_consultant_site_stage", {
+      _site_id: consultantSiteId,
+      _stage: stage,
+    });
+    if (error) {
+      toast.error("Could not update the site stage: " + error.message);
+      return;
+    }
+    toast.success(`Site moved to ${stage}`);
+    await loadData();
+  };
 
   // Sort States
   const [sortField, setSortField] = useState<"name" | "city" | "updated">("name");
@@ -130,7 +303,7 @@ export function Overview() {
       const [sitesRes, assessmentsRes, installationsRes, commissioningsRes, profilesRes, materialsRes, rolesRes] = await Promise.all([
         supabase
           .from("sites")
-          .select("id,name,city,assigned_worker_id,assigned_at,appt_date,appt_time,created_at,task_notes,consultant_stage")
+          .select("id,name,company_name,city,assigned_worker_id,assigned_at,appt_date,appt_time,created_at,task_notes,consultant_stage")
           .order("created_at", { ascending: false }),
         supabase.from("assessment").select("data,updated_at,site_id"),
         supabase.from("installation").select("data,updated_at,site_id"),
@@ -224,6 +397,93 @@ export function Overview() {
       if (error) {
         toast.error(error.message);
       } else {
+        const siteObj = rawSites.find(s => s.id === siteId);
+        const workerId = siteObj?.assigned_worker_id || null;
+
+        if (metaStatus === "Commissioned") {
+          await Promise.all([
+            supabase.from("assessment").upsert({
+              site_id: siteId,
+              worker_id: workerId,
+              data: { mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
+            }, { onConflict: "site_id" }),
+            supabase.from("installation").upsert({
+              site_id: siteId,
+              worker_id: workerId,
+              data: { delivery_confirmed: true, coordination_done: true, photos_uploaded: true, installation_phase_submitted: true }
+            }, { onConflict: "site_id" }),
+            supabase.from("commissioning").upsert({
+              site_id: siteId,
+              worker_id: workerId,
+              data: {
+                coordination_done: true,
+                visit_done: true,
+                connection_done: true,
+                configure_done: true,
+                testing_done: true,
+                screenshots_uploaded: true,
+                certificate_sent: true,
+                final_mom_uploaded: true,
+                commissioning_phase_submitted: true
+              }
+            }, { onConflict: "site_id" })
+          ]);
+        } else if (metaStatus === "Installed") {
+          await Promise.all([
+            supabase.from("assessment").upsert({
+              site_id: siteId,
+              worker_id: workerId,
+              data: { mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
+            }, { onConflict: "site_id" }),
+            supabase.from("installation").upsert({
+              site_id: siteId,
+              worker_id: workerId,
+              data: { delivery_confirmed: true, coordination_done: true, photos_uploaded: true, installation_phase_submitted: true }
+            }, { onConflict: "site_id" }),
+            supabase.from("commissioning").upsert({
+              site_id: siteId,
+              worker_id: workerId,
+              data: {}
+            }, { onConflict: "site_id" })
+          ]);
+        } else if (metaStatus === "Assessed") {
+          await Promise.all([
+            supabase.from("assessment").upsert({
+              site_id: siteId,
+              worker_id: workerId,
+              data: { mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
+            }, { onConflict: "site_id" }),
+            supabase.from("installation").upsert({
+              site_id: siteId,
+              worker_id: workerId,
+              data: {}
+            }, { onConflict: "site_id" }),
+            supabase.from("commissioning").upsert({
+              site_id: siteId,
+              worker_id: workerId,
+              data: {}
+            }, { onConflict: "site_id" })
+          ]);
+        } else if (metaStatus === "Not Started Yet") {
+          await Promise.all([
+            supabase.from("assessment").upsert({
+              site_id: siteId,
+              worker_id: workerId,
+              data: {}
+            }, { onConflict: "site_id" }),
+            supabase.from("installation").upsert({
+              site_id: siteId,
+              worker_id: workerId,
+              data: {}
+            }, { onConflict: "site_id" }),
+            supabase.from("commissioning").upsert({
+              site_id: siteId,
+              worker_id: workerId,
+              data: {}
+            }, { onConflict: "site_id" })
+          ]);
+        }
+
         toast.success("Site status updated successfully");
         await loadData();
       }
@@ -345,12 +605,14 @@ export function Overview() {
     if (meta.status === "Commissioned") return "Commissioned";
     if (meta.status === "Installed") return "Installed";
     if (meta.status === "Panel Dispatched") return "Panel Dispatched";
-    if (meta.status === "Assessed" || meta.status === "In Assessment") return "Assessed";
-    if (meta.status === "Unsubmitted") return "Unsubmitted";
-    if (meta.status === "Not Started Yet") return "Not Started Yet";
 
     // 2. Logistics override (Panel Dispatched)
     if (row.logisticsStatus === "Delivered") return "Panel Dispatched";
+
+    // 3. Lower priority explicit manager overrides
+    if (meta.status === "Assessed" || meta.status === "In Assessment") return "Assessed";
+    if (meta.status === "Unsubmitted") return "Unsubmitted";
+    if (meta.status === "Not Started Yet") return "Not Started Yet";
 
     // 3. Auto-detection / Stage Fallbacks
     if (row.consultant_stage === "Completion" || row.consultant_stage === "Billing") return "Submitted";
@@ -360,16 +622,20 @@ export function Overview() {
     const ir = iMap.get(row.id);
     const cr = cMap.get(row.id);
 
-    const isAssessmentSubmitted = !!ar?.data?.assessment_phase_submitted;
+    const isAssessmentSubmitted = !!ar?.data?.assessment_phase_submitted || row.progress.a === 100;
     const isInstallationCompleted = (!!ir?.data?.delivery_confirmed && !!ir?.data?.coordination_done && !!ir?.data?.photos_uploaded) || row.progress.i === 100;
     const isCommissioningCompleted = !!cr?.data?.commissioning_phase_submitted || row.progress.c === 100;
     const isCertSent = !!cr?.data?.certificate_sent || !!ar?.data?.certificate_sent;
 
+    if (isCommissioningCompleted) return "Commissioned";
+    if (isInstallationCompleted) return "Installed";
     if (isAssessmentSubmitted) {
       if (isCertSent) return "Submitted";
-      if (isCommissioningCompleted) return "Commissioned";
-      if (isInstallationCompleted) return "Installed";
       return "Assessed";
+    }
+
+    if (row.progress.a === 0 && row.progress.i === 0 && row.progress.c === 0) {
+      return "Not Started Yet";
     }
 
     // 4. Default Assignment / Status Fallbacks
@@ -424,7 +690,9 @@ export function Overview() {
       const normMat = normalizeCompanyName(m.material_name);
       const normComp = normalizeCompanyName(site.company_name);
       const normName = normalizeCompanyName(site.name);
-      return normMat === normComp || normMat === normName;
+      const matched = (normComp && (normMat.includes(normComp) || normComp.includes(normMat))) ||
+                      (normName && (normMat.includes(normName) || normName.includes(normMat)));
+      return matched;
     });
     const logisticsStatus = matchingMaterial ? getLogisticsStatus(matchingMaterial) : "Pending";
 
@@ -452,13 +720,20 @@ export function Overview() {
     const status = getCanonicalStatus(draftRow);
     if (status === "Assessed") {
       aP = 100;
+      iP = 0;
+      cP = 0;
     } else if (status === "Installed" || status === "Panel Dispatched") {
       aP = 100;
       iP = 100;
+      cP = 0;
     } else if (status === "Commissioned" || status === "Submitted" || status === "Certification Pending") {
       aP = 100;
       iP = 100;
       cP = 100;
+    } else if (status === "Not Started Yet") {
+      aP = 0;
+      iP = 0;
+      cP = 0;
     }
 
     return {
@@ -489,7 +764,7 @@ export function Overview() {
       if (error) {
         toast.error(error.message);
       } else {
-        toast.success("BC assignment updated successfully");
+        toast.success("Field Associate assignment updated successfully");
         await loadData();
       }
     } catch (err: any) {
@@ -574,9 +849,14 @@ export function Overview() {
     }
   });
 
+  // Apply My Tasks Filter
+  const myTasksFiltered = showMyTasks && userId
+    ? filteredByKpi.filter((row) => row.workerIds.includes(userId))
+    : filteredByKpi;
+
   // Apply search query
   const searchQueryLower = searchQuery.toLowerCase();
-  const searchedRows = filteredByKpi.filter((row) => {
+  const searchedRows = myTasksFiltered.filter((row) => {
     if (!searchQuery) return true;
     const name = row.name.toLowerCase();
     const city = (row.city || "").toLowerCase();
@@ -620,7 +900,7 @@ export function Overview() {
   // Reset page number on filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedKpi, cityFilter, executiveFilter, searchQuery, sortField, sortOrder]);
+  }, [selectedKpi, cityFilter, executiveFilter, searchQuery, sortField, sortOrder, showMyTasks]);
 
   const handleSort = (field: "name" | "city" | "updated") => {
     if (sortField === field) {
@@ -648,6 +928,14 @@ export function Overview() {
     setCityFilter("");
     setExecutiveFilter("");
     setSearchQuery("");
+    setShowMyTasks(false);
+    setKpiSelected(false);
+  };
+
+  const handleKpiClick = (kpiId: string) => {
+    setSelectedKpi(kpiId);
+    setShowMyTasks(false);
+    setKpiSelected(true);
   };
 
   const formatDate = (dateStr: string | null) => {
@@ -665,7 +953,7 @@ export function Overview() {
       return;
     }
     const kpiLabel = kpis.find((k) => k.id === selectedKpi)?.label || "Data";
-    const headers = ["Company", "Contact Person", "Contact Mobile", "City", "Assigned BC", "Appt Progress", "Assessment Progress", "Installation Progress", "Commissioned Progress", "Status", "Last Updated"];
+    const headers = ["Company", "Contact Person", "Contact Mobile", "City", "Assigned Field Associate", "Appt Progress", "Assessment Progress", "Installation Progress", "Commissioned Progress", "Status", "Last Updated"];
     const rows = sortedRows.map((r) => {
       const bcNames = r.workerIds.map((id) => profileNameMap.get(id) || "—").join(", ");
       const canonicalStatus = getCanonicalStatus(r);
@@ -755,7 +1043,7 @@ export function Overview() {
       autoTable(doc, {
         startY: 38,
         margin: { left: 12, right: 12, top: 24, bottom: 14 },
-        head: [["Company", "City", "Assigned BC", "Appt / A / I / C Progress", "Status", "Updated"]],
+        head: [["Company", "City", "Assigned Field Associate", "Appt / A / I / C Progress", "Status", "Updated"]],
         body: sortedRows.map((r) => {
           const bcNames = r.workerIds.map((id) => profileNameMap.get(id) || "—").join(", ");
           const canonicalStatus = getCanonicalStatus(r);
@@ -907,7 +1195,7 @@ export function Overview() {
       id: "pending",
       label: "Pending Assignment",
       value: countPending,
-      desc: "Awaiting consultant assignment",
+      desc: "Awaiting Field Associate assignment",
       icon: UserMinus,
       badgeStyle: "text-amber-600 bg-amber-50 border-amber-200",
       dotStyle: "bg-amber-500",
@@ -925,7 +1213,7 @@ export function Overview() {
       id: "assigned_bc",
       label: "Assigned",
       value: countAssignedBc,
-      desc: "Consultant assigned, work pending",
+      desc: "Field Associate assigned, work pending",
       icon: Users,
       badgeStyle: "text-indigo-600 bg-indigo-50 border-indigo-200",
       dotStyle: "bg-indigo-500",
@@ -1039,7 +1327,7 @@ export function Overview() {
                     : "border-border bg-white hover:border-blue-400 hover:shadow-md transition-all";
                   return (
                     <button
-                      onClick={() => setSelectedKpi(k.id)}
+                      onClick={() => handleKpiClick(k.id)}
                       className={`flex flex-col justify-between w-full text-left p-4 border rounded-xl shadow-xs transition-all duration-200 group cursor-pointer h-full min-h-[130px] ${cardBorder}`}
                     >
                       <div className="flex items-start justify-between w-full">
@@ -1079,7 +1367,7 @@ export function Overview() {
                         : "border-border bg-white hover:border-emerald-400 hover:shadow-md transition-all";
                       return (
                         <button
-                          onClick={() => setSelectedKpi(k.id)}
+                          onClick={() => handleKpiClick(k.id)}
                           className={`flex flex-col justify-between w-full text-left p-4 border rounded-xl shadow-xs transition-all duration-200 group cursor-pointer h-full min-h-[130px] ${cardBorder}`}
                         >
                           <div className="flex items-start justify-between w-full">
@@ -1122,7 +1410,7 @@ export function Overview() {
                       return (
                         <button
                           key={k.id}
-                          onClick={() => setSelectedKpi(k.id)}
+                          onClick={() => handleKpiClick(k.id)}
                           className={`flex items-center justify-between w-full text-left px-3 py-2.5 border rounded-xl shadow-xs transition-all duration-200 group cursor-pointer flex-1 ${cardBorder}`}
                         >
                           <div className="flex items-center gap-3">
@@ -1172,7 +1460,7 @@ export function Overview() {
                   return (
                     <button
                       key={k.id}
-                      onClick={() => setSelectedKpi(k.id)}
+                      onClick={() => handleKpiClick(k.id)}
                       className={`flex items-center justify-between w-full text-left px-3 py-2.5 border rounded-xl shadow-xs transition-all duration-200 group cursor-pointer flex-1 ${cardBorder}`}
                     >
                       <div className="flex items-center gap-3">
@@ -1216,7 +1504,7 @@ export function Overview() {
                       return (
                         <button
                           key={k.id}
-                          onClick={() => setSelectedKpi(k.id)}
+                          onClick={() => handleKpiClick(k.id)}
                           className={`flex items-center justify-between w-full text-left px-3 py-2.5 border rounded-xl shadow-xs transition-all duration-200 group cursor-pointer flex-1 ${cardBorder}`}
                         >
                           <div className="flex items-center gap-3">
@@ -1261,7 +1549,7 @@ export function Overview() {
                       return (
                         <button
                           key={k.id}
-                          onClick={() => setSelectedKpi(k.id)}
+                          onClick={() => handleKpiClick(k.id)}
                           className={`flex items-center justify-between w-full text-left px-3 py-2.5 border rounded-xl shadow-xs transition-all duration-200 group cursor-pointer flex-1 ${cardBorder}`}
                         >
                           <div className="flex items-center gap-3">
@@ -1308,7 +1596,7 @@ export function Overview() {
                   return (
                     <button
                       key={k.id}
-                      onClick={() => setSelectedKpi(k.id)}
+                      onClick={() => handleKpiClick(k.id)}
                       className={`flex items-center justify-between w-full text-left px-3 py-2.5 border rounded-xl shadow-xs transition-all duration-200 group cursor-pointer flex-1 ${cardBorder}`}
                     >
                       <div className="flex items-center gap-3">
@@ -1338,8 +1626,54 @@ export function Overview() {
           </div>
         )}
 
-        {/* Drill-down Table Section */}
-        {selectedKpi && (
+        {/* My Tasks Section — shown by default before any KPI card is clicked */}
+        {!kpiSelected && (() => {
+          const myRows = allProcessedRows.filter(r => r.workerIds.includes(userId ?? ""));
+          return (
+            <div className="border border-border rounded-xl bg-surface p-5 space-y-4 shadow-sm">
+              <div className="flex items-center justify-between border-b border-border pb-3">
+                <div>
+                  <h3 className="text-base font-bold text-text-primary font-syne uppercase tracking-wide">My Tasks</h3>
+                  <p className="text-xs text-text-secondary mt-0.5">{myRows.length} site{myRows.length !== 1 ? "s" : ""} assigned to you</p>
+                </div>
+              </div>
+              {myRows.length === 0 ? (
+                <div className="py-10 text-center text-text-secondary text-sm">No sites are currently assigned to you.</div>
+              ) : (
+                <div className="divide-y divide-border">
+                  {myRows.map(row => {
+                    const status = getCanonicalStatus(row);
+                    const statusCls = status === "Submitted" || status === "Commissioned" || status === "Installed"
+                      ? "bg-lime/10 text-lime border-lime/30"
+                      : status === "Dropped / Rejected"
+                      ? "bg-coral/10 text-coral border-coral/30"
+                      : "bg-amber-500/10 text-amber-400 border-amber-500/30";
+                    return (
+                      <div key={row.id} className="flex items-center justify-between py-3 gap-4">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-text-primary truncate">{row.company_name || row.name}</p>
+                          <p className="text-xs text-text-secondary mt-0.5 font-mono">{row.city || "—"}</p>
+                        </div>
+                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-mono font-bold uppercase tracking-widest border shrink-0 ${statusCls}`}>
+                          {status}
+                        </span>
+                        <button
+                          onClick={() => setConsultantSiteId(row.id)}
+                          className="shrink-0 px-3 py-1.5 text-xs font-bold bg-lime text-black rounded-lg hover:bg-lime/90 transition-colors uppercase tracking-wider"
+                        >
+                          Start Consultant
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* Drill-down Table Section — only shows after a KPI card is clicked */}
+        {kpiSelected && (
           <div className="border border-border rounded-xl bg-surface p-4 space-y-4 shadow-sm">
             {/* Table Header and Filters */}
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between border-b border-border pb-4">
@@ -1380,7 +1714,7 @@ export function Overview() {
                   <Search className="absolute left-3 top-2.5 h-4 w-4 text-text-secondary" />
                   <input
                     type="text"
-                    placeholder="Search company, contact, BC..."
+                    placeholder="Search company, contact, Field Associate..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="w-full pl-9 pr-4 py-1.5 text-xs bg-surface-raised border border-border rounded-md focus:border-lime focus:outline-none transition-colors text-text-primary placeholder:text-text-dim font-semibold"
@@ -1421,8 +1755,23 @@ export function Overview() {
                   </select>
                 </div>
 
+                {/* Show My Tasks Toggle */}
+                {userId && (
+                  <button
+                    onClick={() => setShowMyTasks((prev) => !prev)}
+                    className={`flex items-center gap-1.5 border rounded-md px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
+                      showMyTasks
+                        ? "bg-lime text-black border-lime font-bold shadow-[0_0_10px_rgba(200,255,74,0.2)]"
+                        : "bg-surface-raised border-border text-text-secondary hover:text-text-primary hover:border-border-bright"
+                    }`}
+                  >
+                    <ClipboardList className="h-3.5 w-3.5" />
+                    Show My Tasks
+                  </button>
+                )}
+
                 {/* Reset Filters */}
-                {(searchQuery || cityFilter || executiveFilter) && (
+                {(searchQuery || cityFilter || executiveFilter || showMyTasks) && (
                   <button
                     onClick={handleResetFilters}
                     className="text-xs text-coral hover:text-coral/80 font-bold px-2 py-1.5 transition-colors border border-dashed border-coral/30 rounded cursor-pointer"
@@ -1440,16 +1789,17 @@ export function Overview() {
                   <tr className="border-b border-border bg-surface-raised/50 text-[10px] uppercase tracking-widest text-text-secondary font-bold">
                     <th className="px-4 py-3 min-w-[200px]">{renderSortHeader("name", "Company")}</th>
                     <th className="px-4 py-3">{renderSortHeader("city", "City")}</th>
-                    <th className="px-4 py-3">Assigned BC</th>
+                    <th className="px-4 py-3">Assigned Field Associate</th>
                     <th className="px-4 py-3 min-w-[240px]">Phases Progress</th>
                     <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3 min-w-[120px]">{renderSortHeader("updated", "Updated")}</th>
+                    <th className="px-4 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {paginatedRows.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-12 text-center text-text-secondary italic">
+                      <td colSpan={7} className="px-4 py-12 text-center text-text-secondary italic">
                         No sites found matching criteria.
                       </td>
                     </tr>
@@ -1493,6 +1843,21 @@ export function Overview() {
                           </td>
                           <td className="px-4 py-3.5 text-xs font-mono font-bold text-text-secondary">
                             {formatDate(r.progress.updated || r.assigned_at || r.appt_date)}
+                          </td>
+                          <td className="px-4 py-3.5 text-right">
+                            {userId && r.workerIds.includes(userId) ? (
+                              <Button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setConsultantSiteId(r.id);
+                                }}
+                                className="py-1 px-3 text-xs bg-lime text-black hover:bg-lime/90 font-bold uppercase tracking-wider shrink-0"
+                              >
+                                Start Consultant
+                              </Button>
+                            ) : (
+                              <span className="text-text-dim text-xs">—</span>
+                            )}
                           </td>
                         </tr>
                       );
@@ -1544,6 +1909,381 @@ export function Overview() {
             )}
           </div>
         )}
+
+        {/* Hybrid Associate Consultant Portal Modal */}
+        {consultantSiteId && (() => {
+          const modalSite = rawSites.find(s => s.id === consultantSiteId);
+          // Use enriched row for status (has .meta, .progress, .logisticsStatus)
+          const modalEnrichedRow = allProcessedRows.find(r => r.id === consultantSiteId);
+          if (!modalSite) return null;
+          const modalMeta = parseSiteMetadata(modalSite.task_notes);
+          const modalCleanNotes = modalSite.task_notes ? modalSite.task_notes.replace(/\{.*\}/, "").trim() : "";
+          const isAssessmentDone = modalProgress.assessment === 100 || modalSubmittedPhases.has("assessment");
+          const isInstallationDone = isAssessmentDone && (modalProgress.installation === 100 || modalSubmittedPhases.has("installation"));
+          const modalStatus = modalEnrichedRow ? getCanonicalStatus(modalEnrichedRow) : "Not Started Yet";
+          
+          // New order: Assessment → Device Order → Installation → Commissioning
+          const segments = [
+            { k: "assessment", label: "ASSESSMENT", pct: modalProgress.assessment },
+            { k: "order", label: "DEVICE ORDER", pct: 100 },
+            { k: "installation", label: "INSTALLATION", pct: modalProgress.installation },
+            { k: "commissioning", label: "COMMISSIONING", pct: modalProgress.commissioning },
+          ] as const;
+
+          return (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
+              <div className="relative w-full max-w-5xl bg-surface border border-border rounded-xl shadow-2xl overflow-hidden my-8 flex flex-col max-h-[90vh]">
+                {/* Modal Header */}
+                <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-surface-raised/40">
+                  <div className="flex items-center gap-2">
+                    <Building className="text-lime w-5 h-5" />
+                    <h3 className="text-lg font-bold font-syne text-text-primary uppercase tracking-wide">
+                      Consultant Portal — {modalSite.name}
+                    </h3>
+                  </div>
+                  <button
+                    onClick={() => setConsultantSiteId(null)}
+                    className="text-text-secondary hover:text-text-primary p-1 bg-surface border border-border hover:border-border-bright rounded-md transition-colors cursor-pointer"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                {/* Modal Content - Scrollable */}
+                <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                  
+                  {/* Factory Details Box matching Mockup */}
+                  <div className="bg-surface-raised/30 p-6 rounded-xl border border-border/80 space-y-6">
+                    <div className="flex items-center justify-between border-b border-border/60 pb-3">
+                      <div>
+                        <div className="text-[10px] uppercase font-mono tracking-widest text-lime font-bold">
+                          Details of the Factory
+                        </div>
+                        <h3 className="text-xl font-extrabold font-syne text-text-primary uppercase tracking-tight mt-1">
+                          {modalSite.name}
+                        </h3>
+                      </div>
+                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-mono font-bold uppercase tracking-widest border ${
+                        modalStatus === "Submitted" || modalStatus === "Commissioned" || modalStatus === "Installed"
+                          ? "bg-lime/10 text-lime border-lime/30"
+                          : modalStatus === "Dropped / Rejected"
+                          ? "bg-coral/10 text-coral border-coral/30"
+                          : "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                      }`}>
+                        {modalStatus}
+                      </span>
+                    </div>
+                    
+                    <div className="grid gap-4 md:grid-cols-3">
+                      {/* Location Address Card */}
+                      <div className="bg-surface/50 p-4 rounded-xl border border-border flex gap-3">
+                        <MapPin className="text-lime w-5 h-5 shrink-0 mt-0.5" />
+                        <div>
+                          <div className="font-mono text-[9px] uppercase tracking-wider text-text-secondary">Location & Address</div>
+                          <p className="mt-1 font-semibold text-text-primary text-sm leading-snug">{modalSite.address || "—"}</p>
+                          <span className="inline-block mt-2 font-mono text-[10px] bg-surface-raised px-2 py-0.5 border border-border rounded text-text-secondary font-bold uppercase">{modalSite.city || "—"}</span>
+                        </div>
+                      </div>
+
+                      {/* Primary Contact Card */}
+                      <div className="bg-surface/50 p-4 rounded-xl border border-border flex gap-3">
+                        <User className="text-lime w-5 h-5 shrink-0 mt-0.5" />
+                        <div className="flex-1 min-w-0">
+                          <div className="font-mono text-[9px] uppercase tracking-wider text-text-secondary">Primary Contact</div>
+                          {(modalMeta.c1_name || modalMeta.c1_mobile || modalMeta.c1_email) ? (
+                            <div className="mt-1 space-y-1 text-sm">
+                              {modalMeta.c1_name && <p className="font-semibold text-text-primary truncate">{modalMeta.c1_name}</p>}
+                              {modalMeta.c1_mobile && (
+                                <a href={`tel:${modalMeta.c1_mobile}`} className="text-lime hover:underline font-mono text-xs flex items-center gap-1.5 mt-0.5 font-bold">
+                                  <Phone size={11} /> {modalMeta.c1_mobile}
+                                </a>
+                              )}
+                              {modalMeta.c1_email && (
+                                <div className="text-text-secondary text-xs truncate flex items-center gap-1.5 mt-0.5 font-mono">
+                                  <Mail size={11} /> {modalMeta.c1_email}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="mt-1 text-xs text-text-dim italic">No contact details</p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Secondary Contact Card */}
+                      <div className="bg-surface/50 p-4 rounded-xl border border-border flex gap-3">
+                        <User className="text-lime w-5 h-5 shrink-0 mt-0.5" />
+                        <div className="flex-1 min-w-0">
+                          <div className="font-mono text-[9px] uppercase tracking-wider text-text-secondary">Secondary Contact</div>
+                          {(modalMeta.c2_name || modalMeta.c2_mobile || modalMeta.c2_email) ? (
+                            <div className="mt-1 space-y-1 text-sm">
+                              {modalMeta.c2_name && <p className="font-semibold text-text-primary truncate">{modalMeta.c2_name}</p>}
+                              {modalMeta.c2_mobile && (
+                                <a href={`tel:${modalMeta.c2_mobile}`} className="text-lime hover:underline font-mono text-xs flex items-center gap-1.5 mt-0.5 font-bold">
+                                  <Phone size={11} /> {modalMeta.c2_mobile}
+                                </a>
+                              )}
+                              {modalMeta.c2_email && (
+                                <div className="text-text-secondary text-xs truncate flex items-center gap-1.5 mt-0.5 font-mono">
+                                  <Mail size={11} /> {modalMeta.c2_email}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="mt-1 text-xs text-text-dim italic">No contact details</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Client Form Sharing */}
+                    <div className="bg-surface/50 p-4 rounded-xl border border-border flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <Mail className="text-lime w-5 h-5 shrink-0" />
+                        <div>
+                          <h4 className="font-syne font-bold text-xs uppercase tracking-wider text-text-primary">
+                            Client Self-Submission Link
+                          </h4>
+                          <p className="text-[10px] text-text-secondary mt-0.5">
+                            Generate a secure access key to invite the client to fill their factory details directly.
+                          </p>
+                        </div>
+                      </div>
+                      
+                      <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center w-full md:max-w-lg">
+                        <div className="flex-1">
+                          <Input
+                            placeholder="Client email address"
+                            value={clientShareEmail}
+                            onChange={(e) => setClientShareEmail(e.target.value)}
+                            className="h-8 text-xs bg-surface"
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            onClick={handleGenerateShareLink}
+                            className="py-1 px-3 text-xs bg-surface border border-border text-text-primary hover:bg-surface-raised font-bold uppercase tracking-wider shrink-0"
+                          >
+                            Link Only
+                          </Button>
+                          <Button
+                            onClick={handleSendEmail}
+                            disabled={sendingEmail}
+                            className="py-1 px-3 text-xs bg-lime text-black hover:bg-lime/90 font-bold uppercase tracking-wider shrink-0"
+                          >
+                            {sendingEmail ? "Sending..." : "Send Mail"}
+                          </Button>
+                          {generatedLink && (
+                            <Button
+                              onClick={handleCopyLink}
+                              className="py-1 px-3 text-xs bg-surface border border-border text-text-primary hover:bg-surface-raised shrink-0 font-mono"
+                            >
+                              Copy
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="grid gap-4 md:grid-cols-2 pt-4 border-t border-border/60 items-center">
+                      {/* Appointment Pills */}
+                      <div className="flex flex-wrap gap-2">
+                        <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-text-secondary bg-surface px-3 py-1.5 border border-border rounded-full font-semibold shadow-sm">
+                          <Calendar size={13} className="text-lime shrink-0" />
+                          Appt: {modalSite.appt_date ? modalSite.appt_date : "Not scheduled"}
+                        </span>
+                        <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-text-secondary bg-surface px-3 py-1.5 border border-border rounded-full font-semibold shadow-sm">
+                          <Clock size={13} className="text-lime shrink-0" />
+                          Time: {modalSite.appt_time ? modalSite.appt_time.slice(0, 5) : "No time set"}
+                        </span>
+                      </div>
+                      
+                      {/* Update Stage dropdown */}
+                      <div className="flex flex-col gap-1.5 md:items-end">
+                        <div className="flex items-center gap-2 w-full md:max-w-xs justify-between md:justify-end">
+                          <span className="text-[10px] font-mono uppercase tracking-wider text-text-secondary font-bold shrink-0">Workflow Stage:</span>
+                          <Select
+                            value={modalSite.consultant_stage ?? ""}
+                            onChange={(e) => {
+                              const stage = e.target.value;
+                              if (stage === "Billing" || stage === "Completion") void updateConsultantStage(stage);
+                            }}
+                            className="py-1 px-2 text-xs h-8 max-w-[160px]"
+                          >
+                            <option value="">Select reached…</option>
+                            <option value="Billing">Billing</option>
+                            <option value="Completion">Completion</option>
+                          </Select>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {modalCleanNotes && (
+                      <div className="pt-4 border-t border-border/60 flex gap-2 text-sm text-text-secondary">
+                        <BookOpen size={16} className="text-lime shrink-0 mt-0.5" />
+                        <p>{modalCleanNotes}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Chunky Horizontal Phase Progress Tabs */}
+                  <nav className="flex flex-col md:flex-row gap-4 mt-6">
+                    {segments.map((s) => {
+                      const isActive = modalTab === s.k;
+                      // Submission-only lock — no progress % dependency
+                      const isLocked = (() => {
+                        if (s.k === "order")         return !modalSubmittedPhases.has("assessment");
+                        if (s.k === "installation")  return !modalSubmittedPhases.has("assessment");
+                        if (s.k === "commissioning") return !modalSubmittedPhases.has("installation");
+                        return false;
+                      })();
+
+                      return (
+                        <button
+                          key={s.k}
+                          onClick={() => {
+                            if (isLocked) {
+                              const needed = (s.k === "commissioning") ? "Installation" : "Assessment";
+                              toast.error(`Please submit the ${needed} phase first to unlock this tab.`);
+                              return;
+                            }
+                            setModalTab(s.k);
+                          }}
+                          className={`relative flex-1 h-[58px] bg-surface border rounded-xl overflow-hidden flex items-center px-5 transition-all duration-300 ${
+                            isLocked
+                              ? "opacity-50 border-border/40 cursor-not-allowed"
+                              : isActive 
+                                ? "border-lime ring-2 ring-lime/20 scale-[1.02] shadow-[0_0_20px_rgba(200,255,74,0.1)] cursor-pointer" 
+                                : "border-border hover:border-border-bright hover:bg-surface-raised/20 cursor-pointer"
+                          }`}
+                        >
+                          <div
+                            className="absolute left-0 top-0 bottom-0 bg-gradient-to-r from-lime/30 to-mint/30 transition-all duration-500 ease-out"
+                            style={{ width: `${s.pct}%` }}
+                          />
+                          <div className="relative z-10 w-full flex items-center justify-between font-mono text-[11px] font-bold tracking-widest text-text-primary">
+                            <span className="flex items-center gap-2">
+                              {isLocked ? (
+                                <Lock size={12} className="text-text-secondary" />
+                              ) : (
+                                <span className={`w-2 h-2 rounded-full ${isActive ? "bg-lime animate-pulse" : "bg-text-dim"}`} />
+                              )}
+                              {s.label}
+                            </span>
+                            <span className="bg-surface-raised px-2 py-0.5 rounded text-[10px] border border-border">
+                              {s.pct}%
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </nav>
+
+                  {/* Phase Name Label matching Mockup */}
+                  <div className="pt-4 border-t border-border">
+                    <p className="font-mono text-[10px] uppercase tracking-widest text-text-secondary font-bold mb-2">Phase Name</p>
+                    <h2 className="text-xl uppercase tracking-tight font-extrabold text-text-primary font-syne">
+                      {modalTab === "assessment" ? "Assessment Visit" : modalTab === "installation" ? "Installation Phase" : modalTab === "commissioning" ? "Commissioning Phase" : "Device & Sensor Order"}
+                    </h2>
+                  </div>
+
+                  {/* Tab content inside modal */}
+                  <div className="mt-6 space-y-4 pb-8">
+                    {modalTab === "assessment" && (
+                      modalSubmittedPhases.has("assessment")
+                        ? (
+                          <div className="flex flex-col items-center justify-center py-16 text-center border border-lime/20 bg-lime/5 rounded-xl">
+                            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-lime/20 text-lime mb-4">
+                              <Check size={24} strokeWidth={2} />
+                            </div>
+                            <h3 className="text-xl font-syne font-bold uppercase tracking-wide text-lime">
+                              Assessment Visit Submitted
+                            </h3>
+                            <p className="mt-1 text-sm text-text-secondary max-w-xs">
+                              This phase is complete. Proceed to the next phase when ready.
+                            </p>
+                            <Button className="mt-6" onClick={() => setModalTab("order")}>
+                              Go to Device Order
+                            </Button>
+                          </div>
+                        )
+                        : <AssessmentTab siteId={modalSite.id} workerId={userId!} onSubmit={() => { loadData(); }} />
+                    )}
+
+                    {modalTab === "installation" && (
+                      !modalSubmittedPhases.has("assessment") ? (
+                        <Card className="p-8 text-center space-y-4 border border-border flex flex-col items-center">
+                          <div className="w-12 h-12 rounded-full bg-surface-raised border border-border flex items-center justify-center text-text-secondary">
+                            <Lock size={20} />
+                          </div>
+                          <h3 className="text-lg font-bold text-text-primary font-syne uppercase">Phase Locked</h3>
+                          <p className="text-sm text-text-secondary max-w-md mx-auto">
+                            Please submit the Assessment phase first to unlock Installation.
+                          </p>
+                          <Button onClick={() => setModalTab("assessment")}>Go to Assessment</Button>
+                        </Card>
+                      ) : modalSubmittedPhases.has("installation")
+                        ? (
+                          <div className="flex flex-col items-center justify-center py-16 text-center border border-lime/20 bg-lime/5 rounded-xl">
+                            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-lime/20 text-lime mb-4">
+                              <Check size={24} strokeWidth={2} />
+                            </div>
+                            <h3 className="text-xl font-syne font-bold uppercase tracking-wide text-lime">
+                              Installation Submitted
+                            </h3>
+                            <p className="mt-1 text-sm text-text-secondary max-w-xs">
+                              This phase is complete. Proceed to the next phase when ready.
+                            </p>
+                            <Button className="mt-6" onClick={() => setModalTab("commissioning")}>
+                              Go to Commissioning
+                            </Button>
+                          </div>
+                        )
+                        : <InstallationTab siteId={modalSite.id} workerId={userId!} onSubmit={() => { loadData(); }} />
+                    )}
+
+                    {modalTab === "commissioning" && (
+                      !modalSubmittedPhases.has("installation") ? (
+                        <Card className="p-8 text-center space-y-4 border border-border flex flex-col items-center">
+                          <div className="w-12 h-12 rounded-full bg-surface-raised border border-border flex items-center justify-center text-text-secondary">
+                            <Lock size={20} />
+                          </div>
+                          <h3 className="text-lg font-bold text-text-primary font-syne uppercase">Phase Locked</h3>
+                          <p className="text-sm text-text-secondary max-w-md mx-auto">
+                            Please submit the Installation phase first to unlock Commissioning.
+                          </p>
+                          <Button onClick={() => setModalTab("installation")}>Go to Installation</Button>
+                        </Card>
+                      ) : modalSubmittedPhases.has("commissioning")
+                        ? (
+                          <div className="flex flex-col items-center justify-center py-16 text-center border border-lime/20 bg-lime/5 rounded-xl">
+                            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-lime/20 text-lime mb-4">
+                              <Check size={24} strokeWidth={2} />
+                            </div>
+                            <h3 className="text-xl font-syne font-bold uppercase tracking-wide text-lime">
+                              Commissioning Submitted
+                            </h3>
+                            <p className="mt-1 text-sm text-text-secondary max-w-xs">
+                              This phase is complete. Proceed to device order details.
+                            </p>
+                            <Button className="mt-6" onClick={() => setModalTab("order")}>
+                              Go to Device Order
+                            </Button>
+                          </div>
+                        )
+                        : <CommissioningTab siteId={modalSite.id} workerId={userId!} onSubmit={() => { loadData(); }} />
+                    )}
+
+                    {modalTab === "order" && (
+                      <OrderTab site={{ id: modalSite.id, name: modalSite.name, company_name: modalSite.company_name, city: modalSite.city, address: modalSite.address }} workerId={userId!} />
+                    )}
+                  </div>
+
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

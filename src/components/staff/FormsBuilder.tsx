@@ -206,9 +206,9 @@ export function FormsBuilder() {
                 </Select>
               </div>
               <div>
-                <Label>BC Assignment</Label>
+                <Label>Field Associate Assignment</Label>
                 <Select value={targetConsultant} onChange={(e) => setTargetConsultant(e.target.value)}>
-                  <option value="all">All Consultants</option>
+                  <option value="all">All Field Associates</option>
                   {consultants.map((c) => (
                     <option key={c.id} value={c.id}>{c.name || c.email || "Unnamed"}</option>
                   ))}
@@ -241,7 +241,7 @@ export function FormsBuilder() {
                         <span className="font-mono text-[9px] uppercase tracking-widest text-text-secondary bg-surface-raised px-1.5 py-0.5 rounded-[4px]">
                           For: {(() => {
                             const wId = f.options?.worker_id;
-                            if (!wId || wId === "all") return "All Consultants";
+                            if (!wId || wId === "all") return "All Field Associates";
                             const found = consultants.find((c) => c.id === wId);
                             return found ? (found.name || found.email || "Unnamed") : "Unknown";
                           })()}
@@ -276,7 +276,7 @@ export function FormsBuilder() {
               <h3 className="text-lg font-bold uppercase tracking-wider">Section Visibility Settings</h3>
             </div>
             <p className="text-sm text-text-secondary mb-6">
-              Select which sections are visible to Business Consultants. Checked sections will be visible, unchecked sections will be hidden.
+              Select which sections are visible to Field Associates. Checked sections will be visible, unchecked sections will be hidden.
             </p>
 
             <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 bg-surface-raised p-6 border border-border rounded-[10px]">

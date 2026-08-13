@@ -34,15 +34,18 @@ export const useAuth = create<AuthState>((set, get) => ({
       set({ ready: true, userId: null, email: null, role: null, profile: null });
       return;
     }
-    const [{ data: roleRow }, { data: profile }] = await Promise.all([
-      supabase.from("user_roles").select("role").eq("user_id", user.id).limit(1).maybeSingle(),
+    const [{ data: roleRows }, { data: profile }] = await Promise.all([
+      supabase.from("user_roles").select("role").eq("user_id", user.id),
       supabase.from("profiles").select("name,mobile,whatsapp,is_active").eq("id", user.id).maybeSingle(),
     ]);
+    // Prioritize supervisor: if user has both worker+supervisor, treat them as supervisor
+    const roles = (roleRows ?? []).map((r: any) => r.role as AppRole);
+    const resolvedRole: AppRole = roles.includes("supervisor") ? "supervisor" : (roles[0] ?? "worker");
     set({
       ready: true,
       userId: user.id,
       email: user.email ?? null,
-      role: (roleRow?.role as AppRole) ?? "worker",
+      role: resolvedRole,
       profile: profile ?? null,
     });
   },

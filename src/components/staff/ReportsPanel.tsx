@@ -161,7 +161,7 @@ export function ReportsPanel() {
         if (siteResult.error)
           toast.error("Could not load factory report: " + siteResult.error.message);
         if (consultantResult.error)
-          toast.error("Could not load business consultants: " + consultantResult.error.message);
+          toast.error("Could not load field associates: " + consultantResult.error.message);
 
         setSites(siteResult.data ?? []);
         const workerIds = new Set((rolesRes.data ?? []).map((r: any) => r.user_id));
@@ -417,7 +417,7 @@ export function ReportsPanel() {
 
   const exportCsv = () => {
     const lines = [
-      ["Company", "Factory", "City", "Business Associate", "Status", "Created"],
+      ["Company", "Factory", "City", "Field Associate", "Status", "Created"],
       ...filteredRows.map((row) => [
         row.companyName,
         row.factoryName,
@@ -535,7 +535,7 @@ export function ReportsPanel() {
           autoTable(doc, {
             startY: y + 5,
             margin: { left: 12, right: 12, top: 20, bottom: 14 },
-            head: [["Company", "Factory", "City", "Business Consultant", "Status"]],
+            head: [["Company", "Factory", "City", "Field Associate", "Status"]],
             body: groupRows.map((row) => [
               row.companyName,
               row.factoryName,
@@ -632,10 +632,10 @@ export function ReportsPanel() {
       addGroupedTables("Status breakdown", statusGroups);
       addSectionPage(
         "03",
-        "Business consultant pages",
-        "Assignments and workload grouped by business consultant.",
+        "Field Associate pages",
+        "Assignments and workload grouped by field associate.",
       );
-      addGroupedTables("Business consultant breakdown", associateGroups);
+      addGroupedTables("Field Associate breakdown", associateGroups);
 
       const totalPages = doc.getNumberOfPages();
       for (let page = 1; page <= totalPages; page += 1) {
@@ -694,7 +694,7 @@ export function ReportsPanel() {
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" />
           <Input
             className="pl-10"
-            placeholder="Search company, factory, city, consultant or status…"
+            placeholder="Search company, factory, city, Field Associate or status…"
             value={filters.search}
             onChange={(event) => setFilters({ ...filters, search: event.target.value })}
           />
@@ -707,12 +707,12 @@ export function ReportsPanel() {
             options={cities}
           />
           <div>
-            <Label>Business Consultant</Label>
+            <Label>Field Associate</Label>
             <Select
               value={filters.consultant}
               onChange={(event) => setFilters({ ...filters, consultant: event.target.value })}
             >
-              <option value="">All Consultants</option>
+              <option value="">All Field Associates</option>
               {consultants.map((consultant) => (
                 <option key={consultant.id} value={consultant.id}>
                   {consultant.name || consultant.mobile || "Unnamed"}
@@ -766,7 +766,7 @@ export function ReportsPanel() {
         <ViewButton
           active={view === "consultant"}
           icon={UserRound}
-          label="Consultant-wise"
+          label="Field Associate-wise"
           onClick={() => setView("consultant")}
         />
       </div>
@@ -784,7 +784,7 @@ export function ReportsPanel() {
       ) : (
         <GroupedView
           groups={consultantGroups.map(([, group]) => group)}
-          emptyMessage="No consultants or factories match the selected filters."
+          emptyMessage="No Field Associates or factories match the selected filters."
           showCompany
         />
       )}
@@ -945,7 +945,7 @@ function GroupedView({
                     {showCompany && <th className="px-5 py-3">Company</th>}
                     <th className="px-5 py-3">Factory / Site Name</th>
                     <th className="px-5 py-3">City</th>
-                    {!showCompany && <th className="px-5 py-3">Consultant</th>}
+                    {!showCompany && <th className="px-5 py-3">Field Associate</th>}
                     <th className="px-5 py-3">Status</th>
                   </tr>
                 </thead>

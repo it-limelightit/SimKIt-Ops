@@ -268,7 +268,7 @@ function ClientFormPage() {
 
     const fetchFormDetails = async () => {
       if (!token) {
-        setErrorMsg("No access token provided. Please use the complete link shared by your consultant.");
+        setErrorMsg("No access token provided. Please use the complete link shared by your Field Associate.");
         setLoading(false);
         return;
       }
@@ -370,7 +370,7 @@ function ClientFormPage() {
             </p>
           </div>
           <p className="text-xs text-text-secondary leading-relaxed">
-            Thank you for filling out the factory operational questionnaire. Your consultant and project managers have been notified and will review your inputs.
+            Thank you for filling out the factory operational questionnaire. Your Field Associate and project managers have been notified and will review your inputs.
           </p>
           <div className="text-[10px] font-mono text-text-dim border-t border-border/40 pt-4">
             You can safely close this window now.

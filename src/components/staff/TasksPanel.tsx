@@ -100,7 +100,7 @@ export function TasksPanel({ hideHeader = false }: { hideHeader?: boolean }) {
 
   const save = async (siteId: string) => {
     if (!form.worker || !form.date || !form.time) {
-      toast.error("Business Consultant, date and time are required");
+      toast.error("Field Associate, date and time are required");
       return;
     }
     const notesWithPrefix = `[PHASE:${form.phase}]${form.notes}`;
@@ -150,7 +150,7 @@ export function TasksPanel({ hideHeader = false }: { hideHeader?: boolean }) {
           <p className="font-mono text-[11px] uppercase tracking-widest text-stone">Schedule</p>
           <h1 className="mt-2 text-4xl">Tasks</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Assign a Business Consultant, appointment date and time to each site. The Business Consultant only sees the site after a task is set.
+            Assign a Field Associate, appointment date and time to each site. The Field Associate only sees the site after a task is set.
           </p>
         </header>
       )}
@@ -182,7 +182,7 @@ export function TasksPanel({ hideHeader = false }: { hideHeader?: boolean }) {
 
                 {!isEditing && hasTask && (
                   <div className="mt-4 grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
-                    <Field label="Business Consultant" value={nameOf(s.assigned_worker_id)} />
+                    <Field label="Field Associate" value={nameOf(s.assigned_worker_id)} />
                     <Field label="Date" value={s.appt_date ?? "—"} />
                     <Field label="Time" value={s.appt_time?.slice(0, 5) ?? "—"} />
                     <Field
@@ -209,9 +209,9 @@ export function TasksPanel({ hideHeader = false }: { hideHeader?: boolean }) {
                 {isEditing && (
                   <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
                     <div>
-                      <Label>Business Consultant</Label>
+                      <Label>Field Associate</Label>
                       <Select value={form.worker} onChange={(e) => setForm({ ...form, worker: e.target.value })}>
-                        <option value="">Choose Business Consultant</option>
+                        <option value="">Choose Field Associate</option>
                         {businessConsultants.map((w) => (
                           <option key={w.id} value={w.id}>
                             {w.name ?? w.id.slice(0, 8)}
@@ -257,7 +257,7 @@ export function TasksPanel({ hideHeader = false }: { hideHeader?: boolean }) {
                         rows={2}
                         value={form.notes}
                         onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                        placeholder="Instructions for the Business Consultant"
+                        placeholder="Instructions for the Field Associate"
                       />
                     </div>
                     <div className="md:col-span-3 flex justify-end gap-2">

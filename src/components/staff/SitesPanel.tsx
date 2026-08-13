@@ -87,7 +87,7 @@ function BCMultiSelect({
         <div className="absolute z-50 mt-1 w-max min-w-full rounded-[6px] border border-border bg-surface shadow-lg">
           <div className="max-h-52 overflow-y-auto">
             {allBCs.length === 0 ? (
-              <div className="px-3 py-2 text-xs text-text-dim italic">No BCs available</div>
+              <div className="px-3 py-2 text-xs text-text-dim italic">No Field Associates available</div>
             ) : (
               allBCs.map((w) => {
                 const checked = draft.includes(w.id);
@@ -160,6 +160,7 @@ function pctKeys(data: any, keys: string[]) {
 export function SitesPanel() {
   const formRevealRef = useRef<HTMLDivElement>(null);
   const [sites, setSites] = useState<any[]>([]);
+  const [materials, setMaterials] = useState<any[]>([]);
   const [businessConsultants, setBusinessConsultants] = useState<any[]>([]);
   const [assessments, setAssessments] = useState<any[]>([]);
   const [installations, setInstallations] = useState<any[]>([]);
@@ -214,7 +215,7 @@ export function SitesPanel() {
   });
 
   const load = async () => {
-    const [s, w, aRes, iRes, cRes, rRes] = await Promise.all([
+    const [s, w, aRes, iRes, cRes, rRes, mRes] = await Promise.all([
       supabase
         .from("sites")
         .select(
@@ -226,6 +227,7 @@ export function SitesPanel() {
       supabase.from("installation").select("data,updated_at,site_id"),
       supabase.from("commissioning").select("data,updated_at,site_id"),
       supabase.from("user_roles").select("user_id").eq("role", "worker"),
+      supabase.from("inventory_materials").select("state,notes,submitted,material_name,created_at"),
     ]);
     if (s.error) toast.error("Error loading sites: " + s.error.message);
     if (w.error) toast.error("Error loading profiles: " + w.error.message);
@@ -235,6 +237,7 @@ export function SitesPanel() {
     setAssessments(aRes.data ?? []);
     setInstallations(iRes.data ?? []);
     setCommissionings(cRes.data ?? []);
+    setMaterials(mRes.data ?? []);
   };
 
   useEffect(() => {
@@ -305,9 +308,53 @@ export function SitesPanel() {
     return stage.includes("assessment") || aP > 0;
   };
 
+  const normalizeCompanyName = (name: string): string => {
+    if (!name) return "";
+    return name
+      .toLowerCase()
+      .replace(/^m\/s\.?\s+|^ms\.?\s+/i, "")
+      .replace(/\s+pvt\.?\s*ltd\.?|\s+private\s+limited/i, "")
+      .replace(/\s+ltd\.?/i, "")
+      .replace(/[^a-z0-9]/g, "")
+      .trim();
+  };
+
+  const getLogisticsStatus = (m: any): string => {
+    try {
+      if (!m.notes) return m.state === "In transit" ? "Transit" : (m.state || "Pending");
+      
+      let parsed = m.notes;
+      if (typeof m.notes === "string") {
+        const trimmed = m.notes.trim();
+        if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+          parsed = JSON.parse(trimmed);
+        } else {
+          return m.state === "In transit" ? "Transit" : (m.state || "Pending");
+        }
+      }
+      
+      if (parsed && typeof parsed === "object" && parsed.logistics_status) {
+        return parsed.logistics_status;
+      }
+    } catch (e) {
+      console.error("Error parsing logistics status:", e);
+    }
+    return m.state === "In transit" ? "Transit" : (m.state || "Pending");
+  };
+
   const getCanonicalStatus = (site: any): string => {
     const meta = parseSiteMetadata(site.task_notes);
     const workerIds = getSiteWorkerIds(site);
+
+    const matchingMaterial = materials.find((m) => {
+      if (m.submitted === false) return false;
+      const normMat = normalizeCompanyName(m.material_name);
+      const normComp = normalizeCompanyName(site.company_name);
+      const normName = normalizeCompanyName(site.name);
+      return (normComp && (normMat.includes(normComp) || normComp.includes(normMat))) ||
+             (normName && (normMat.includes(normName) || normName.includes(normMat)));
+    });
+    const logisticsStatus = matchingMaterial ? getLogisticsStatus(matchingMaterial) : "Pending";
 
     // 1. Explicit manager overrides (highest priority)
     if (meta.status === "Dropped / Rejected" || meta.status === "Reject") return "Dropped / Rejected";
@@ -316,6 +363,11 @@ export function SitesPanel() {
     if (meta.status === "Commissioned") return "Commissioned";
     if (meta.status === "Installed") return "Installed";
     if (meta.status === "Panel Dispatched") return "Panel Dispatched";
+
+    // 2. Logistics override (Panel Dispatched)
+    if (logisticsStatus === "Delivered") return "Panel Dispatched";
+
+    // 3. Lower priority explicit manager overrides
     if (meta.status === "Assessed" || meta.status === "In Assessment") return "Assessed";
     if (meta.status === "Unsubmitted") return "Unsubmitted";
     if (meta.status === "Not Started Yet") return "Not Started Yet";
@@ -328,16 +380,24 @@ export function SitesPanel() {
     const ir = iMap.get(site.id);
     const cr = cMap.get(site.id);
 
-    const isAssessmentSubmitted = !!ar?.data?.assessment_phase_submitted;
-    const isInstallationCompleted = (!!ir?.data?.delivery_confirmed && !!ir?.data?.coordination_done && !!ir?.data?.photos_uploaded) || pctKeys(ir?.data, INSTALLATION_KEYS) === 100;
-    const isCommissioningCompleted = !!cr?.data?.commissioning_phase_submitted || pctKeys(cr?.data, COMMISSIONING_KEYS) === 100;
+    const aP = ar?.data?.assessment_phase_submitted ? 100 : pctKeys(ar?.data, ASSESSMENT_KEYS);
+    const iP = pctKeys(ir?.data, INSTALLATION_KEYS);
+    const cP = pctKeys(cr?.data, COMMISSIONING_KEYS);
+
+    const isAssessmentSubmitted = !!ar?.data?.assessment_phase_submitted || aP === 100;
+    const isInstallationCompleted = (!!ir?.data?.delivery_confirmed && !!ir?.data?.coordination_done && !!ir?.data?.photos_uploaded) || iP === 100;
+    const isCommissioningCompleted = !!cr?.data?.commissioning_phase_submitted || cP === 100;
     const isCertSent = !!cr?.data?.certificate_sent || !!ar?.data?.certificate_sent;
 
+    if (isCommissioningCompleted) return "Commissioned";
+    if (isInstallationCompleted) return "Installed";
     if (isAssessmentSubmitted) {
       if (isCertSent) return "Submitted";
-      if (isCommissioningCompleted) return "Commissioned";
-      if (isInstallationCompleted) return "Installed";
       return "Assessed";
+    }
+
+    if (aP === 0 && iP === 0 && cP === 0) {
+      return "Not Started Yet";
     }
 
     // 3. Default Assignment / Status Fallbacks
@@ -675,6 +735,93 @@ export function SitesPanel() {
 
     if (error) toast.error(error.message);
     else {
+      const siteObj = sites.find((s: any) => s.id === siteId);
+      const workerId = siteObj?.assigned_worker_id || null;
+
+      if (metaStatus === "Commissioned") {
+        await Promise.all([
+          supabase.from("assessment").upsert({
+            site_id: siteId,
+            worker_id: workerId,
+            data: { mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
+          }, { onConflict: "site_id" }),
+          supabase.from("installation").upsert({
+            site_id: siteId,
+            worker_id: workerId,
+            data: { delivery_confirmed: true, coordination_done: true, photos_uploaded: true, installation_phase_submitted: true }
+          }, { onConflict: "site_id" }),
+          supabase.from("commissioning").upsert({
+            site_id: siteId,
+            worker_id: workerId,
+            data: {
+              coordination_done: true,
+              visit_done: true,
+              connection_done: true,
+              configure_done: true,
+              testing_done: true,
+              screenshots_uploaded: true,
+              certificate_sent: true,
+              final_mom_uploaded: true,
+              commissioning_phase_submitted: true
+            }
+          }, { onConflict: "site_id" })
+        ]);
+      } else if (metaStatus === "Installed") {
+        await Promise.all([
+          supabase.from("assessment").upsert({
+            site_id: siteId,
+            worker_id: workerId,
+            data: { mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
+          }, { onConflict: "site_id" }),
+          supabase.from("installation").upsert({
+            site_id: siteId,
+            worker_id: workerId,
+            data: { delivery_confirmed: true, coordination_done: true, photos_uploaded: true, installation_phase_submitted: true }
+          }, { onConflict: "site_id" }),
+          supabase.from("commissioning").upsert({
+            site_id: siteId,
+            worker_id: workerId,
+            data: {}
+          }, { onConflict: "site_id" })
+        ]);
+      } else if (metaStatus === "Assessed") {
+        await Promise.all([
+          supabase.from("assessment").upsert({
+            site_id: siteId,
+            worker_id: workerId,
+            data: { mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
+          }, { onConflict: "site_id" }),
+          supabase.from("installation").upsert({
+            site_id: siteId,
+            worker_id: workerId,
+            data: {}
+          }, { onConflict: "site_id" }),
+          supabase.from("commissioning").upsert({
+            site_id: siteId,
+            worker_id: workerId,
+            data: {}
+          }, { onConflict: "site_id" })
+        ]);
+      } else if (metaStatus === "Not Started Yet") {
+        await Promise.all([
+          supabase.from("assessment").upsert({
+            site_id: siteId,
+            worker_id: workerId,
+            data: {}
+          }, { onConflict: "site_id" }),
+          supabase.from("installation").upsert({
+            site_id: siteId,
+            worker_id: workerId,
+            data: {}
+          }, { onConflict: "site_id" }),
+          supabase.from("commissioning").upsert({
+            site_id: siteId,
+            worker_id: workerId,
+            data: {}
+          }, { onConflict: "site_id" })
+        ]);
+      }
+
       setClientUpdateTimes(prev => ({ ...prev, [siteId]: Date.now() }));
       await load();
     }
@@ -996,11 +1143,11 @@ export function SitesPanel() {
                   </Select>
                 </div>
                 <div>
-                  <Label>Assign Business Consultants</Label>
+                  <Label>Assign Field Associates</Label>
                   <div className="mt-1 border border-border rounded-[6px] divide-y divide-border max-h-44 overflow-y-auto">
                     {businessConsultants.length === 0 ? (
                       <p className="px-3 py-2 text-xs text-text-dim italic">
-                        No active BCs available
+                        No active Field Associates available
                       </p>
                     ) : (
                       businessConsultants.map((w) => {
@@ -1036,7 +1183,7 @@ export function SitesPanel() {
                   </div>
                   {form.workers.length > 0 && (
                     <p className="mt-1 text-[10px] font-mono text-lime/70">
-                      {form.workers.length} BC{form.workers.length > 1 ? "s" : ""} selected
+                      {form.workers.length} Field Associate{form.workers.length > 1 ? "s" : ""} selected
                     </p>
                   )}
                 </div>
@@ -1153,7 +1300,7 @@ export function SitesPanel() {
             onChange={(e) => setFilterBC(e.target.value)}
             className={`rounded-[6px] border px-2.5 py-1.5 text-xs font-mono focus:outline-none transition-colors cursor-pointer ${filterBC ? "border-lime bg-lime/5 text-lime" : "border-border bg-surface text-text-secondary"}`}
           >
-            <option value="">All BCs</option>
+            <option value="">All Field Associates</option>
             {businessConsultants.map((w) => (
               <option key={w.id} value={w.id}>
                 {w.name ?? w.mobile}
@@ -1317,7 +1464,7 @@ export function SitesPanel() {
                         />
                         {assignedIds.length > 1 && (
                           <p className="mt-1 font-mono text-[9px] text-lime/60">
-                            {assignedIds.length} BCs assigned
+                            {assignedIds.length} Field Associates assigned
                           </p>
                         )}
                       </td>
