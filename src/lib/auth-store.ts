@@ -9,6 +9,7 @@ type AuthState = {
   userId: string | null;
   email: string | null;
   role: AppRole | null;
+  roles: AppRole[];
   profile: {
     name: string | null;
     mobile: string | null;
@@ -25,13 +26,14 @@ export const useAuth = create<AuthState>((set, get) => ({
   userId: null,
   email: null,
   role: null,
+  roles: [],
   profile: null,
   setSession: (s) => set(s),
   refresh: async () => {
     const { data } = await supabase.auth.getUser();
     const user = data.user;
     if (!user) {
-      set({ ready: true, userId: null, email: null, role: null, profile: null });
+      set({ ready: true, userId: null, email: null, role: null, roles: [], profile: null });
       return;
     }
     const [{ data: roleRows }, { data: profile }] = await Promise.all([
@@ -46,12 +48,13 @@ export const useAuth = create<AuthState>((set, get) => ({
       userId: user.id,
       email: user.email ?? null,
       role: resolvedRole,
+      roles,
       profile: profile ?? null,
     });
   },
   signOut: async () => {
     await supabase.auth.signOut();
-    set({ userId: null, email: null, role: null, profile: null });
+    set({ userId: null, email: null, role: null, roles: [], profile: null });
   },
 }));
 
