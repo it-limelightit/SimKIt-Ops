@@ -15,7 +15,7 @@ export function StaffShell({
   const path = useRouterState({ select: (s) => s.location.pathname });
   const [isOpen, setIsOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const base = `/${role}`;
+  const base = "/manager";
   const displayRole = "manager";
 
   const [themeMode, setThemeMode] = useState<"light" | "dark">("light");
