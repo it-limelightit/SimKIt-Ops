@@ -16,6 +16,7 @@ import {
   Check,
 } from "lucide-react";
 import { parseSiteMetadata, serializeSiteMetadata } from "@/lib/site-metadata";
+import { getCanonicalStatus, ASSESSMENT_KEYS, INSTALLATION_KEYS, COMMISSIONING_KEYS, pctKeys, getSiteWorkerIds, isSiteDropped } from "@/utils/status";
 
 export { parseSiteMetadata, serializeSiteMetadata };
 
@@ -23,6 +24,7 @@ const FACTORY_STATUS_OPTIONS = [
   "Submitted",
   "Unsubmitted",
   "Certification Pending",
+  "Panel Dispatched",
   "Installed",
   "Commissioned",
   "Assessed",
@@ -134,6 +136,7 @@ function BCMultiSelect({
   );
 }
 
+/*
 const ASSESSMENT_KEYS = [
   "mom_uploaded",
   "media_uploaded",
@@ -156,8 +159,9 @@ function pctKeys(data: any, keys: string[]) {
   return Math.round((keys.filter((k) => !!data[k]).length / keys.length) * 100);
 }
 
+//
 // ── Main panel ────────────────────────────────────────────────────────────────
-export function SitesPanel() {
+export function SitesPanel_DELETED() {
   const formRevealRef = useRef<HTMLDivElement>(null);
   const [sites, setSites] = useState<any[]>([]);
   const [materials, setMaterials] = useState<any[]>([]);
@@ -293,6 +297,140 @@ export function SitesPanel() {
     return stage.includes("installed") || pctKeys(ir?.data, INSTALLATION_KEYS) === 100;
   };
 
+
+// ── Main panel ────────────────────────────────────────────────────────────────
+*/
+
+export function SitesPanel() {
+  const formRevealRef = useRef<HTMLDivElement>(null);
+  const [sites, setSites] = useState<any[]>([]);
+  const [materials, setMaterials] = useState<any[]>([]);
+  const [businessConsultants, setBusinessConsultants] = useState<any[]>([]);
+  const [assessments, setAssessments] = useState<any[]>([]);
+  const [installations, setInstallations] = useState<any[]>([]);
+  const [commissionings, setCommissionings] = useState<any[]>([]);
+  const [creating, setCreating] = useState(false);
+  const [editingSite, setEditingSite] = useState<any | null>(null);
+
+  const routerState = useRouterState();
+  const searchParam = (routerState.location.search as any)?.q || "";
+
+  const [search, setSearch] = useState(searchParam);
+
+  useEffect(() => {
+    if (searchParam) {
+      setSearch(searchParam);
+    }
+  }, [searchParam]);
+  const [filterCity, setFilterCity] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [filterAssessor, setFilterAssessor] = useState("");
+  const [filterBC, setFilterBC] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [clientUpdateTimes, setClientUpdateTimes] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, filterCity, filterStatus, filterAssessor, filterBC]);
+
+  const [form, setForm] = useState({
+    name: "",
+    company_name: "",
+    city: "",
+    address: "",
+    workers: [] as string[],
+    c1_name: "",
+    c1_mobile: "",
+    c1_email: "",
+    c2_name: "",
+    c2_mobile: "",
+    c2_email: "",
+    status: "Running",
+    appt_date: "",
+    appt_time: "",
+    create_drive_folder: false,
+    drive_folder_link: "",
+    assessor_company: "",
+    assessor_phone: "",
+    assessor_city: "",
+    assessor_number: "",
+    assessor_email: "",
+    assessor_address: "",
+  });
+
+  const load = async () => {
+    const [s, w, aRes, iRes, cRes, rRes, mRes] = await Promise.all([
+      supabase
+        .from("sites")
+        .select(
+          "id,name,company_name,city,address,assigned_worker_id,assigned_at,task_notes,appt_date,appt_time,consultant_stage,created_at",
+        )
+        .order("created_at", { ascending: false }),
+      supabase.from("profiles").select("id,name,mobile,is_active").order("created_at"),
+      supabase.from("assessment").select("data,updated_at,site_id"),
+      supabase.from("installation").select("data,updated_at,site_id"),
+      supabase.from("commissioning").select("data,updated_at,site_id"),
+      supabase.from("user_roles").select("user_id").eq("role", "worker"),
+      supabase.from("inventory_materials").select("state,notes,submitted,material_name,created_at"),
+    ]);
+    if (s.error) toast.error("Error loading sites: " + s.error.message);
+    if (w.error) toast.error("Error loading profiles: " + w.error.message);
+    setSites(s.data ?? []);
+    const workerIds = new Set((rRes.data ?? []).map((r: any) => r.user_id));
+    setBusinessConsultants((w.data ?? []).filter((x: any) => x.is_active && workerIds.has(x.id)));
+    setAssessments(aRes.data ?? []);
+    setInstallations(iRes.data ?? []);
+    setCommissionings(cRes.data ?? []);
+    setMaterials(mRes.data ?? []);
+  };
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  useEffect(() => {
+    if (!creating && !editingSite) return;
+    const frame = window.requestAnimationFrame(() => {
+      formRevealRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      const firstField = formRevealRef.current?.querySelector<HTMLInputElement>(
+        "input:not([disabled]), select:not([disabled]), textarea:not([disabled])",
+      );
+      firstField?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [creating, editingSite]);
+
+
+
+  const aMap = new Map<string, any>(assessments.map((r) => [r.site_id, r]));
+  const iMap = new Map<string, any>(installations.map((r) => [r.site_id, r]));
+  const cMap = new Map<string, any>(commissionings.map((r) => [r.site_id, r]));
+
+  const isSiteSubmitted = (site: any) => {
+    if (site.consultant_stage === "Completion" || site.consultant_stage === "Billing") return true;
+    const ar = aMap.get(site.id);
+    return !!ar?.data?.assessment_phase_submitted;
+  };
+
+  const isSiteCertification = (site: any) => {
+    if (site.consultant_stage === "Completion" || site.consultant_stage === "Billing") return true;
+    const cr = cMap.get(site.id);
+    return !!cr?.data?.certificate_sent;
+  };
+
+  const isSiteDropped = (site: any) => {
+    const meta = parseSiteMetadata(site.task_notes);
+    const stage = (site.consultant_stage || meta.status || "").toLowerCase();
+    return stage.includes("drop") || stage.includes("reject");
+  };
+
+  const isSiteInstalled = (site: any) => {
+    const meta = parseSiteMetadata(site.task_notes);
+    const stage = (site.consultant_stage || meta.status || "").toLowerCase();
+    const ir = iMap.get(site.id);
+    return stage.includes("installed") || pctKeys(ir?.data, INSTALLATION_KEYS) === 100;
+  };
+
   const isSiteCommissioned = (site: any) => {
     const meta = parseSiteMetadata(site.task_notes);
     const stage = (site.consultant_stage || meta.status || "").toLowerCase();
@@ -342,74 +480,11 @@ export function SitesPanel() {
     return m.state === "In transit" ? "Transit" : (m.state || "Pending");
   };
 
-  const getCanonicalStatus = (site: any): string => {
-    const meta = parseSiteMetadata(site.task_notes);
-    const workerIds = getSiteWorkerIds(site);
 
-    const matchingMaterial = materials.find((m) => {
-      if (m.submitted === false) return false;
-      const normMat = normalizeCompanyName(m.material_name);
-      const normComp = normalizeCompanyName(site.company_name);
-      const normName = normalizeCompanyName(site.name);
-      return (normComp && (normMat.includes(normComp) || normComp.includes(normMat))) ||
-             (normName && (normMat.includes(normName) || normName.includes(normMat)));
-    });
-    const logisticsStatus = matchingMaterial ? getLogisticsStatus(matchingMaterial) : "Pending";
-
-    // 1. Explicit manager overrides (highest priority)
-    if (meta.status === "Dropped / Rejected" || meta.status === "Reject") return "Dropped / Rejected";
-    if (meta.status === "Submitted") return "Submitted";
-    if (meta.status === "Certification Pending") return "Certification Pending";
-    if (meta.status === "Commissioned") return "Commissioned";
-    if (meta.status === "Installed") return "Installed";
-    if (meta.status === "Panel Dispatched") return "Panel Dispatched";
-
-    // 2. Logistics override (Panel Dispatched)
-    if (logisticsStatus === "Delivered") return "Panel Dispatched";
-
-    // 3. Lower priority explicit manager overrides
-    if (meta.status === "Assessed" || meta.status === "In Assessment") return "Assessed";
-    if (meta.status === "Unsubmitted") return "Unsubmitted";
-    if (meta.status === "Not Started Yet") return "Not Started Yet";
-
-    // 2. Auto-detection / Stage Fallbacks
-    if (site.consultant_stage === "Completion" || site.consultant_stage === "Billing") return "Submitted";
-    if (isSiteDropped(site)) return "Dropped / Rejected";
-
-    const ar = aMap.get(site.id);
-    const ir = iMap.get(site.id);
-    const cr = cMap.get(site.id);
-
-    const aP = ar?.data?.assessment_phase_submitted ? 100 : pctKeys(ar?.data, ASSESSMENT_KEYS);
-    const iP = pctKeys(ir?.data, INSTALLATION_KEYS);
-    const cP = pctKeys(cr?.data, COMMISSIONING_KEYS);
-
-    const isAssessmentSubmitted = !!ar?.data?.assessment_phase_submitted || aP === 100;
-    const isInstallationCompleted = (!!ir?.data?.delivery_confirmed && !!ir?.data?.coordination_done && !!ir?.data?.photos_uploaded) || iP === 100;
-    const isCommissioningCompleted = !!cr?.data?.commissioning_phase_submitted || cP === 100;
-    const isCertSent = !!cr?.data?.certificate_sent || !!ar?.data?.certificate_sent;
-
-    if (isCommissioningCompleted) return "Commissioned";
-    if (isInstallationCompleted) return "Installed";
-    if (isAssessmentSubmitted) {
-      if (isCertSent) return "Submitted";
-      return "Assessed";
-    }
-
-    if (aP === 0 && iP === 0 && cP === 0) {
-      return "Not Started Yet";
-    }
-
-    // 3. Default Assignment / Status Fallbacks
-    if (workerIds.length > 0) return "Not Started Yet";
-    if (workerIds.length === 0) return "Pending Assignment";
-
-    return "Unsubmitted";
-  };
 
   const create = async () => {
     if (!form.name) return toast.error("Name required");
-    
+
     const targetName = (form.company_name || form.name).trim();
     const { data: existingName } = await supabase
       .from("sites")
@@ -515,7 +590,7 @@ export function SitesPanel() {
       c2_name: meta.c2_name,
       c2_mobile: meta.c2_mobile,
       c2_email: meta.c2_email,
-      status: getCanonicalStatus(s),
+      status: getCanonicalStatus(s, aMap, iMap, cMap, materials),
       appt_date: s.appt_date ?? "",
       appt_time: s.appt_time ?? "",
       create_drive_folder: !!meta.create_drive_folder,
@@ -681,149 +756,201 @@ export function SitesPanel() {
     newStatus: string,
     currentTaskNotes: string | null,
   ) => {
-    const meta = parseSiteMetadata(currentTaskNotes);
-    
-    let consultantStage: string | null = null;
-    let metaStatus: string = "";
-    let updatedWorkers: string[] | undefined = undefined;
-    
-    if (newStatus === "Dropped / Rejected") {
-      consultantStage = null;
-      metaStatus = "Dropped / Rejected";
-    } else if (newStatus === "Submitted") {
-      consultantStage = "Completion";
-      metaStatus = "Submitted";
-    } else if (newStatus === "In Assessment" || newStatus === "Assessed") {
-      consultantStage = null;
-      metaStatus = "Assessed";
-    } else if (newStatus === "Installed") {
-      consultantStage = null;
-      metaStatus = "Installed";
-    } else if (newStatus === "Commissioned") {
-      consultantStage = null;
-      metaStatus = "Commissioned";
-    } else if (newStatus === "Unsubmitted") {
-      consultantStage = null;
-      metaStatus = "Unsubmitted";
-    } else if (newStatus === "Certification Pending") {
-      consultantStage = null;
-      metaStatus = "Certification Pending";
-    } else if (newStatus === "Not Started Yet") {
-      consultantStage = null;
-      metaStatus = "Not Started Yet";
-    }
+    try {
+      const meta = parseSiteMetadata(currentTaskNotes);
+      
+      let consultantStage: string | null = null;
+      let metaStatus: string = "";
+      let updatedWorkers: string[] | undefined = undefined;
 
-    const newNotes = serializeSiteMetadata(currentTaskNotes, { 
-      ...meta, 
-      status: metaStatus,
-      ...(updatedWorkers !== undefined ? { worker_ids: updatedWorkers } : {})
-    });
-
-    const updatePayload: any = {
-      task_notes: newNotes,
-      consultant_stage: consultantStage,
-    };
-
-    if (updatedWorkers !== undefined) {
-      updatePayload.assigned_worker_id = null;
-    }
-
-    const { error } = await supabase
-      .from("sites")
-      .update(updatePayload as never)
-      .eq("id", siteId);
-
-    if (error) toast.error(error.message);
-    else {
-      const siteObj = sites.find((s: any) => s.id === siteId);
-      const workerId = siteObj?.assigned_worker_id || null;
-
-      if (metaStatus === "Commissioned") {
-        await Promise.all([
-          supabase.from("assessment").upsert({
-            site_id: siteId,
-            worker_id: workerId,
-            data: { mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
-          }, { onConflict: "site_id" }),
-          supabase.from("installation").upsert({
-            site_id: siteId,
-            worker_id: workerId,
-            data: { delivery_confirmed: true, coordination_done: true, photos_uploaded: true, installation_phase_submitted: true }
-          }, { onConflict: "site_id" }),
-          supabase.from("commissioning").upsert({
-            site_id: siteId,
-            worker_id: workerId,
-            data: {
-              coordination_done: true,
-              visit_done: true,
-              connection_done: true,
-              configure_done: true,
-              testing_done: true,
-              screenshots_uploaded: true,
-              certificate_sent: true,
-              final_mom_uploaded: true,
-              commissioning_phase_submitted: true
-            }
-          }, { onConflict: "site_id" })
-        ]);
-      } else if (metaStatus === "Installed") {
-        await Promise.all([
-          supabase.from("assessment").upsert({
-            site_id: siteId,
-            worker_id: workerId,
-            data: { mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
-          }, { onConflict: "site_id" }),
-          supabase.from("installation").upsert({
-            site_id: siteId,
-            worker_id: workerId,
-            data: { delivery_confirmed: true, coordination_done: true, photos_uploaded: true, installation_phase_submitted: true }
-          }, { onConflict: "site_id" }),
-          supabase.from("commissioning").upsert({
-            site_id: siteId,
-            worker_id: workerId,
-            data: {}
-          }, { onConflict: "site_id" })
-        ]);
-      } else if (metaStatus === "Assessed") {
-        await Promise.all([
-          supabase.from("assessment").upsert({
-            site_id: siteId,
-            worker_id: workerId,
-            data: { mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
-          }, { onConflict: "site_id" }),
-          supabase.from("installation").upsert({
-            site_id: siteId,
-            worker_id: workerId,
-            data: {}
-          }, { onConflict: "site_id" }),
-          supabase.from("commissioning").upsert({
-            site_id: siteId,
-            worker_id: workerId,
-            data: {}
-          }, { onConflict: "site_id" })
-        ]);
-      } else if (metaStatus === "Not Started Yet") {
-        await Promise.all([
-          supabase.from("assessment").upsert({
-            site_id: siteId,
-            worker_id: workerId,
-            data: {}
-          }, { onConflict: "site_id" }),
-          supabase.from("installation").upsert({
-            site_id: siteId,
-            worker_id: workerId,
-            data: {}
-          }, { onConflict: "site_id" }),
-          supabase.from("commissioning").upsert({
-            site_id: siteId,
-            worker_id: workerId,
-            data: {}
-          }, { onConflict: "site_id" })
-        ]);
+      if (newStatus === "Dropped / Rejected") {
+        consultantStage = null;
+        metaStatus = "Dropped / Rejected";
+        updatedWorkers = [];
+      } else if (newStatus === "Submitted") {
+        consultantStage = "Completion";
+        metaStatus = "Submitted";
+      } else if (newStatus === "In Assessment" || newStatus === "Assessed") {
+        consultantStage = null;
+        metaStatus = "Assessed";
+      } else if (newStatus === "Panel Dispatched") {
+        consultantStage = null;
+        metaStatus = "Panel Dispatched";
+      } else if (newStatus === "Installed") {
+        consultantStage = null;
+        metaStatus = "Installed";
+      } else if (newStatus === "Commissioned") {
+        consultantStage = null;
+        metaStatus = "Commissioned";
+      } else if (newStatus === "Unsubmitted") {
+        consultantStage = null;
+        metaStatus = "Unsubmitted";
+      } else if (newStatus === "Certification Pending") {
+        consultantStage = null;
+        metaStatus = "Certification Pending";
+      } else if (newStatus === "Not Started Yet") {
+        consultantStage = null;
+        metaStatus = "Not Started Yet";
+      } else if (newStatus === "Pending Assignment") {
+        consultantStage = null;
+        metaStatus = "Pending Assignment";
+        updatedWorkers = [];
       }
 
-      setClientUpdateTimes(prev => ({ ...prev, [siteId]: Date.now() }));
-      await load();
+      const newNotes = serializeSiteMetadata(currentTaskNotes, { 
+        ...meta, 
+        status: metaStatus,
+        ...(updatedWorkers !== undefined ? { worker_ids: updatedWorkers } : {})
+      });
+
+      const updatePayload: any = {
+        task_notes: newNotes,
+        consultant_stage: consultantStage,
+      };
+
+      if (updatedWorkers !== undefined) {
+        updatePayload.assigned_worker_id = null;
+        updatePayload.assigned_at = null;
+      }
+
+      const { error } = await supabase
+        .from("sites")
+        .update(updatePayload as never)
+        .eq("id", siteId);
+
+      if (error) {
+        toast.error(error.message);
+      } else {
+        const siteObj = sites.find((s: any) => s.id === siteId);
+        const workerIds = getSiteWorkerIds(siteObj);
+        const workerId = workerIds[0] || siteObj?.assigned_worker_id || null;
+
+        if (metaStatus === "Dropped / Rejected") {
+          await Promise.all([
+            supabase.from("assessment").upsert({
+              site_id: siteId,
+              worker_id: null,
+              data: {}
+            }, { onConflict: "site_id" }),
+            supabase.from("installation").upsert({
+              site_id: siteId,
+              worker_id: null,
+              data: {}
+            }, { onConflict: "site_id" }),
+            supabase.from("commissioning").upsert({
+              site_id: siteId,
+              worker_id: null,
+              data: {}
+            }, { onConflict: "site_id" })
+          ]);
+        } else if (metaStatus === "Commissioned") {
+          await Promise.all([
+            supabase.from("assessment").upsert({
+              site_id: siteId,
+              worker_id: workerId,
+              data: { mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
+            }, { onConflict: "site_id" }),
+            supabase.from("installation").upsert({
+              site_id: siteId,
+              worker_id: workerId,
+              data: { delivery_confirmed: true, coordination_done: true, photos_uploaded: true, installation_phase_submitted: true }
+            }, { onConflict: "site_id" }),
+            supabase.from("commissioning").upsert({
+              site_id: siteId,
+              worker_id: workerId,
+              data: {
+                coordination_done: true,
+                visit_done: true,
+                connection_done: true,
+                configure_done: true,
+                testing_done: true,
+                screenshots_uploaded: true,
+                certificate_sent: true,
+                final_mom_uploaded: true,
+                commissioning_phase_submitted: true
+              }
+            }, { onConflict: "site_id" })
+          ]);
+        } else if (metaStatus === "Installed") {
+          await Promise.all([
+            supabase.from("assessment").upsert({
+              site_id: siteId,
+              worker_id: workerId,
+              data: { mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
+            }, { onConflict: "site_id" }),
+            supabase.from("installation").upsert({
+              site_id: siteId,
+              worker_id: workerId,
+              data: { delivery_confirmed: true, coordination_done: true, photos_uploaded: true, installation_phase_submitted: true }
+            }, { onConflict: "site_id" }),
+            supabase.from("commissioning").upsert({
+              site_id: siteId,
+              worker_id: workerId,
+              data: {}
+            }, { onConflict: "site_id" })
+          ]);
+        } else if (metaStatus === "Panel Dispatched") {
+          await Promise.all([
+            supabase.from("assessment").upsert({
+              site_id: siteId,
+              worker_id: workerId,
+              data: { mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
+            }, { onConflict: "site_id" }),
+            supabase.from("installation").upsert({
+              site_id: siteId,
+              worker_id: workerId,
+              data: {}
+            }, { onConflict: "site_id" }),
+            supabase.from("commissioning").upsert({
+              site_id: siteId,
+              worker_id: workerId,
+              data: {}
+            }, { onConflict: "site_id" })
+          ]);
+        } else if (metaStatus === "Assessed") {
+          await Promise.all([
+            supabase.from("assessment").upsert({
+              site_id: siteId,
+              worker_id: workerId,
+              data: { mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
+            }, { onConflict: "site_id" }),
+            supabase.from("installation").upsert({
+              site_id: siteId,
+              worker_id: workerId,
+              data: {}
+            }, { onConflict: "site_id" }),
+            supabase.from("commissioning").upsert({
+              site_id: siteId,
+              worker_id: workerId,
+              data: {}
+            }, { onConflict: "site_id" })
+          ]);
+        } else if (metaStatus === "Not Started Yet" || metaStatus === "Pending Assignment") {
+          await Promise.all([
+            supabase.from("assessment").upsert({
+              site_id: siteId,
+              worker_id: workerId,
+              data: {}
+            }, { onConflict: "site_id" }),
+            supabase.from("installation").upsert({
+              site_id: siteId,
+              worker_id: workerId,
+              data: {}
+            }, { onConflict: "site_id" }),
+            supabase.from("commissioning").upsert({
+              site_id: siteId,
+              worker_id: workerId,
+              data: {}
+            }, { onConflict: "site_id" })
+          ]);
+        }
+
+        toast.success("Site status updated successfully");
+        setClientUpdateTimes(prev => ({ ...prev, [siteId]: Date.now() }));
+        await load();
+      }
+    } catch (err: any) {
+      toast.error("Failed to update status: " + err.message);
     }
   };
 
@@ -858,6 +985,7 @@ export function SitesPanel() {
     ...parseSiteMetadata(s.task_notes),
     status: s.consultant_stage || parseSiteMetadata(s.task_notes).status,
   }));
+
   const cities = Array.from(new Set(sites.map((s) => s.city).filter(Boolean))).sort();
   // These statuses are manually assignable. "Panel Dispatched" is auto from logistics;
   // "Total Assignment Pending on Portal" is auto = Assigned − Submitted. Neither appears here.
@@ -889,7 +1017,7 @@ export function SitesPanel() {
       )
         return false;
       if (filterCity && s.city !== filterCity) return false;
-      const canonicalStatus = getCanonicalStatus(s);
+      const canonicalStatus = getCanonicalStatus(s, aMap, iMap, cMap, materials);
       if (filterStatus && canonicalStatus !== filterStatus) return false;
       if (filterAssessor && meta.assessor_company !== filterAssessor) return false;
       if (filterBC && !assignedIds.includes(filterBC)) return false;
@@ -1339,7 +1467,7 @@ export function SitesPanel() {
               ) : (
                 paginatedSites.map((s) => {
                   const meta = parseSiteMetadata(s.task_notes);
-                  const canonicalStatus = getCanonicalStatus(s);
+                  const canonicalStatus = getCanonicalStatus(s, aMap, iMap, cMap, materials);
                   const assignedIds = getSiteWorkerIds(s);
                   return (
                     <tr

@@ -256,16 +256,15 @@ function LogisticPageWithSeeder() {
         // B. Check or Insert inventory_materials entry (Logistics panel)
         const { data: existingMaterials } = await supabase
           .from("inventory_materials")
-          .select("id")
+          .select("id, state, dispatch, tracking_number, notes")
           .eq("material_name", companyFullName)
           .limit(1);
 
-        const payload = {
+        const payload: any = {
           material_name: companyFullName,
           location: matchedSite.address || matchedSite.city || "Address not specified",
           device_id: "SIM-Kit Gateway V3",
           submitted: true,
-          state: "Available",
           ct1: comp.ct1,
           ct2: comp.ct2,
           ct3: comp.ct3,
@@ -285,23 +284,31 @@ function LogisticPageWithSeeder() {
           created_at: `${comp.date}T10:00:00Z`,
           updated_at: `${comp.date}T10:00:00Z`,
           installation_date: comp.date,
-          notes: JSON.stringify({
+        };
+
+        if (existingMaterials && existingMaterials.length > 0) {
+          const existing = existingMaterials[0];
+          payload.state = existing.state || "Available";
+          payload.dispatch = existing.dispatch || null;
+          payload.tracking_number = existing.tracking_number || null;
+          payload.notes = existing.notes;
+
+          const { error: matUpdateError } = await supabase
+            .from("inventory_materials")
+            .update(payload)
+            .eq("id", existing.id);
+          if (matUpdateError) throw matUpdateError;
+        } else {
+          payload.state = "Available";
+          payload.notes = JSON.stringify({
             courier_partner: "",
             packing_date: "",
             transit_date: "",
             arrived_date: "",
             courier_id: "",
             logistics_status: "Pending"
-          })
-        };
+          });
 
-        if (existingMaterials && existingMaterials.length > 0) {
-          const { error: matUpdateError } = await supabase
-            .from("inventory_materials")
-            .update(payload)
-            .eq("id", existingMaterials[0].id);
-          if (matUpdateError) throw matUpdateError;
-        } else {
           const { error: matInsertError } = await supabase
             .from("inventory_materials")
             .insert(payload);
@@ -351,25 +358,7 @@ function LogisticPageWithSeeder() {
           .select("material_name, created_by")
           .in("material_name", matchedNames);
 
-        let needsSync = !jenilId;
-        
-        if (jenilId) {
-          for (const s of matchedSites) {
-            if (s!.assigned_worker_id !== jenilId || s!.consultant_stage !== "Billing") {
-              needsSync = true;
-              break;
-            }
-          }
-          if (!needsSync) {
-            for (const name of matchedNames) {
-              const mat = existingMaterials?.find(m => m.material_name === name);
-              if (!mat || mat.created_by !== jenilId) {
-                needsSync = true;
-                break;
-              }
-            }
-          }
-        }
+        const needsSync = !jenilId;
 
         // Cleanup duplicates from inventory_materials
         const { data: allMaterials } = await supabase

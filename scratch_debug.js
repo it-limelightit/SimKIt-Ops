@@ -4,24 +4,32 @@ const key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZi
 const supabase = createClient(url, key);
 
 async function run() {
-  console.log("=== PROFILES CHECK ===");
-  const { data: profiles, error: pErr } = await supabase
-    .from('profiles')
-    .select('id, name, email, mobile, whatsapp, is_active, created_at');
+  console.log("=== DOLPHIN POLYMERS CHECK ===");
+  const { data: sites, error: sErr } = await supabase
+    .from('sites')
+    .select('id, name, company_name, assigned_worker_id, consultant_stage, task_notes')
+    .ilike('name', '%Dolphin%');
 
-  if (pErr) {
-    console.error("Profiles error:", pErr);
+  if (sErr) {
+    console.error("Sites error:", sErr);
     return;
   }
 
-  console.log(`Total profiles found: ${profiles.length}`);
-  for (const p of profiles) {
-    const { data: roles } = await supabase
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', p.id);
-    const roleNames = (roles || []).map(r => r.role).join(', ');
-    console.log(`- ${p.name || 'Unnamed'} | Email: ${p.email} | Mobile: ${p.mobile} | Active: ${p.is_active} | Roles: [${roleNames}]`);
+  console.log(`Total sites found: ${sites.length}`);
+  for (const s of sites) {
+    console.log(`\nSite: ${s.name} (ID: ${s.id})`);
+    console.log(`Assigned Worker ID: ${s.assigned_worker_id}`);
+    console.log(`Consultant Stage: ${s.consultant_stage}`);
+    console.log(`Task Notes: ${s.task_notes}`);
+
+    const { data: a } = await supabase.from('assessment').select('*').eq('site_id', s.id);
+    console.log(`Assessment rows: ${JSON.stringify(a, null, 2)}`);
+
+    const { data: inst } = await supabase.from('installation').select('*').eq('site_id', s.id);
+    console.log(`Installation rows: ${JSON.stringify(inst, null, 2)}`);
+
+    const { data: comm } = await supabase.from('commissioning').select('*').eq('site_id', s.id);
+    console.log(`Commissioning rows: ${JSON.stringify(comm, null, 2)}`);
   }
 }
 

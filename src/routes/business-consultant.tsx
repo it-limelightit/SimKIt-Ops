@@ -12,6 +12,7 @@ import { parseSiteMetadata, serializeSiteMetadata } from "@/lib/site-metadata";
 import { toast } from "sonner";
 import { InventoryPanel } from "@/components/inventory/InventoryPanel";
 import { OrderTab } from "@/components/business-consultant/OrderTab";
+import { getCanonicalStatus } from "@/utils/status";
 
 
 export const Route = createFileRoute("/business-consultant")({
@@ -34,6 +35,7 @@ function BusinessConsultantPage() {
     cPct: number;
     overall: number;
     status: "Complete" | "Working" | "Pending";
+    derivedStatus: string;
   }>>([]);
   const [selectedSiteId, setSelectedSiteId] = useState<string>("");
   const [selectedFactoryId, setSelectedFactoryId] = useState<string>("");
@@ -185,24 +187,51 @@ function BusinessConsultantPage() {
     }
 
     const siteIds = data.map(s => s.id);
-    const [aRes, iRes, cRes] = await Promise.all([
+    const [aRes, iRes, cRes, mRes] = await Promise.all([
       supabase.from("assessment").select("site_id,data").in("site_id", siteIds),
       supabase.from("installation").select("site_id,data").in("site_id", siteIds),
-      supabase.from("commissioning").select("site_id,data").in("site_id", siteIds)
+      supabase.from("commissioning").select("site_id,data").in("site_id", siteIds),
+      supabase.from("inventory_materials").select("state,notes,submitted,material_name,created_at")
     ]);
 
-    const aMap = new Map((aRes.data ?? []).map(r => [r.site_id, r.data as any]));
-    const iMap = new Map((iRes.data ?? []).map(r => [r.site_id, r.data as any]));
-    const cMap = new Map((cRes.data ?? []).map(r => [r.site_id, r.data as any]));
+    const aMap = new Map((aRes.data ?? []).map(r => [r.site_id, r]));
+    const iMap = new Map((iRes.data ?? []).map(r => [r.site_id, r]));
+    const cMap = new Map((cRes.data ?? []).map(r => [r.site_id, r]));
+    const materials = mRes.data ?? [];
 
     const sitesData = data.map(s => {
-      const aData = aMap.get(s.id);
-      const iData = iMap.get(s.id);
-      const cData = cMap.get(s.id);
+      const aData = aMap.get(s.id)?.data;
+      const iData = iMap.get(s.id)?.data;
+      const cData = cMap.get(s.id)?.data;
       
-      const aPct = aData?.assessment_phase_submitted ? 100 : pctCount(aData, ASSESSMENT_KEYS);
-      const iPct = pctCount(iData, INSTALLATION_KEYS);
-      const cPct = pctCount(cData, COMMISSIONING_KEYS);
+      const aPctRaw = aData?.assessment_phase_submitted ? 100 : pctCount(aData, ASSESSMENT_KEYS);
+      const iPctRaw = pctCount(iData, INSTALLATION_KEYS);
+      const cPctRaw = pctCount(cData, COMMISSIONING_KEYS);
+      
+      const derivedStatus = getCanonicalStatus(s, aMap, iMap, cMap, materials);
+
+      let aPct = aPctRaw;
+      let iPct = iPctRaw;
+      let cPct = cPctRaw;
+
+      if (derivedStatus === "Assessed") {
+        aPct = 100;
+        iPct = 0;
+        cPct = 0;
+      } else if (derivedStatus === "Installed" || derivedStatus === "Panel Dispatched") {
+        aPct = 100;
+        iPct = derivedStatus === "Installed" ? 100 : 0;
+        cPct = 0;
+      } else if (derivedStatus === "Commissioned" || derivedStatus === "Submitted" || derivedStatus === "Certification Pending") {
+        aPct = 100;
+        iPct = 100;
+        cPct = 100;
+      } else if (derivedStatus === "Not Started Yet" || derivedStatus === "Pending Assignment" || derivedStatus === "Dropped / Rejected") {
+        aPct = 0;
+        iPct = 0;
+        cPct = 0;
+      }
+
       const overall = Math.round((aPct + iPct + cPct) / 3);
       
       let status: "Complete" | "Working" | "Pending" = "Pending";
@@ -218,7 +247,8 @@ function BusinessConsultantPage() {
         iPct,
         cPct,
         overall,
-        status
+        status,
+        derivedStatus
       };
     });
 
@@ -226,12 +256,12 @@ function BusinessConsultantPage() {
     setSitesList(data);
     setSitesWithProgress(sitesData);
     
-    if (data.length > 0) {
-      const currentStillExists = data.find(s => s.id === selectedSiteId);
+    if (sitesData.length > 0) {
+      const currentStillExists = sitesData.find(s => s.id === selectedSiteId);
       if (!currentStillExists) {
-        setSite(data[0]);
-        setSelectedSiteId(data[0].id);
-        setSelectedFactoryId(data[0].id);
+        setSite(sitesData[0]);
+        setSelectedSiteId(sitesData[0].id);
+        setSelectedFactoryId(sitesData[0].id);
       } else {
         setSite(currentStillExists);
       }
@@ -253,6 +283,39 @@ function BusinessConsultantPage() {
           event: "*",
           schema: "public",
           table: "sites",
+        },
+        () => {
+          void fetchSites();
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "assessment",
+        },
+        () => {
+          void fetchSites();
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "installation",
+        },
+        () => {
+          void fetchSites();
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "commissioning",
         },
         () => {
           void fetchSites();
@@ -281,7 +344,8 @@ function BusinessConsultantPage() {
 
   const { phase: activePhase, cleanNotes } = parseTaskNotes(site?.task_notes ?? null);
   const meta = parseSiteMetadata(site?.task_notes ?? null);
-  const displayedStatus = site?.consultant_stage || meta.status;
+  const selectedSiteWithProgress = sitesWithProgress.find(s => s.id === site?.id);
+  const displayedStatus = selectedSiteWithProgress?.derivedStatus || site?.consultant_stage || meta.status || "Not Started Yet";
 
   const updateConsultantStage = async (stage: "Billing" | "Completion") => {
     if (!site) return;
@@ -305,29 +369,17 @@ function BusinessConsultantPage() {
 
   useEffect(() => {
     if (!site) return;
-    (async () => {
-      const [a, i, c] = await Promise.all([
-        supabase.from("assessment").select("data").eq("site_id", site.id).maybeSingle(),
-        supabase.from("installation").select("data").eq("site_id", site.id).maybeSingle(),
-        supabase.from("commissioning").select("data").eq("site_id", site.id).maybeSingle(),
-      ]);
-      
-      const aData = a.data?.data as Record<string, any> | undefined;
-      const iData = i.data?.data as Record<string, any> | undefined;
-      const cData = c.data?.data as Record<string, any> | undefined;
+    setProgress({
+      assessment: (site as any).aPct || 0,
+      installation: (site as any).iPct || 0,
+      commissioning: (site as any).cPct || 0,
+    });
 
-      setProgress({
-        assessment: pctCount(aData, ASSESSMENT_KEYS),
-        installation: pctCount(iData, INSTALLATION_KEYS),
-        commissioning: pctCount(cData, COMMISSIONING_KEYS),
-      });
-
-      const nextSubmitted = new Set<string>();
-      if (aData?.assessment_phase_submitted) nextSubmitted.add("assessment");
-      if (iData?.installation_phase_submitted) nextSubmitted.add("installation");
-      if (cData?.commissioning_phase_submitted) nextSubmitted.add("commissioning");
-      setSubmittedPhases(nextSubmitted);
-    })();
+    const nextSubmitted = new Set<string>();
+    if ((site as any).aPct === 100) nextSubmitted.add("assessment");
+    if ((site as any).iPct === 100) nextSubmitted.add("installation");
+    if ((site as any).cPct === 100) nextSubmitted.add("commissioning");
+    setSubmittedPhases(nextSubmitted);
   }, [site, tab]);
 
   if (!ready || site === undefined) {
@@ -410,9 +462,9 @@ function BusinessConsultantPage() {
                 {site.name}
               </h3>
             </div>
-            <Badge tone={displayedStatus === "Running" || displayedStatus === "Completion" ? "success" : displayedStatus === "Stopped" ? "danger" : "warning"}>
-              {displayedStatus}
-            </Badge>
+             <Badge tone={displayedStatus === "Submitted" || displayedStatus === "Commissioned" || displayedStatus === "Billing" || displayedStatus === "Completion" ? "success" : displayedStatus === "Dropped / Rejected" ? "danger" : "warning"}>
+               {displayedStatus}
+             </Badge>
           </div>
           
           <div className="grid gap-4 md:grid-cols-3">
@@ -632,7 +684,7 @@ function BusinessConsultantPage() {
         {tab === "assessment" && (
           submittedPhases.has("assessment")
             ? <PhaseSubmittedCard label="Assessment Visit" onNext={() => setTab("order")} nextLabel="Go to Device Order" />
-            : <AssessmentTab siteId={site.id} workerId={userId!} onSubmit={() => { setSubmittedPhases(prev => new Set([...prev, "assessment"])); }} />
+            : <AssessmentTab siteId={site.id} workerId={userId!} onSubmit={() => { setSubmittedPhases(prev => new Set([...prev, "assessment"])); void fetchSites(); }} />
         )}
         {tab === "installation" && (
           !isAssessmentDone ? (
@@ -648,7 +700,7 @@ function BusinessConsultantPage() {
             </Card>
           ) : submittedPhases.has("installation")
             ? <PhaseSubmittedCard label="Installation" onNext={() => setTab("commissioning")} nextLabel="Go to Commissioning" />
-            : <InstallationTab siteId={site.id} workerId={userId!} onSubmit={() => { setSubmittedPhases(prev => new Set([...prev, "installation"])); }} />
+            : <InstallationTab siteId={site.id} workerId={userId!} onSubmit={() => { setSubmittedPhases(prev => new Set([...prev, "installation"])); void fetchSites(); }} />
         )}
         {tab === "commissioning" && (
           !isInstallationDone ? (
@@ -702,15 +754,23 @@ function BusinessConsultantPage() {
 
 function siteStatusStyle(status: string) {
   switch (status) {
-    case "Completion":    return { bg: "bg-mint-dim", text: "text-mint", border: "border-mint/20" };
-    case "Billing":       return { bg: "bg-lime/10", text: "text-lime", border: "border-lime/20" };
-    case "Running":       return { bg: "bg-mint-dim", text: "text-mint", border: "border-mint/20" };
+    case "Submitted":
+    case "Commissioned":
+    case "Billing":
+    case "Completion":
+    case "Running":       return { bg: "bg-lime/10", text: "text-lime", border: "border-lime/20" };
+    case "Dropped / Rejected":
     case "Reject":        return { bg: "bg-coral-dim", text: "text-coral", border: "border-coral/20" };
+    case "Panel Dispatched":
     case "Shipped":       return { bg: "bg-violet/10", text: "text-violet", border: "border-violet/20" };
+    case "Certification Pending":
     case "Verification":  return { bg: "bg-[#1D4ED8]/10", text: "text-[#1D4ED8]", border: "border-[#1D4ED8]/20" };
+    case "Installed":
     case "Installation":  return { bg: "bg-warning/10", text: "text-warning", border: "border-warning/20" };
     case "Concept":       return { bg: "bg-warning/8", text: "text-warning", border: "border-warning/20" };
+    case "Assessed":
     case "Assessment & Visit": return { bg: "bg-[#C4E1F6]/20", text: "text-[#1D4ED8]", border: "border-[#1D4ED8]/20" };
+    case "Pending Assignment":
     case "Assigned":      return { bg: "bg-[#800000]/10", text: "text-[#D07070]", border: "border-[#800000]/20" };
     case "Not Started Yet": return { bg: "bg-indigo-600/10", text: "text-indigo-600", border: "border-indigo-600/20" };
     default:              return { bg: "bg-surface-raised", text: "text-text-secondary", border: "border-border" };
@@ -721,7 +781,7 @@ function ConsultantDashboard({
   sites,
   onSelectSite
 }: {
-  sites: Array<Site & { aPct: number; iPct: number; cPct: number; overall: number; status: "Complete" | "Working" | "Pending" }>;
+  sites: Array<Site & { aPct: number; iPct: number; cPct: number; overall: number; status: "Complete" | "Working" | "Pending"; derivedStatus: string }>;
   onSelectSite: (siteId: string) => void;
 }) {
   return (
@@ -738,8 +798,7 @@ function ConsultantDashboard({
       ) : (
         <div className="space-y-3">
           {sites.map((s) => {
-            const siteMeta = parseSiteMetadata(s.task_notes ?? null);
-            const managerStatus = siteMeta.status || "";
+            const managerStatus = s.derivedStatus;
             const st = siteStatusStyle(managerStatus);
             return (
               <div key={s.id} className="border border-border rounded-[10px] bg-surface px-5 py-4 hover:bg-surface-raised/30 transition-colors">

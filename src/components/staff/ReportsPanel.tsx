@@ -278,12 +278,14 @@ export function ReportsPanel() {
         if (meta.status === "Certification Pending") return "Certification Pending";
         if (meta.status === "Commissioned") return "Commissioned";
         if (meta.status === "Installed") return "Installed";
-        if (meta.status === "Panel Dispatched") return "Panel Dispatched";
-        if (meta.status === "Assessed" || meta.status === "In Assessment") return "Assessed";
-        if (meta.status === "Unsubmitted") return "Unsubmitted";
-        if (meta.status === "Not Started Yet") return "Not Started Yet";
 
         if (logisticsStatus === "Delivered") return "Panel Dispatched";
+
+        if (meta.status === "Assessed" || meta.status === "In Assessment") return "Assessed";
+        if (meta.status === "Panel Dispatched") return "Panel Dispatched";
+        if (meta.status === "Pending Assignment") return "Pending Assignment";
+        if (meta.status === "Unsubmitted") return "Unsubmitted";
+        if (meta.status === "Not Started Yet") return "Not Started Yet";
 
         if (row.consultant_stage === "Completion" || row.consultant_stage === "Billing") return "Submitted";
         if (isSiteDropped(row)) return "Dropped / Rejected";

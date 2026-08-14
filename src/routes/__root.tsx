@@ -16,11 +16,12 @@ import { useAuthInit } from "@/lib/auth-store";
 import { OfflineBanner } from "@/components/OfflineBanner";
 
 function NotFoundComponent() {
-  if (typeof window !== "undefined" && window.location.pathname.startsWith("/supervisor")) {
-    const target = window.location.pathname.replace("/supervisor", "/manager");
-    window.location.replace(target);
-    return null;
-  }
+  useEffect(() => {
+    if (window.location.pathname.startsWith("/supervisor")) {
+      const target = window.location.pathname.replace("/supervisor", "/manager");
+      window.location.replace(target);
+    }
+  }, []);
 
   return (
     <div className="flex min-h-screen items-center justify-center px-6">
@@ -103,7 +104,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <script
           dangerouslySetInnerHTML={{
@@ -123,7 +124,7 @@ function RootShell({ children }: { children: ReactNode }) {
         />
         <HeadContent />
       </head>
-      <body>
+      <body suppressHydrationWarning>
         {children}
         <Scripts />
       </body>
