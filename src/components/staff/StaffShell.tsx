@@ -46,13 +46,14 @@ export function StaffShell({
     localStorage.setItem("themeMode", next);
   };
 
-  const items = [
+  const DRIVE_URL = "https://drive.google.com/drive/folders/17I5gB1lJOG9sBaPGa5JwR-HE9wxUpHVA";
+  const items: { to: string; label: string; icon: React.ElementType; href?: string }[] = [
     { to: `${base}`, label: "Overview", icon: LayoutDashboard },
     { to: `${base}/sites`, label: "Sites", icon: MapPin },
     { to: `${base}/business-consultants`, label: "Field Associates", icon: Users },
     { to: `${base}/factory-data`, label: "Factory Form Data", icon: ClipboardList },
     { to: `${base}/performance`, label: "Performance", icon: Activity },
-    { to: `${base}/drive-links`, label: "Links of Drive", icon: Folder },
+    { to: `${base}/drive-links`, label: "Links of Drive", icon: Folder, href: DRIVE_URL },
     { to: `${base}/logistic`, label: "Logistic", icon: Boxes },
     { to: `${base}/reports`, label: "Reports", icon: BarChart3 },
   ];
@@ -101,14 +102,21 @@ export function StaffShell({
           <nav className="flex-1 px-4 py-6 space-y-1">
             {items.map((it) => {
               const active = path === it.to || (it.to !== base && path.startsWith(it.to));
+              const cls = `flex items-center gap-3 px-4 py-3 text-sm font-semibold rounded-[6px] transition-all duration-150 ${active ? "bg-lime/10 text-lime border-l-3 border-lime" : "text-text-secondary hover:bg-surface hover:text-text-primary"}`;
+              if (it.href) {
+                return (
+                  <a key={it.to} href={it.href} target="_blank" rel="noopener noreferrer" onClick={() => setIsOpen(false)} className={cls}>
+                    <it.icon size={18} strokeWidth={2} />
+                    {it.label}
+                  </a>
+                );
+              }
               return (
                 <Link
                   key={it.to}
                   to={it.to}
                   onClick={() => setIsOpen(false)}
-                  className={`flex items-center gap-3 px-4 py-3 text-sm font-semibold rounded-[6px] transition-all duration-150 ${
-                    active ? "bg-lime/10 text-lime border-l-3 border-lime" : "text-text-secondary hover:bg-surface hover:text-text-primary"
-                  }`}
+                  className={cls}
                 >
                   <it.icon size={18} strokeWidth={2} />
                   {it.label}
@@ -156,14 +164,21 @@ export function StaffShell({
         <nav className={`flex-1 py-6 space-y-1 ${collapsed ? "px-2" : "px-3"}`}>
           {items.map((it) => {
             const active = path === it.to || (it.to !== base && path.startsWith(it.to));
+            const cls = `flex items-center gap-3 py-2.5 text-sm font-semibold transition-all duration-150 rounded-[6px] ${collapsed ? "justify-center px-0" : "px-4"} ${active ? "bg-lime/10 text-lime border-l-3 border-lime" : "text-text-secondary hover:bg-surface-raised hover:text-text-primary"}`;
+            if (it.href) {
+              return (
+                <a key={it.to} href={it.href} target="_blank" rel="noopener noreferrer" title={collapsed ? it.label : undefined} className={cls}>
+                  <it.icon size={16} strokeWidth={2} />
+                  {!collapsed && it.label}
+                </a>
+              );
+            }
             return (
               <Link
                 key={it.to}
                 to={it.to}
                 title={collapsed ? it.label : undefined}
-                className={`flex items-center gap-3 py-2.5 text-sm font-semibold transition-all duration-150 rounded-[6px] ${collapsed ? "justify-center px-0" : "px-4"} ${
-                  active ? "bg-lime/10 text-lime border-l-3 border-lime" : "text-text-secondary hover:bg-surface-raised hover:text-text-primary"
-                }`}
+                className={cls}
               >
                 <it.icon size={16} strokeWidth={2} />
                 {!collapsed && it.label}
