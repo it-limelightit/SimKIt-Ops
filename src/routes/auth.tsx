@@ -193,10 +193,8 @@ function AuthPage() {
   const [tab, setTab] = useState<"login" | "signup">("login");
   const [isRecovery, setIsRecovery] = useState(false);
   const [token, setToken] = useState<string | null>(null);
-  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const hashParams = new URLSearchParams(window.location.hash.substring(1));
@@ -213,16 +211,6 @@ function AuthPage() {
       navigate({ to: role === "supervisor" ? "/manager" : "/business-consultant" });
     }
   }, [ready, userId, role, navigate, isRecovery]);
-
-  if (!mounted) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="font-mono text-xs uppercase tracking-widest text-stone animate-pulse">
-          Loading...
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -298,8 +286,8 @@ function LoginForm({ onDone }: { onDone: () => void }) {
       }
       toast.success("Signed in");
       onDone();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Sign in failed");
+    } catch (err: any) {
+      toast.error(err?.message || "Invalid login credentials. Please check your ID/email and password.");
     } finally {
       setLoading(false);
     }
@@ -491,7 +479,6 @@ function SignupForm({ onDone }: { onDone: () => void }) {
         email: f.email,
         password: f.password,
         options: {
-          emailRedirectTo: window.location.origin,
           data: { name: f.name, mobile: f.mobile, whatsapp: f.whatsapp, role: "worker" },
         },
       });

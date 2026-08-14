@@ -4,11 +4,25 @@ const key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZi
 const supabase = createClient(url, key);
 
 async function run() {
-  const { data: sites } = await supabase.from('sites').select('id,name,company_name');
-  const { data: mat } = await supabase.from('inventory_materials').select('id,material_name,submitted,state,notes');
-  console.log("=== SITES ===");
-  console.log(sites);
-  console.log("=== MATERIALS ===");
-  console.log(mat);
+  console.log("=== PROFILES CHECK ===");
+  const { data: profiles, error: pErr } = await supabase
+    .from('profiles')
+    .select('id, name, email, mobile, whatsapp, is_active, created_at');
+
+  if (pErr) {
+    console.error("Profiles error:", pErr);
+    return;
+  }
+
+  console.log(`Total profiles found: ${profiles.length}`);
+  for (const p of profiles) {
+    const { data: roles } = await supabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', p.id);
+    const roleNames = (roles || []).map(r => r.role).join(', ');
+    console.log(`- ${p.name || 'Unnamed'} | Email: ${p.email} | Mobile: ${p.mobile} | Active: ${p.is_active} | Roles: [${roleNames}]`);
+  }
 }
+
 run();
