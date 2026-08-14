@@ -31,18 +31,33 @@ export const updateConsultantProfileFn = createServerFn({ method: "POST" })
       }
 
       if (Object.keys(updateData).length > 0) {
-        if (!hasAdminKey) {
-          return {
-            success: false,
-            error: "Changing email or password requires the Supabase Service Role Key to be configured in Vercel settings. Please configure SUPABASE_SERVICE_ROLE_KEY."
-          };
-        }
-        const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(
-          userId,
-          updateData
-        );
-        if (authError) {
-          return { success: false, error: authError.message };
+        if (hasAdminKey) {
+          const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(
+            userId,
+            updateData
+          );
+          if (authError) {
+            return { success: false, error: authError.message };
+          }
+        } else {
+          // If admin key missing, check if password change can use RPC fallback
+          if (password && !updateData.email) {
+            const { error: rpcErr } = await supabase.rpc("admin_update_user_password", {
+              _target_user_id: userId,
+              _new_password: password,
+            });
+            if (rpcErr) {
+              return {
+                success: false,
+                error: "Changing email or password requires the Supabase Service Role Key to be configured in Vercel settings. Please configure SUPABASE_SERVICE_ROLE_KEY."
+              };
+            }
+          } else {
+            return {
+              success: false,
+              error: "Changing email requires the Supabase Service Role Key to be configured in Vercel settings. Please configure SUPABASE_SERVICE_ROLE_KEY."
+            };
+          }
         }
       }
 
@@ -93,35 +108,63 @@ export function BusinessConsultantsPanel() {
     if (!editingConsultant) return;
     setUpdating(true);
     try {
-      const isEmailOrPasswordChanged = (editEmail.toLowerCase() !== editingConsultant.email?.toLowerCase()) || !!editPassword;
+      const isEmailChanged = editEmail.toLowerCase() !== editingConsultant.email?.toLowerCase();
+      const isPasswordChanged = !!editPassword;
 
-      if (isEmailOrPasswordChanged) {
-        const res = await updateConsultantProfileFn({
-          data: {
-            userId: editingConsultant.id,
-            name: editName,
-            email: editEmail,
-            originalEmail: editingConsultant.email,
-            mobile: editMobile,
-            whatsapp: editWhatsapp,
-            password: editPassword || undefined,
+      if (isEmailChanged || isPasswordChanged) {
+        const { data: { session } } = await supabase.auth.getSession();
+        const currentUserId = session?.user?.id;
+
+        if (isPasswordChanged && !isEmailChanged && currentUserId === editingConsultant.id) {
+          const { error: pwError } = await supabase.auth.updateUser({ password: editPassword });
+          if (pwError) throw new Error(pwError.message || "Failed to update password");
+        } else if (isPasswordChanged && !isEmailChanged) {
+          const { error: rpcErr } = await supabase.rpc("admin_update_user_password", {
+            _target_user_id: editingConsultant.id,
+            _new_password: editPassword,
+          });
+          if (rpcErr) {
+            const res = await updateConsultantProfileFn({
+              data: {
+                userId: editingConsultant.id,
+                name: editName,
+                email: editEmail,
+                originalEmail: editingConsultant.email,
+                mobile: editMobile,
+                whatsapp: editWhatsapp,
+                password: editPassword,
+              },
+            });
+            if (!res.success) throw new Error(res.error || "Failed to update password");
           }
-        });
-        if (!res.success) {
-          throw new Error(res.error || "Failed to update profile");
+        } else {
+          const res = await updateConsultantProfileFn({
+            data: {
+              userId: editingConsultant.id,
+              name: editName,
+              email: editEmail,
+              originalEmail: editingConsultant.email,
+              mobile: editMobile,
+              whatsapp: editWhatsapp,
+              password: isPasswordChanged ? editPassword : undefined,
+            },
+          });
+          if (!res.success) {
+            throw new Error(res.error || "Failed to update profile");
+          }
         }
-      } else {
-        const { error: profileError } = await supabase
-          .from("profiles")
-          .update({
-            name: editName,
-            mobile: editMobile,
-            whatsapp: editWhatsapp,
-          })
-          .eq("id", editingConsultant.id);
-
-        if (profileError) throw profileError;
       }
+
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .update({
+          name: editName,
+          mobile: editMobile,
+          whatsapp: editWhatsapp,
+        })
+        .eq("id", editingConsultant.id);
+
+      if (profileError) throw profileError;
 
       toast.success("Consultant profile updated successfully!");
       setEditingConsultant(null);
