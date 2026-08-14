@@ -2133,6 +2133,11 @@ return (
                             toast.error(`Please submit the ${needed} phase first to unlock this tab.`);
                             return;
                           }
+                          if (s.k === "order") {
+                            setConsultantSiteId(null);
+                            navigate({ to: "/manager/logistic" as any });
+                            return;
+                          }
                           setModalTab(s.k);
                         }}
                         className={`relative flex-1 h-[58px] bg-surface border rounded-xl overflow-hidden flex items-center px-5 transition-all duration-300 ${isLocked

@@ -525,17 +525,12 @@ function OrderCard({
       splitLocation = doc.splitTextToSize(locationText, wrapWidth);
 
       // Compute relative offsets from startY of each label box
+      // Order: TO (recipient) on top, FROM (LimelightIT) on bottom
       const titleOffset = 10;
       const headerDividerOffset = 16;
 
-      const fromHeaderOffset = headerDividerOffset + sectionSpacing;
-      const fromCompanyOffset = fromHeaderOffset + lineSpacing;
-      const fromAddr1Offset = fromCompanyOffset + lineSpacing;
-      const fromAddr2Offset = fromAddr1Offset + lineSpacing;
-      const fromMobileOffset = fromAddr2Offset + lineSpacing;
-      const fromToDividerOffset = fromMobileOffset + sectionSpacing;
-
-      const toHeaderOffset = fromToDividerOffset + sectionSpacing;
+      // TO section (upper)
+      const toHeaderOffset = headerDividerOffset + sectionSpacing;
       const toCompanyOffset = toHeaderOffset + lineSpacing;
 
       let currentOffset = toCompanyOffset + lineSpacing;
@@ -548,8 +543,16 @@ function OrderCard({
       const toMobileOffset = currentOffset;
       const toBottomOffset = toMobileOffset + sectionSpacing;
 
-      // The height of a single label
-      const totalBoxHeight = toBottomOffset;
+      // FROM section (lower)
+      const fromToDividerOffset = toBottomOffset;
+      const fromHeaderOffset = fromToDividerOffset + sectionSpacing;
+      const fromCompanyOffset = fromHeaderOffset + lineSpacing;
+      const fromAddr1Offset = fromCompanyOffset + lineSpacing;
+      const fromAddr2Offset = fromAddr1Offset + lineSpacing;
+      const fromMobileOffset = fromAddr2Offset + lineSpacing;
+
+      // The height of a single label (bottom of FROM section)
+      const totalBoxHeight = fromMobileOffset + sectionSpacing;
 
       // Setup common dimensions
       const startX = 15;
@@ -565,7 +568,7 @@ function OrderCard({
         // Draw horizontal dividing lines
         doc.setLineWidth(0.5);
         doc.line(startX, startY + headerDividerOffset, startX + width, startY + headerDividerOffset); // Header divider
-        doc.line(startX, startY + fromToDividerOffset, startX + width, startY + fromToDividerOffset); // FROM-TO divider
+        doc.line(startX, startY + fromToDividerOffset, startX + width, startY + fromToDividerOffset); // TO-FROM divider
 
         // Render Title Section
         doc.setFont("Helvetica", "bold");
@@ -573,21 +576,7 @@ function OrderCard({
         doc.setTextColor(0, 0, 0);
         doc.text("COURIER ADDRESS LABEL", startX + width / 2, startY + titleOffset, { align: "center" });
 
-        // Render FROM Section (upper half)
-        doc.setFont("Helvetica", "bold");
-        doc.setFontSize(fontSizeHeader);
-        doc.text("FROM", startX + 7, startY + fromHeaderOffset);
-
-        doc.setFont("Helvetica", "bold");
-        doc.setFontSize(fontSizeContent);
-        doc.text("LimelightIT", startX + 7, startY + fromCompanyOffset);
-
-        doc.setFont("Helvetica", "normal");
-        doc.text("A/448, Money Plant High Street,", startX + 7, startY + fromAddr1Offset);
-        doc.text("Gota, Ahmedabad, Gujarat - 382470", startX + 7, startY + fromAddr2Offset);
-        doc.text("Mobile: +91 93130 48188", startX + 7, startY + fromMobileOffset);
-
-        // Render TO Section (lower half)
+        // Render TO Section (upper half — recipient first)
         doc.setFont("Helvetica", "bold");
         doc.setFontSize(fontSizeHeader);
         doc.text("TO", startX + 7, startY + toHeaderOffset);
@@ -606,6 +595,20 @@ function OrderCard({
 
         // Recipient Mobile
         doc.text(`Mobile: ${recipientMobile}`, startX + 7, startY + toMobileOffset);
+
+        // Render FROM Section (lower half — sender)
+        doc.setFont("Helvetica", "bold");
+        doc.setFontSize(fontSizeHeader);
+        doc.text("FROM", startX + 7, startY + fromHeaderOffset);
+
+        doc.setFont("Helvetica", "bold");
+        doc.setFontSize(fontSizeContent);
+        doc.text("LimelightIT", startX + 7, startY + fromCompanyOffset);
+
+        doc.setFont("Helvetica", "normal");
+        doc.text("A/448, Money Plant High Street,", startX + 7, startY + fromAddr1Offset);
+        doc.text("Gota, Ahmedabad, Gujarat - 382470", startX + 7, startY + fromAddr2Offset);
+        doc.text("Mobile: +91 93130 48188", startX + 7, startY + fromMobileOffset);
       };
 
       // Calculate vertical positioning to center each label in its respective half page
