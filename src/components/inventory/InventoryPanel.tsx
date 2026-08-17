@@ -32,6 +32,7 @@ import {
   FileText,
 } from "lucide-react";
 import { toast } from "sonner";
+import { parseSiteMetadata } from "@/lib/site-metadata";
 
 type Material = {
   id: string;
@@ -471,51 +472,97 @@ function OrderCard({
         import("jspdf"),
       ]);
 
-      // Query database for recipient's mobile number dynamically
-      let recipientMobile = "+91 ";
+      const { data: latestMaterial } = await supabase
+        .from("inventory_materials")
+        .select("*")
+        .eq("id", material.id)
+        .maybeSingle();
+
+      const pdfMaterial = (latestMaterial as Material | null) || material;
+
+      const normalizeMobileForPdf = (mobile?: string | null) => {
+        const value = (mobile || "").trim();
+        if (!value) return "";
+        return value.startsWith("+") ? value : `+91 ${value}`;
+      };
+
+      const firstFilledMobile = (...values: Array<string | null | undefined>) => {
+        for (const value of values) {
+          const normalized = normalizeMobileForPdf(value);
+          if (normalized) return normalized;
+        }
+        return "N/A";
+      };
+
+      // Query database for recipient's address and mobile number dynamically
+      let dynamicAddress = "";
+      let recipientMobile = "N/A";
       try {
         const { data: byCompany } = await supabase
           .from("sites")
-          .select("id")
-          .eq("company_name", material.material_name)
+          .select("id, address, city, task_notes")
+          .eq("company_name", pdfMaterial.material_name)
           .limit(1)
           .maybeSingle();
 
-        let siteId = byCompany?.id;
+        let siteRecord = byCompany;
 
-        if (!siteId) {
+        if (!siteRecord) {
           const { data: byName } = await supabase
             .from("sites")
-            .select("id")
-            .eq("name", material.material_name)
+            .select("id, address, city, task_notes")
+            .eq("name", pdfMaterial.material_name)
             .limit(1)
             .maybeSingle();
-          siteId = byName?.id;
+          siteRecord = byName;
         }
 
-        if (siteId) {
+        if (siteRecord) {
+          const { data: assessData } = await supabase
+            .from("assessment")
+            .select("data")
+            .eq("site_id", siteRecord.id)
+            .limit(1)
+            .maybeSingle();
+          const aData = assessData?.data || {};
+
+          if (siteRecord.address && siteRecord.address.trim()) {
+            dynamicAddress = siteRecord.address.trim();
+          } else {
+            if (aData.factory_op_address && typeof aData.factory_op_address === "string" && aData.factory_op_address.trim()) {
+              dynamicAddress = aData.factory_op_address.trim();
+            } else if (aData.registered_address && typeof aData.registered_address === "string" && aData.registered_address.trim()) {
+              dynamicAddress = aData.registered_address.trim();
+            }
+          }
+
           const { data: contactData } = await supabase
             .from("contacts")
             .select("mobile")
-            .eq("site_id", siteId)
+            .eq("site_id", siteRecord.id)
             .limit(1)
             .maybeSingle();
-          if (contactData?.mobile) {
-            recipientMobile = contactData.mobile.startsWith("+91") ? contactData.mobile : `+91 ${contactData.mobile}`;
-          } else {
-            recipientMobile = "N/A";
-          }
+          const siteMeta = parseSiteMetadata(siteRecord.task_notes ?? null);
+          const ownerMobile = Array.isArray(aData.factory_op_owners) ? aData.factory_op_owners[0]?.contact : "";
+          const technicianMobile = Array.isArray(aData.factory_op_technicians) ? aData.factory_op_technicians[0]?.contact : "";
+          recipientMobile = firstFilledMobile(
+            contactData?.mobile,
+            siteMeta.c1_mobile,
+            siteMeta.c2_mobile,
+            ownerMobile,
+            technicianMobile
+          );
         } else {
           recipientMobile = "N/A";
         }
       } catch (err) {
-        console.error("Error fetching recipient contact:", err);
+        console.error("Error fetching recipient contact & address:", err);
         recipientMobile = "N/A";
       }
 
       const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
 
-      const locationText = material.location || "N/A";
+      const locationText = dynamicAddress || pdfMaterial.location || "Address not specified";
       const wrapWidth = 160;
 
       // Wrap address text at base font size first to calculate line count
@@ -609,7 +656,7 @@ function OrderCard({
         // Recipient Company Name (bold & uppercase)
         doc.setFont("Helvetica", "bold");
         doc.setFontSize(fontSizeContent);
-        const recipientName = (material.material_name || "N/A").toUpperCase();
+        const recipientName = (pdfMaterial.material_name || "N/A").toUpperCase();
         doc.text(recipientName, startX + 7, startY + toCompanyOffset);
 
         // Recipient Address (split to wrap nicely)
@@ -657,7 +704,9 @@ function OrderCard({
       renderLabel(bottomStartY);
 
       // Save Label PDF
-      const fileName = `courier_label_${material.material_name.toLowerCase().replace(/[^a-z0-9]/g, "_")}.pdf`;
+      const safeName = (pdfMaterial.material_name || "company").toLowerCase().replace(/[^a-z0-9]/g, "_");
+      const timestamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "");
+      const fileName = `courier_label_${safeName}_${timestamp}.pdf`;
       doc.save(fileName);
       toast.success("Courier address label downloaded!");
     } catch (error: any) {

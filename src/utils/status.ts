@@ -112,11 +112,21 @@ export function getCanonicalStatus(
   }
 
   // 2. Billing / Completion check (Submitted)
-  if (meta.status === "Submitted") {
+  if (meta.status === "Submitted" || site.consultant_stage === "Completion" || site.consultant_stage === "Billing") {
     return "Submitted";
   }
 
-  // 3. Dynamic progress calculations
+  // 3. Explicit Manager Metadata Override (High priority manual overrides)
+  if (meta.status === "Certification Pending") return "Certification Pending";
+  if (meta.status === "Unsubmitted") return "Unsubmitted";
+  if (meta.status === "Commissioned") return "Commissioned";
+  if (meta.status === "Installed") return "Installed";
+  if (meta.status === "Panel Dispatched") return "Panel Dispatched";
+  if (meta.status === "Assessed" || meta.status === "In Assessment") return "Assessed";
+  if (meta.status === "Not Started Yet") return "Not Started Yet";
+  if (meta.status === "Pending Assignment") return hasWorker ? "Not Started Yet" : "Pending Assignment";
+
+  // 4. Dynamic progress calculations (Automated fallback based on form activity / logistics if no meta.status override exists)
   const ar = aMap.get(site.id);
   const ir = iMap.get(site.id);
   const cr = cMap.get(site.id);
@@ -125,39 +135,30 @@ export function getCanonicalStatus(
   const realIP = pctKeys(ir?.data, INSTALLATION_KEYS);
   const realCP = pctKeys(cr?.data, COMMISSIONING_KEYS);
 
-  // 4. Commissioned (C === 100)
-  if (realCP === 100 || meta.status === "Commissioned") {
+  // 5. Commissioned (C === 100)
+  if (realCP === 100) {
     const isCertSent = !!cr?.data?.certificate_sent || !!ar?.data?.certificate_sent;
-    if (isCertSent || meta.status === "Submitted") return "Submitted";
+    if (isCertSent) return "Submitted";
     return "Commissioned";
   }
 
-  // 5. Installed (I === 100)
-  if (realIP === 100 || meta.status === "Installed") {
+  // 6. Installed (I === 100)
+  if (realIP === 100) {
     return "Installed";
   }
 
-  // 6. Panel Dispatched
+  // 7. Panel Dispatched
   const isMaterialDelivered = logisticsStatus === "Delivered";
-  if (isMaterialDelivered || meta.status === "Panel Dispatched") {
+  if (isMaterialDelivered) {
     return "Panel Dispatched";
   }
 
-  // 7. Assessed (A === 100)
-  if (realAP === 100 || meta.status === "Assessed") {
+  // 8. Assessed (A === 100 or A > 0)
+  if (realAP === 100 || realAP > 0) {
     return "Assessed";
   }
 
-  // 8. In Progress Assessment (A > 0)
-  if (realAP > 0) {
-    return "Assessed";
-  }
-
-  // 9. Manual overrides from metadata if no progress is made
-  if (meta.status === "Certification Pending") return "Certification Pending";
-  if (meta.status === "Unsubmitted") return "Unsubmitted";
-
-  // 10. Default: Not Started Yet / Pending Assignment
+  // 9. Default: Not Started Yet / Pending Assignment
   if (hasWorker) {
     return "Not Started Yet";
   }

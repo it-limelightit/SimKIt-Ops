@@ -32,7 +32,6 @@ const FACTORY_STATUS_OPTIONS = [
   "Not Started Yet",
 ] as const;
 
-// ── Multi-select BC dropdown ──────────────────────────────────────────────────
 function BCMultiSelect({
   allBCs,
   selectedIds,
@@ -136,171 +135,7 @@ function BCMultiSelect({
   );
 }
 
-/*
-const ASSESSMENT_KEYS = [
-  "mom_uploaded",
-  "media_uploaded",
-  "factory_operations_done",
-];
-const INSTALLATION_KEYS = ["delivery_confirmed", "coordination_done", "photos_uploaded"];
-const COMMISSIONING_KEYS = [
-  "coordination_done",
-  "visit_done",
-  "connection_done",
-  "configure_done",
-  "testing_done",
-  "screenshots_uploaded",
-  "certificate_sent",
-  "final_mom_uploaded",
-];
-
-function pctKeys(data: any, keys: string[]) {
-  if (!data) return 0;
-  return Math.round((keys.filter((k) => !!data[k]).length / keys.length) * 100);
-}
-
-//
 // ── Main panel ────────────────────────────────────────────────────────────────
-export function SitesPanel_DELETED() {
-  const formRevealRef = useRef<HTMLDivElement>(null);
-  const [sites, setSites] = useState<any[]>([]);
-  const [materials, setMaterials] = useState<any[]>([]);
-  const [businessConsultants, setBusinessConsultants] = useState<any[]>([]);
-  const [assessments, setAssessments] = useState<any[]>([]);
-  const [installations, setInstallations] = useState<any[]>([]);
-  const [commissionings, setCommissionings] = useState<any[]>([]);
-  const [creating, setCreating] = useState(false);
-  const [editingSite, setEditingSite] = useState<any | null>(null);
-
-  const routerState = useRouterState();
-  const searchParam = (routerState.location.search as any)?.q || "";
-
-  const [search, setSearch] = useState(searchParam);
-
-  useEffect(() => {
-    if (searchParam) {
-      setSearch(searchParam);
-    }
-  }, [searchParam]);
-  const [filterCity, setFilterCity] = useState("");
-  const [filterStatus, setFilterStatus] = useState("");
-  const [filterAssessor, setFilterAssessor] = useState("");
-  const [filterBC, setFilterBC] = useState("");
-  const [currentPage, setCurrentPage] = useState(1);
-  const [clientUpdateTimes, setClientUpdateTimes] = useState<Record<string, number>>({});
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [search, filterCity, filterStatus, filterAssessor, filterBC]);
-
-  const [form, setForm] = useState({
-    name: "",
-    company_name: "",
-    city: "",
-    address: "",
-    workers: [] as string[],
-    c1_name: "",
-    c1_mobile: "",
-    c1_email: "",
-    c2_name: "",
-    c2_mobile: "",
-    c2_email: "",
-    status: "Running",
-    appt_date: "",
-    appt_time: "",
-    create_drive_folder: false,
-    drive_folder_link: "",
-    assessor_company: "",
-    assessor_phone: "",
-    assessor_city: "",
-    assessor_number: "",
-    assessor_email: "",
-    assessor_address: "",
-  });
-
-  const load = async () => {
-    const [s, w, aRes, iRes, cRes, rRes, mRes] = await Promise.all([
-      supabase
-        .from("sites")
-        .select(
-          "id,name,company_name,city,address,assigned_worker_id,assigned_at,task_notes,appt_date,appt_time,consultant_stage,created_at",
-        )
-        .order("created_at", { ascending: false }),
-      supabase.from("profiles").select("id,name,mobile,is_active").order("created_at"),
-      supabase.from("assessment").select("data,updated_at,site_id"),
-      supabase.from("installation").select("data,updated_at,site_id"),
-      supabase.from("commissioning").select("data,updated_at,site_id"),
-      supabase.from("user_roles").select("user_id").eq("role", "worker"),
-      supabase.from("inventory_materials").select("state,notes,submitted,material_name,created_at"),
-    ]);
-    if (s.error) toast.error("Error loading sites: " + s.error.message);
-    if (w.error) toast.error("Error loading profiles: " + w.error.message);
-    setSites(s.data ?? []);
-    const workerIds = new Set((rRes.data ?? []).map((r: any) => r.user_id));
-    setBusinessConsultants((w.data ?? []).filter((x: any) => x.is_active && workerIds.has(x.id)));
-    setAssessments(aRes.data ?? []);
-    setInstallations(iRes.data ?? []);
-    setCommissionings(cRes.data ?? []);
-    setMaterials(mRes.data ?? []);
-  };
-
-  useEffect(() => {
-    void load();
-  }, []);
-
-  useEffect(() => {
-    if (!creating && !editingSite) return;
-    const frame = window.requestAnimationFrame(() => {
-      formRevealRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      const firstField = formRevealRef.current?.querySelector<HTMLInputElement>(
-        "input:not([disabled]), select:not([disabled]), textarea:not([disabled])",
-      );
-      firstField?.focus({ preventScroll: true });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [creating, editingSite]);
-
-  // Returns the full list of assigned BC IDs for a site row
-  const getSiteWorkerIds = (s: any): string[] => {
-    const meta = parseSiteMetadata(s.task_notes);
-    if (meta.worker_ids?.length > 0) return meta.worker_ids;
-    if (s.assigned_worker_id) return [s.assigned_worker_id];
-    return [];
-  };
-
-  const aMap = new Map<string, any>(assessments.map((r) => [r.site_id, r]));
-  const iMap = new Map<string, any>(installations.map((r) => [r.site_id, r]));
-  const cMap = new Map<string, any>(commissionings.map((r) => [r.site_id, r]));
-
-  const isSiteSubmitted = (site: any) => {
-    if (site.consultant_stage === "Completion" || site.consultant_stage === "Billing") return true;
-    const ar = aMap.get(site.id);
-    return !!ar?.data?.assessment_phase_submitted;
-  };
-
-  const isSiteCertification = (site: any) => {
-    if (site.consultant_stage === "Completion" || site.consultant_stage === "Billing") return true;
-    const cr = cMap.get(site.id);
-    return !!cr?.data?.certificate_sent;
-  };
-
-  const isSiteDropped = (site: any) => {
-    const meta = parseSiteMetadata(site.task_notes);
-    const stage = (site.consultant_stage || meta.status || "").toLowerCase();
-    return stage.includes("drop") || stage.includes("reject");
-  };
-
-  const isSiteInstalled = (site: any) => {
-    const meta = parseSiteMetadata(site.task_notes);
-    const stage = (site.consultant_stage || meta.status || "").toLowerCase();
-    const ir = iMap.get(site.id);
-    return stage.includes("installed") || pctKeys(ir?.data, INSTALLATION_KEYS) === 100;
-  };
-
-
-// ── Main panel ────────────────────────────────────────────────────────────────
-*/
-
 export function SitesPanel() {
   const formRevealRef = useRef<HTMLDivElement>(null);
   const [sites, setSites] = useState<any[]>([]);
@@ -604,6 +439,7 @@ export function SitesPanel() {
     });
   };
 
+
   const updateSite = async () => {
     if (!editingSite) return;
 
@@ -696,6 +532,13 @@ export function SitesPanel() {
 
     if (error) toast.error(error.message);
     else {
+      if (form.address && form.address.trim()) {
+        const targetComp = (form.company_name || form.name).trim();
+        await supabase
+          .from("inventory_materials")
+          .update({ location: form.address.trim() } as never)
+          .or(`material_name.eq.${targetComp},material_name.eq.${form.name.trim()}`);
+      }
       toast.success("Site updated");
       setClientUpdateTimes(prev => ({ ...prev, [editingSite.id]: Date.now() }));
       setEditingSite(null);

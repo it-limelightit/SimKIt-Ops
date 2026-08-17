@@ -14,7 +14,6 @@ import { InventoryPanel } from "@/components/inventory/InventoryPanel";
 import { OrderTab } from "@/components/business-consultant/OrderTab";
 import { getCanonicalStatus } from "@/utils/status";
 
-
 export const Route = createFileRoute("/business-consultant")({
   ssr: false,
   head: () => ({ meta: [{ title: "Field Associate — SIM-Kit Ops" }] }),
@@ -62,17 +61,17 @@ function BusinessConsultantPage() {
       let token = parseSiteMetadata(site.task_notes).client_token;
       if (!token) {
         token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-        const { error } = await supabase.rpc("save_client_invitation", {
-          site_id: site.id,
-          client_email: clientShareEmail.trim(),
-          token_val: token
-        });
-
-        if (error) {
-          throw new Error("Failed to save client details: " + error.message);
-        }
-        await fetchSites();
       }
+      const { error } = await supabase.rpc("save_client_invitation", {
+        site_id: site.id,
+        client_email: clientShareEmail.trim(),
+        token_val: token
+      });
+
+      if (error) {
+        throw new Error("Failed to save client details: " + error.message);
+      }
+      await fetchSites();
 
       const { sendClientFormEmailFn } = await import("./client-form");
       const res = await sendClientFormEmailFn({
@@ -107,21 +106,6 @@ function BusinessConsultantPage() {
     }
   };
 
-  useEffect(() => {
-    if (site) {
-      const siteMeta = parseSiteMetadata(site.task_notes);
-      setClientShareEmail(siteMeta.client_email || "");
-      if (siteMeta.client_token) {
-        setGeneratedLink(`${window.location.origin}/client-form?token=${siteMeta.client_token}`);
-      } else {
-        setGeneratedLink("");
-      }
-    } else {
-      setClientShareEmail("");
-      setGeneratedLink("");
-    }
-  }, [site]);
-
   const handleGenerateShareLink = async () => {
     if (!site) return;
     try {
@@ -154,6 +138,21 @@ function BusinessConsultantPage() {
   };
 
   useEffect(() => {
+    if (site) {
+      const siteMeta = parseSiteMetadata(site.task_notes);
+      setClientShareEmail(siteMeta.client_email || "");
+      if (siteMeta.client_token) {
+        setGeneratedLink(`${window.location.origin}/client-form?token=${siteMeta.client_token}`);
+      } else {
+        setGeneratedLink("");
+      }
+    } else {
+      setClientShareEmail("");
+      setGeneratedLink("");
+    }
+  }, [site]);
+
+  useEffect(() => {
     if (!ready) return;
     if (!userId) {
       navigate({ to: "/auth" });
@@ -167,7 +166,6 @@ function BusinessConsultantPage() {
   const fetchSites = async () => {
     if (!userId) return;
     const { data, error } = await supabase
-      .from("sites")
       .select("id,name,company_name,city,address,assigned_at,appt_date,appt_time,task_notes,consultant_stage")
       .or(`assigned_worker_id.eq.${userId},task_notes.ilike.%"${userId}"%`)
       .order("assigned_at", { ascending: false });
