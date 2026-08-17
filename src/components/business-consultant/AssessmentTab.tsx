@@ -780,10 +780,7 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
 
       if (!site) throw new Error("Site not found.");
 
-      let token = parseSiteMetadata(site.task_notes).client_token;
-      if (!token) {
-        token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-      }
+      const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
       const { error } = await supabase.rpc("save_client_invitation", {
         site_id: siteId,
         client_email: clientShareEmail.trim(),
