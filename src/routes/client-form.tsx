@@ -461,7 +461,11 @@ function ClientFormPage() {
       const res = await saveClientFormByTokenFn({
         data: {
           token: token || "",
-          assessmentData: formData
+          assessmentData: {
+            ...formData,
+            assessment_phase_submitted: true,
+            factory_form_submitted_at: new Date().toISOString(),
+          }
         }
       });
       if (res.success) {

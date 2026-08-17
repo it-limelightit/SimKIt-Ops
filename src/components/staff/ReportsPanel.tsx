@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button, Input, Label, Select } from "@/components/ui-kit";
 import { parseSiteMetadata } from "@/lib/site-metadata";
+import { getCanonicalStatus } from "@/utils/status";
 import {
   Building2,
   CheckCircle2,
@@ -201,131 +202,9 @@ export function ReportsPanel() {
       const iMap = new Map<string, any>(installations.map((r) => [r.site_id, r]));
       const cMap = new Map<string, any>(commissionings.map((r) => [r.site_id, r]));
 
-      const getLogisticsStatus = (m: any): string => {
-        try {
-          if (!m.notes) return m.state === "In transit" ? "Transit" : (m.state || "Pending");
-          let parsed = m.notes;
-          if (typeof m.notes === "string") {
-            const trimmed = m.notes.trim();
-            if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-              parsed = JSON.parse(trimmed);
-            } else {
-              return m.state === "In transit" ? "Transit" : (m.state || "Pending");
-            }
-          }
-          if (parsed && typeof parsed === "object" && parsed.logistics_status) {
-            return parsed.logistics_status;
-          }
-        } catch (e) {
-          console.error("Error parsing logistics status:", e);
-        }
-        return m.state === "In transit" ? "Transit" : (m.state || "Pending");
-      };
-
-      const normalizeCompanyName = (name: string): string => {
-        if (!name) return "";
-        return name
-          .toLowerCase()
-          .replace(/^m\/s\.?\s+|^ms\.?\s+/i, "")
-          .replace(/\s+pvt\.?\s*ltd\.?|\s+private\s+limited/i, "")
-          .replace(/\s+ltd\.?/i, "")
-          .replace(/[^a-z0-9]/g, "")
-          .trim();
-      };
-
-      const isSiteSubmitted = (row: any) => {
-        if (row.consultant_stage === "Completion" || row.consultant_stage === "Billing") return true;
-        const ar = aMap.get(row.id);
-        return !!ar?.data?.assessment_phase_submitted;
-      };
-
-      const isSiteCertification = (row: any) => {
-        const ar = aMap.get(row.id);
-        const cr = cMap.get(row.id);
-        const hasCert = !!(cr?.data?.certificate_sent || ar?.data?.certificate_sent);
-        return hasCert;
-      };
-
-      const isSiteCommissioned = (row: any) => {
-        const cr = cMap.get(row.id);
-        const cP = pctKeys(cr?.data, COMMISSIONING_KEYS);
-        return cP === 100;
-      };
-
-      const isSiteInstalled = (row: any) => {
-        const ir = iMap.get(row.id);
-        const iP = pctKeys(ir?.data, INSTALLATION_KEYS);
-        return iP === 100;
-      };
-
-      const isSiteAssessment = (row: any) => {
-        const ar = aMap.get(row.id);
-        const aP = pctKeys(ar?.data, ASSESSMENT_KEYS);
-        return aP > 0;
-      };
-
-      const isSiteDropped = (row: any) => {
-        const meta = parseSiteMetadata(row.task_notes);
-        return meta.status === "Dropped / Rejected" || meta.status === "Reject";
-      };
-
-      const getCanonicalStatus = (row: any, logisticsStatus: string): string => {
-        const meta = parseSiteMetadata(row.task_notes);
-        const workerIds = getSiteWorkerIds(row);
-
-        if (meta.status === "Dropped / Rejected" || meta.status === "Reject") return "Dropped / Rejected";
-        if (meta.status === "Submitted") return "Submitted";
-        if (meta.status === "Certification Pending") return "Certification Pending";
-        if (meta.status === "Commissioned") return "Commissioned";
-        if (meta.status === "Installed") return "Installed";
-
-        if (logisticsStatus === "Delivered") return "Panel Dispatched";
-
-        if (meta.status === "Assessed" || meta.status === "In Assessment") return "Assessed";
-        if (meta.status === "Panel Dispatched") return "Panel Dispatched";
-        if (meta.status === "Pending Assignment") return "Pending Assignment";
-        if (meta.status === "Unsubmitted") return "Unsubmitted";
-        if (meta.status === "Not Started Yet") return "Not Started Yet";
-
-        if (row.consultant_stage === "Completion" || row.consultant_stage === "Billing") return "Submitted";
-        if (isSiteDropped(row)) return "Dropped / Rejected";
-
-        const ar = aMap.get(row.id);
-        const ir = iMap.get(row.id);
-        const cr = cMap.get(row.id);
-
-        const isAssessmentSubmitted = !!ar?.data?.assessment_phase_submitted;
-        const isInstallationCompleted = (!!ir?.data?.delivery_confirmed && !!ir?.data?.coordination_done && !!ir?.data?.photos_uploaded) || pctKeys(ir?.data, INSTALLATION_KEYS) === 100;
-        const isCommissioningCompleted = !!cr?.data?.commissioning_phase_submitted || pctKeys(cr?.data, COMMISSIONING_KEYS) === 100;
-        const isCertSent = !!cr?.data?.certificate_sent || !!ar?.data?.certificate_sent;
-
-        if (isAssessmentSubmitted) {
-          if (isCertSent) return "Submitted";
-          if (isCommissioningCompleted) return "Commissioned";
-          if (isInstallationCompleted) return "Installed";
-          return "Assessed";
-        }
-
-        if (workerIds.length > 0) return "Not Started Yet";
-        if (workerIds.length === 0) return "Pending Assignment";
-
-        return "Unsubmitted";
-      };
-
       return sites.map((site) => {
         const consultantIds = getSiteWorkerIds(site);
-
-        // Logistics matching
-        const matchingMaterial = materials.find((m) => {
-          if (m.submitted === false) return false;
-          const normMat = normalizeCompanyName(m.material_name);
-          const normComp = normalizeCompanyName(site.company_name);
-          const normName = normalizeCompanyName(site.name);
-          return normMat === normComp || normMat === normName;
-        });
-        const logisticsStatus = matchingMaterial ? getLogisticsStatus(matchingMaterial) : "Pending";
-
-        const canonicalStatus = getCanonicalStatus(site, logisticsStatus);
+        const canonicalStatus = getCanonicalStatus(site, aMap, iMap, cMap, materials);
 
         return {
           id: site.id,
@@ -343,11 +222,6 @@ export function ReportsPanel() {
       });
     },
     [sites, consultantMap, assessments, installations, commissionings, materials],
-  );
-
-  const cities = useMemo(
-    () => Array.from(new Set(rows.map((row) => row.city).filter((city) => city !== "—"))).sort(),
-    [rows],
   );
 
   const filteredRows = useMemo(() => {
@@ -373,6 +247,11 @@ export function ReportsPanel() {
       return true;
     });
   }, [rows, filters]);
+
+  const cities = useMemo(
+    () => Array.from(new Set(rows.map((row) => row.city).filter((city) => city !== "—"))).sort(),
+    [rows],
+  );
 
   const summary = useMemo(
     () => ({

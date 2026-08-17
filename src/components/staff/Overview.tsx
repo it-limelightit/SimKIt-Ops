@@ -223,17 +223,17 @@ export function Overview() {
       let token = parseSiteMetadata(site.task_notes).client_token;
       if (!token) {
         token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-        const { error } = await supabase.rpc("save_client_invitation", {
-          site_id: site.id,
-          client_email: clientShareEmail.trim(),
-          token_val: token
-        });
-
-        if (error) {
-          throw new Error("Failed to save client details: " + error.message);
-        }
-        await loadData();
       }
+      const { error } = await supabase.rpc("save_client_invitation", {
+        site_id: site.id,
+        client_email: clientShareEmail.trim(),
+        token_val: token
+      });
+
+      if (error) {
+        throw new Error("Failed to save client details: " + error.message);
+      }
+      await loadData();
 
       const { sendClientFormEmailFn } = await import("../../routes/client-form");
       const res = await sendClientFormEmailFn({
@@ -538,7 +538,8 @@ export function Overview() {
     try {
       const workerIds = workerId ? [workerId] : [];
       const meta = parseSiteMetadata(row.task_notes);
-      const newNotes = serializeSiteMetadata(row.task_notes, { ...meta, worker_ids: workerIds });
+      const nextStatus = workerId && row.status === "Pending Assignment" ? "Not Started Yet" : meta.status;
+      const newNotes = serializeSiteMetadata(row.task_notes, { ...meta, worker_ids: workerIds, status: nextStatus });
       
       const { error } = await supabase
         .from("sites")
@@ -705,7 +706,8 @@ const allProcessedRows: SiteRow[] = rawSites.map((site) => {
       (normName && (normMat.includes(normName) || normName.includes(normMat)));
     return matched;
   });
-  const logisticsStatus = matchingMaterial ? getLogisticsStatus(matchingMaterial) : "Pending";  const canonicalStatus = getCanonicalStatus(site, aMap, iMap, cMap, rawMaterials);
+  const logisticsStatus = matchingMaterial ? getLogisticsStatus(matchingMaterial) : "Pending";
+  const canonicalStatus = getCanonicalStatus(site, aMap, iMap, cMap, rawMaterials);
 
   if (canonicalStatus === "Assessed") {
     aP = 100;
