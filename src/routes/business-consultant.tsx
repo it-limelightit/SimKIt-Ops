@@ -6,7 +6,7 @@ import { Badge, Button, ProgressBar, Skeleton, Select, Label, Card, Input } from
 import { AssessmentTab } from "@/components/business-consultant/AssessmentTab";
 import { InstallationTab } from "@/components/business-consultant/InstallationTab";
 import { CommissioningTab } from "@/components/business-consultant/CommissioningTab";
-import { LogOut, Check, CheckCircle2, MapPin, Calendar, Clock, BookOpen, Boxes, Sun, Moon, User, Phone, Mail, Lock } from "lucide-react";
+import { LogOut, Check, CheckCircle2, MapPin, Calendar, Clock, BookOpen, Boxes, Sun, Moon, User, Phone, Mail, Lock, Wrench, Building2, Layers, BarChart3, Activity, TrendingUp } from "lucide-react";
 import { parseTaskNotes } from "@/components/staff/TasksPanel";
 import { parseSiteMetadata, serializeSiteMetadata } from "@/lib/site-metadata";
 import { toast } from "sonner";
@@ -682,9 +682,15 @@ function BusinessConsultantPage() {
 
       <main className="mt-8 space-y-4 pb-24">
         {tab === "assessment" && (
-          submittedPhases.has("assessment")
-            ? <PhaseSubmittedCard label="Assessment Visit" onNext={() => setTab("order")} nextLabel="Go to Device Order" />
-            : <AssessmentTab siteId={site.id} workerId={userId!} onSubmit={() => { setSubmittedPhases(prev => new Set([...prev, "assessment"])); void fetchSites(); }} />
+          <AssessmentTab
+            siteId={site.id}
+            workerId={userId!}
+            onSubmit={() => {
+              setSubmittedPhases(prev => new Set([...prev, "assessment"]));
+              setTab("order");
+              void fetchSites();
+            }}
+          />
         )}
         {tab === "installation" && (
           !isAssessmentDone ? (
@@ -694,13 +700,13 @@ function BusinessConsultantPage() {
               </div>
               <h3 className="text-lg font-bold text-text-primary font-syne uppercase">Phase Locked</h3>
               <p className="text-sm text-text-secondary max-w-md mx-auto">
-                Please complete or submit the Assessment Visit phase first. Once assessment progress is 100%, the Installation phase will unlock automatically.
+                Please complete or submit the Assessment Visit phase first. Once assessment is completed, the Installation phase will unlock automatically.
               </p>
               <Button onClick={() => setTab("assessment")}>Go to Assessment</Button>
             </Card>
-          ) : submittedPhases.has("installation")
-            ? <PhaseSubmittedCard label="Installation" onNext={() => setTab("commissioning")} nextLabel="Go to Commissioning" />
-            : <InstallationTab siteId={site.id} workerId={userId!} onSubmit={() => { setSubmittedPhases(prev => new Set([...prev, "installation"])); void fetchSites(); }} />
+          ) : (
+            <InstallationTab siteId={site.id} workerId={userId!} onSubmit={() => { setSubmittedPhases(prev => new Set([...prev, "installation"])); void fetchSites(); }} />
+          )
         )}
         {tab === "commissioning" && (
           !isInstallationDone ? (
@@ -710,19 +716,19 @@ function BusinessConsultantPage() {
               </div>
               <h3 className="text-lg font-bold text-text-primary font-syne uppercase">Phase Locked</h3>
               <p className="text-sm text-text-secondary max-w-md mx-auto">
-                Please complete or submit the Installation phase first. Once installation progress is 100%, the Commissioning phase will unlock automatically.
+                Please complete or submit the Installation phase first. Once installation is completed, the Commissioning phase will unlock automatically.
               </p>
               <Button onClick={() => setTab("installation")}>Go to Installation</Button>
             </Card>
-          ) : submittedPhases.has("commissioning")
-            ? null
-            : <CommissioningTab
-                siteId={site.id}
-                workerId={userId!}
-                onSubmit={() => {
-                  void updateConsultantStage("Billing").then(() => setThankYou(true));
-                }}
-              />
+          ) : (
+            <CommissioningTab
+              siteId={site.id}
+              workerId={userId!}
+              onSubmit={() => {
+                void updateConsultantStage("Billing").then(() => setThankYou(true));
+              }}
+            />
+          )
         )}
         {tab === "order" && (
           <OrderTab site={site} workerId={userId!} />
@@ -784,24 +790,251 @@ function ConsultantDashboard({
   sites: Array<Site & { aPct: number; iPct: number; cPct: number; overall: number; status: "Complete" | "Working" | "Pending"; derivedStatus: string }>;
   onSelectSite: (siteId: string) => void;
 }) {
+  const [selectedKpi, setSelectedKpi] = useState<string>("not_started");
+
+  const totalSites = sites.length;
+  const countNotStarted = sites.filter(s => s.derivedStatus === "Not Started Yet" || s.derivedStatus === "Pending Assignment").length;
+  const countAssessed = sites.filter(s => s.derivedStatus === "Assessed").length;
+  const countDeviceOrder = sites.filter(s => s.derivedStatus === "Panel Dispatched" || s.derivedStatus === "Device Order").length;
+  const countInstalled = sites.filter(s => s.derivedStatus === "Installed").length;
+  const countCommissioned = sites.filter(s => s.derivedStatus === "Commissioned" || s.derivedStatus === "Submitted" || s.derivedStatus === "Billing" || s.derivedStatus === "Completion").length;
+
+  const avgOverallProgress = totalSites > 0 ? Math.round(sites.reduce((acc, s) => acc + (s.overall || 0), 0) / totalSites) : 0;
+  const getShare = (count: number) => totalSites > 0 ? Math.round((count / totalSites) * 100) : 0;
+
+  const kpiCards = [
+    {
+      id: "total",
+      label: "Total",
+      value: totalSites,
+      share: `${avgOverallProgress}% Avg`,
+      desc: "All assigned factories",
+      icon: Layers,
+      badgeStyle: "text-lime bg-lime/10 border-lime/30",
+      activeBorder: "border-lime ring-2 ring-lime/20 bg-surface scale-[1.02] shadow-[0_0_20px_rgba(200,255,74,0.15)]",
+      barColor: "bg-lime",
+      dotStyle: "bg-lime",
+    },
+    {
+      id: "not_started",
+      label: "Not Started Yet",
+      value: countNotStarted,
+      desc: "Assigned, awaiting assessment",
+      icon: Clock,
+      badgeStyle: "text-indigo-600 bg-indigo-50 border-indigo-200",
+      activeBorder: "border-indigo-500 ring-2 ring-indigo-500/10 bg-surface scale-[1.02] shadow-md",
+      dotStyle: "bg-indigo-500",
+    },
+    {
+      id: "assessed",
+      label: "Assessed",
+      value: countAssessed,
+      desc: "Assessment visit done",
+      icon: BookOpen,
+      badgeStyle: "text-blue-600 bg-blue-50 border-blue-200",
+      activeBorder: "border-blue-500 ring-2 ring-blue-500/10 bg-surface scale-[1.02] shadow-md",
+      dotStyle: "bg-blue-500",
+    },
+    {
+      id: "device_order",
+      label: "Device Order",
+      value: countDeviceOrder,
+      desc: "Panel & sensors dispatched",
+      icon: Boxes,
+      badgeStyle: "text-purple-600 bg-purple-50 border-purple-200",
+      activeBorder: "border-purple-500 ring-2 ring-purple-500/10 bg-surface scale-[1.02] shadow-md",
+      dotStyle: "bg-purple-500",
+    },
+    {
+      id: "installed",
+      label: "Installed",
+      value: countInstalled,
+      desc: "Hardware installed on site",
+      icon: Wrench,
+      badgeStyle: "text-amber-600 bg-amber-50 border-amber-200",
+      activeBorder: "border-amber-500 ring-2 ring-amber-500/10 bg-surface scale-[1.02] shadow-md",
+      dotStyle: "bg-amber-500",
+    },
+    {
+      id: "commissioned",
+      label: "Commissioned",
+      value: countCommissioned,
+      desc: "Fully commissioned",
+      icon: CheckCircle2,
+      badgeStyle: "text-emerald-600 bg-emerald-50 border-emerald-200",
+      activeBorder: "border-emerald-500 ring-2 ring-emerald-500/10 bg-surface scale-[1.02] shadow-md",
+      dotStyle: "bg-emerald-500",
+    },
+  ];
+
+  const filteredSites = sites.filter((s) => {
+    if (selectedKpi === "total") {
+      return true;
+    }
+    if (selectedKpi === "not_started") {
+      return s.derivedStatus === "Not Started Yet" || s.derivedStatus === "Pending Assignment";
+    }
+    if (selectedKpi === "assessed") {
+      return s.derivedStatus === "Assessed";
+    }
+    if (selectedKpi === "device_order") {
+      return s.derivedStatus === "Panel Dispatched" || s.derivedStatus === "Device Order";
+    }
+    if (selectedKpi === "installed") {
+      return s.derivedStatus === "Installed";
+    }
+    if (selectedKpi === "commissioned") {
+      return s.derivedStatus === "Commissioned" || s.derivedStatus === "Submitted" || s.derivedStatus === "Billing" || s.derivedStatus === "Completion";
+    }
+    return true;
+  });
+
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
-      <header>
-        <p className="font-mono text-[10px] uppercase tracking-widest text-lime/80 font-bold">Overview</p>
-        <h1 className="mt-2 text-4xl uppercase tracking-tight font-extrabold font-syne text-text-primary">My Assignments</h1>
+      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <p className="font-mono text-[10px] uppercase tracking-widest text-lime/80 font-bold">Overview</p>
+          <h1 className="mt-1 text-3xl uppercase tracking-tight font-extrabold font-syne text-text-primary">My Assignments</h1>
+        </div>
+        {selectedKpi && (
+          <button
+            onClick={() => setSelectedKpi("")}
+            className="text-xs font-mono font-bold text-lime hover:underline cursor-pointer flex items-center gap-1.5 bg-surface-raised px-3.5 py-2 border border-border rounded-xl shadow-xs transition-all hover:bg-surface-raised/80"
+          >
+            Show All Assignments ({sites.length})
+          </button>
+        )}
       </header>
+
+      {/* KTA / KPI Status Cards Grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
+        {kpiCards.map((k) => {
+          const active = selectedKpi === k.id;
+          const Icon = k.icon;
+          const cardBorder = active
+            ? k.activeBorder
+            : "border-border bg-surface hover:border-lime/40 hover:shadow-lg transition-all hover:-translate-y-0.5";
+          return (
+            <button
+              key={k.id}
+              onClick={() => setSelectedKpi(active ? "" : k.id)}
+              className={`relative flex flex-col justify-between w-full text-left p-4 border rounded-xl shadow-xs transition-all duration-200 group cursor-pointer h-full min-h-[125px] overflow-hidden ${cardBorder}`}
+            >
+              <div className="flex items-start justify-between w-full">
+                <div className={`p-1.5 rounded-lg border ${k.badgeStyle}`}>
+                  <Icon size={15} strokeWidth={2.5} />
+                </div>
+                <span className="font-mono text-[9px] font-bold tracking-wider px-2 py-0.5 rounded-full border border-border bg-surface-raised text-text-secondary">
+                  {k.share}
+                </span>
+              </div>
+              <div className="mt-3">
+                <div className="text-2xl font-extrabold text-text-primary tracking-tight font-mono">
+                  {k.value}
+                </div>
+                <div className="text-xs font-bold mt-0.5 text-text-primary truncate font-syne">
+                  {k.label}
+                </div>
+                <div className="text-[9px] mt-0.5 leading-snug text-text-secondary truncate">
+                  {k.desc}
+                </div>
+              </div>
+              {/* Bottom Analytics Stripe Accent */}
+              <div className="w-full bg-surface-raised h-1 rounded-full mt-3 overflow-hidden">
+                <div
+                  className={`h-full ${k.barColor} transition-all duration-500`}
+                  style={{ width: k.id === "total" ? `${avgOverallProgress}%` : `${getShare(k.value)}%` }}
+                />
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Visual Analytics Distribution Segment Bar */}
+      {totalSites > 0 && (
+        <div className="p-4 border border-border rounded-xl bg-surface/60 backdrop-blur-md space-y-2 shadow-xs">
+          <div className="flex items-center justify-between text-xs font-mono">
+            <span className="flex items-center gap-1.5 font-bold uppercase text-text-secondary">
+              <BarChart3 size={14} className="text-lime" />
+              <span>Workflow Stage Distribution</span>
+            </span>
+            <span className="text-text-primary font-bold">
+              Avg Progress: <span className="text-lime">{avgOverallProgress}%</span>
+            </span>
+          </div>
+
+          <div className="flex h-2.5 w-full rounded-full overflow-hidden bg-surface-raised gap-0.5 p-0.5 border border-border/50">
+            {countNotStarted > 0 && (
+              <div
+                style={{ width: `${(countNotStarted / totalSites) * 100}%` }}
+                className="bg-indigo-500 rounded-xs h-full transition-all"
+                title={`Not Started Yet: ${countNotStarted} (${getShare(countNotStarted)}%)`}
+              />
+            )}
+            {countAssessed > 0 && (
+              <div
+                style={{ width: `${(countAssessed / totalSites) * 100}%` }}
+                className="bg-sky-500 rounded-xs h-full transition-all"
+                title={`Assessed: ${countAssessed} (${getShare(countAssessed)}%)`}
+              />
+            )}
+            {countDeviceOrder > 0 && (
+              <div
+                style={{ width: `${(countDeviceOrder / totalSites) * 100}%` }}
+                className="bg-purple-500 rounded-xs h-full transition-all"
+                title={`Device Order: ${countDeviceOrder} (${getShare(countDeviceOrder)}%)`}
+              />
+            )}
+            {countInstalled > 0 && (
+              <div
+                style={{ width: `${(countInstalled / totalSites) * 100}%` }}
+                className="bg-amber-500 rounded-xs h-full transition-all"
+                title={`Installed: ${countInstalled} (${getShare(countInstalled)}%)`}
+              />
+            )}
+            {countCommissioned > 0 && (
+              <div
+                style={{ width: `${(countCommissioned / totalSites) * 100}%` }}
+                className="bg-emerald-500 rounded-xs h-full transition-all"
+                title={`Commissioned: ${countCommissioned} (${getShare(countCommissioned)}%)`}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Sites List Header */}
+      <div className="flex items-center justify-between border-b border-border pb-2 pt-2">
+        <span className="text-xs font-mono text-text-secondary uppercase tracking-wider font-bold">
+          {selectedKpi ? `${kpiCards.find(k => k.id === selectedKpi)?.label} (${filteredSites.length})` : `All Assigned Sites (${sites.length})`}
+        </span>
+        {selectedKpi && (
+          <span className="text-[10px] text-text-dim font-mono">Filter applied: {selectedKpi}</span>
+        )}
+      </div>
 
       {sites.length === 0 ? (
         <div className="border border-border rounded-[10px] bg-surface px-6 py-12 text-center text-text-dim italic text-sm">
           No factories or sites assigned to you yet.
         </div>
+      ) : filteredSites.length === 0 ? (
+        <div className="border border-border rounded-[10px] bg-surface px-6 py-12 text-center space-y-3">
+          <p className="text-text-secondary text-sm font-semibold">No sites currently in stage "{kpiCards.find(k => k.id === selectedKpi)?.label}".</p>
+          <button
+            onClick={() => setSelectedKpi("")}
+            className="text-xs text-lime underline font-mono font-bold cursor-pointer"
+          >
+            Click here to view all {sites.length} sites
+          </button>
+        </div>
       ) : (
         <div className="space-y-3">
-          {sites.map((s) => {
+          {filteredSites.map((s) => {
             const managerStatus = s.derivedStatus;
             const st = siteStatusStyle(managerStatus);
             return (
-              <div key={s.id} className="border border-border rounded-[10px] bg-surface px-5 py-4 hover:bg-surface-raised/30 transition-colors">
+              <div key={s.id} className="border border-border rounded-[10px] bg-surface px-5 py-4 hover:bg-surface-raised/30 transition-colors shadow-xs">
                 <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                   {/* Company name + location */}
                   <div className="flex-1 min-w-0">
@@ -849,7 +1082,7 @@ function ConsultantDashboard({
                       variant={s.overall === 100 ? "secondary" : "primary"}
                       className="w-full sm:w-auto py-1.5 px-4 text-xs font-semibold uppercase tracking-wider"
                     >
-                      {s.overall === 100 ? "View" : "Start / Continue"}
+                      {s.overall === 100 ? "View / Edit" : "Start / Continue"}
                     </Button>
                   </div>
                 </div>

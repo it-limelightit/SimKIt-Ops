@@ -1428,23 +1428,20 @@ return (
 
           {/* ROW 2 */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-            {/* Pending Assignment & Assigned Stack */}
+            {/* Column 1: Dropped / Rejected & Assigned Stack */}
             <div className="lg:col-span-3 flex flex-col gap-3 justify-between h-full">
               {[
-                kpis.find(x => x.id === "pending")!,
+                kpis.find(x => x.id === "dropped")!,
                 kpis.find(x => x.id === "assigned_bc")!
               ].filter(Boolean).map((k) => {
                 const active = selectedKpi === k.id;
                 const Icon = k.icon;
                 const isIndigo = k.id === "assigned_bc";
-                const isAmber = k.id === "pending";
-                const hoverColor = isIndigo ? "hover:border-blue-400" : (isAmber ? "hover:border-amber-400" : "hover:border-red-400");
+                const hoverColor = isIndigo ? "hover:border-blue-400" : "hover:border-red-400";
                 const cardBorder = active
                   ? (isIndigo
                     ? "border-blue-500 ring-2 ring-blue-500/10 bg-white scale-[1.01] shadow-md"
-                    : (isAmber
-                      ? "border-amber-500 ring-2 ring-amber-500/10 bg-white scale-[1.01] shadow-md"
-                      : "border-red-500 ring-2 ring-red-500/10 bg-white scale-[1.01] shadow-md"))
+                    : "border-red-500 ring-2 ring-red-500/10 bg-white scale-[1.01] shadow-md")
                   : `border-border bg-white ${hoverColor} hover:shadow-md transition-all`;
                 return (
                   <button
@@ -1476,7 +1473,52 @@ return (
               })}
             </div>
 
-            {/* Middle Container Box */}
+            {/* Column 2: Pending Assignment & Not Started Yet Stack */}
+            <div className="lg:col-span-3 flex flex-col gap-3 justify-between h-full">
+              {[
+                kpis.find(x => x.id === "pending")!,
+                kpis.find(x => x.id === "not_started")!
+              ].filter(Boolean).map((k) => {
+                const active = selectedKpi === k.id;
+                const Icon = k.icon;
+                const isAmber = k.id === "pending";
+                const hoverColor = isAmber ? "hover:border-amber-400" : "hover:border-indigo-400";
+                const cardBorder = active
+                  ? (isAmber
+                    ? "border-amber-500 ring-2 ring-amber-500/10 bg-white scale-[1.01] shadow-md"
+                    : "border-indigo-500 ring-2 ring-indigo-500/10 bg-white scale-[1.01] shadow-md")
+                  : `border-border bg-white ${hoverColor} hover:shadow-md transition-all`;
+                return (
+                  <button
+                    key={k.id}
+                    onClick={() => handleKpiClick(k.id)}
+                    className={`flex items-center justify-between w-full text-left px-3 py-2.5 border rounded-xl shadow-xs transition-all duration-200 group cursor-pointer flex-1 ${cardBorder}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`p-1.5 rounded-lg border shrink-0 ${k.badgeStyle}`}>
+                        <Icon size={14} strokeWidth={2.5} />
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-text-primary">
+                          {k.label}
+                        </div>
+                        <div className="text-[9px] text-text-secondary leading-tight mt-0.5">
+                          {k.desc}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="text-xl font-extrabold text-text-primary font-mono">
+                        {k.value}
+                      </div>
+                      <span className={`h-2 w-2 rounded-full ${k.dotStyle} shrink-0`} />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Column 3: Middle Container Box (Assessed, Dispatched, Installed, Commissioned) */}
             <div className="lg:col-span-6 border border-border bg-surface/30 rounded-2xl p-4 flex flex-col justify-between h-full">
               <div className="grid grid-cols-1 md:grid-cols-12 gap-4 flex-1">
                 {/* Assessed & Panel Dispatched Stack */}
@@ -1565,51 +1607,6 @@ return (
                   })}
                 </div>
               </div>
-            </div>
-
-            {/* Not Started Yet & Dropped Stack */}
-            <div className="lg:col-span-3 flex flex-col gap-3 justify-between h-full">
-              {[
-                kpis.find(x => x.id === "not_started")!,
-                kpis.find(x => x.id === "dropped")!
-              ].filter(Boolean).map((k) => {
-                const active = selectedKpi === k.id;
-                const Icon = k.icon;
-                const isRed = k.id === "dropped";
-                const hoverColor = isRed ? "hover:border-red-400" : "hover:border-indigo-400";
-                const cardBorder = active
-                  ? (isRed
-                    ? "border-red-500 ring-2 ring-red-500/10 bg-white scale-[1.01] shadow-md"
-                    : "border-indigo-500 ring-2 ring-indigo-500/10 bg-white scale-[1.01] shadow-md")
-                  : `border-border bg-white ${hoverColor} hover:shadow-md transition-all`;
-                return (
-                  <button
-                    key={k.id}
-                    onClick={() => handleKpiClick(k.id)}
-                    className={`flex items-center justify-between w-full text-left px-3 py-2.5 border rounded-xl shadow-xs transition-all duration-200 group cursor-pointer flex-1 ${cardBorder}`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className={`p-1.5 rounded-lg border shrink-0 ${k.badgeStyle}`}>
-                        <Icon size={14} strokeWidth={2.5} />
-                      </div>
-                      <div>
-                        <div className="text-xs font-bold text-text-primary">
-                          {k.label}
-                        </div>
-                        <div className="text-[9px] text-text-secondary leading-tight mt-0.5">
-                          {k.desc}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="text-xl font-extrabold text-text-primary font-mono">
-                        {k.value}
-                      </div>
-                      <span className={`h-2 w-2 rounded-full ${k.dotStyle} shrink-0`} />
-                    </div>
-                  </button>
-                );
-              })}
             </div>
           </div>
         </div>
@@ -2134,8 +2131,7 @@ return (
                             return;
                           }
                           if (s.k === "order") {
-                            setConsultantSiteId(null);
-                            navigate({ to: "/manager/logistic" as any });
+                            setModalTab("order");
                             return;
                           }
                           setModalTab(s.k);
@@ -2180,24 +2176,7 @@ return (
                 {/* Tab content inside modal */}
                 <div className="mt-6 space-y-4 pb-8">
                   {modalTab === "assessment" && (
-                    modalSubmittedPhases.has("assessment")
-                      ? (
-                        <div className="flex flex-col items-center justify-center py-16 text-center border border-lime/20 bg-lime/5 rounded-xl">
-                          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-lime/20 text-lime mb-4">
-                            <Check size={24} strokeWidth={2} />
-                          </div>
-                          <h3 className="text-xl font-syne font-bold uppercase tracking-wide text-lime">
-                            Assessment Visit Submitted
-                          </h3>
-                          <p className="mt-1 text-sm text-text-secondary max-w-xs">
-                            This phase is complete. Proceed to the next phase when ready.
-                          </p>
-                          <Button className="mt-6" onClick={() => setModalTab("order")}>
-                            Go to Device Order
-                          </Button>
-                        </div>
-                      )
-                      : <AssessmentTab siteId={modalSite.id} workerId={userId!} onSubmit={() => { loadData(); }} />
+                    <AssessmentTab siteId={modalSite.id} workerId={userId!} onSubmit={() => { loadData(); }} />
                   )}
 
                   {modalTab === "installation" && (
@@ -2212,24 +2191,9 @@ return (
                         </p>
                         <Button onClick={() => setModalTab("assessment")}>Go to Assessment</Button>
                       </Card>
-                    ) : modalSubmittedPhases.has("installation")
-                      ? (
-                        <div className="flex flex-col items-center justify-center py-16 text-center border border-lime/20 bg-lime/5 rounded-xl">
-                          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-lime/20 text-lime mb-4">
-                            <Check size={24} strokeWidth={2} />
-                          </div>
-                          <h3 className="text-xl font-syne font-bold uppercase tracking-wide text-lime">
-                            Installation Submitted
-                          </h3>
-                          <p className="mt-1 text-sm text-text-secondary max-w-xs">
-                            This phase is complete. Proceed to the next phase when ready.
-                          </p>
-                          <Button className="mt-6" onClick={() => setModalTab("commissioning")}>
-                            Go to Commissioning
-                          </Button>
-                        </div>
-                      )
-                      : <InstallationTab siteId={modalSite.id} workerId={userId!} onSubmit={() => { loadData(); }} />
+                    ) : (
+                      <InstallationTab siteId={modalSite.id} workerId={userId!} onSubmit={() => { loadData(); }} />
+                    )
                   )}
 
                   {modalTab === "commissioning" && (
@@ -2244,24 +2208,9 @@ return (
                         </p>
                         <Button onClick={() => setModalTab("installation")}>Go to Installation</Button>
                       </Card>
-                    ) : modalSubmittedPhases.has("commissioning")
-                      ? (
-                        <div className="flex flex-col items-center justify-center py-16 text-center border border-lime/20 bg-lime/5 rounded-xl">
-                          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-lime/20 text-lime mb-4">
-                            <Check size={24} strokeWidth={2} />
-                          </div>
-                          <h3 className="text-xl font-syne font-bold uppercase tracking-wide text-lime">
-                            Commissioning Submitted
-                          </h3>
-                          <p className="mt-1 text-sm text-text-secondary max-w-xs">
-                            This phase is complete. Proceed to device order details.
-                          </p>
-                          <Button className="mt-6" onClick={() => setModalTab("order")}>
-                            Go to Device Order
-                          </Button>
-                        </div>
-                      )
-                      : <CommissioningTab siteId={modalSite.id} workerId={userId!} onSubmit={() => { loadData(); }} />
+                    ) : (
+                      <CommissioningTab siteId={modalSite.id} workerId={userId!} onSubmit={() => { loadData(); }} />
+                    )
                   )}
 
                   {modalTab === "order" && (

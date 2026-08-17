@@ -443,7 +443,7 @@ function LogisticPageWithSeeder() {
         </Button>
       </Card>
       
-      <InventoryPanel editable />
+      <InventoryPanel editable defaultFilterState="Pending" />
     </div>
   );
 }
