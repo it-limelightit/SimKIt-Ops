@@ -31,7 +31,7 @@ const COMMON_DOWNTIME_REASONS = [
   "Material Shortage",
   "Die / Mould Change",
   "Planned Preventive Maintenance",
-  "Setup & Changeover",
+  "changeover",
   "Tool Breakage / Tool Change",
   "Quality Rejection / Rework",
   "Operator Absence",
@@ -242,6 +242,40 @@ export const Route = createFileRoute("/client-form")({
   component: ClientFormPage,
 });
 
+function checkShiftOverlap(shifts: any[]): boolean {
+  const parsedShifts = (shifts ?? [])
+    .filter(s => s && s.startTime && s.endTime)
+    .map(s => {
+      const [sh, sm] = s.startTime.split(":").map(Number);
+      const [eh, em] = s.endTime.split(":").map(Number);
+      const start = sh * 60 + sm;
+      const end = eh * 60 + em;
+      if (end <= start) {
+        return [
+          { start, end: 1440 },
+          { start: 0, end }
+        ];
+      } else {
+        return [{ start, end }];
+      }
+    });
+
+  for (let i = 0; i < parsedShifts.length; i++) {
+    for (let j = i + 1; j < parsedShifts.length; j++) {
+      const intervalsI = parsedShifts[i];
+      const intervalsJ = parsedShifts[j];
+      for (const intI of intervalsI) {
+        for (const intJ of intervalsJ) {
+          const maxStart = Math.max(intI.start, intJ.start);
+          const minEnd = Math.min(intI.end, intJ.end);
+          if (maxStart < minEnd) return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 function ClientFormPage() {
   const { token } = Route.useSearch();
   const [loading, setLoading] = useState(true);
@@ -251,6 +285,9 @@ function ClientFormPage() {
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [submittedSuccess, setSubmittedSuccess] = useState(false);
+  
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [invalidSections, setInvalidSections] = useState<Set<string>>(new Set());
   
   const [emailInput, setEmailInput] = useState("");
   const [isEmailVerified, setIsEmailVerified] = useState(() => {
@@ -307,7 +344,118 @@ function ClientFormPage() {
     };
   }, [token]);
 
+  const validateForm = () => {
+    const errs: Record<string, string> = {};
+    const sections = new Set<string>();
+
+    // 1. Factory Name
+    if (!formData.factory_op_name || !formData.factory_op_name.trim()) {
+      errs.factory_op_name = "Factory Name is required";
+      sections.add("company");
+    }
+
+    // 2. Single Machine Detail (Mandatory)
+    const singleMachine = Array.isArray(formData.factory_op_machines) ? (formData.factory_op_machines[0] || "") : (formData.factory_op_machine || "");
+    if (!singleMachine || !singleMachine.trim()) {
+      errs.machine = "Machine Name is required";
+      sections.add("company");
+      sections.add("machinery");
+    }
+
+    // 3. Registered Address
+    if (!formData.factory_op_address || !formData.factory_op_address.trim()) {
+      errs.factory_op_address = "Registered Address is required";
+      sections.add("company");
+    }
+
+    // 4. Owners List (Mandatory: ALL fields for every owner)
+    const owners = formData.factory_op_owners || [];
+    if (owners.length === 0) {
+      errs.owners = "At least 1 Factory Owner details entry is required";
+      sections.add("owners");
+    } else {
+      owners.forEach((o: any, idx: number) => {
+        if (!o.name || !o.name.trim()) {
+          errs[`owner_${idx}_name`] = `Owner #${idx + 1} Name is required`;
+          sections.add("owners");
+        }
+        if (!o.contact || !o.contact.trim()) {
+          errs[`owner_${idx}_contact`] = `Owner #${idx + 1} Mobile Contact is required`;
+          sections.add("owners");
+        }
+        if (!o.email || !o.email.trim()) {
+          errs[`owner_${idx}_email`] = `Owner #${idx + 1} Email is required`;
+          sections.add("owners");
+        }
+      });
+    }
+
+    // 5. Technicians List (Mandatory: ALL fields for every technician)
+    const technicians = formData.factory_op_technicians || [];
+    if (technicians.length === 0) {
+      errs.technicians = "At least 1 Technical detail entry is required";
+      sections.add("technicians");
+    } else {
+      technicians.forEach((t: any, idx: number) => {
+        if (!t.name || !t.name.trim()) {
+          errs[`tech_${idx}_name`] = `Technician #${idx + 1} Name is required`;
+          sections.add("technicians");
+        }
+        if (!t.contact || !t.contact.trim()) {
+          errs[`tech_${idx}_contact`] = `Technician #${idx + 1} Mobile Contact is required`;
+          sections.add("technicians");
+        }
+        if (!t.email || !t.email.trim()) {
+          errs[`tech_${idx}_email`] = `Technician #${idx + 1} Email is required`;
+          sections.add("technicians");
+        }
+      });
+    }
+
+    // 6. Shift Panel (Mandatory: remaining fields name, startTime, endTime)
+    const shifts = formData.factory_op_shifts || [];
+    if (shifts.length === 0) {
+      errs.shifts = "At least 1 Shift timing entry is required";
+      sections.add("shifts");
+    } else {
+      shifts.forEach((s: any, idx: number) => {
+        if (!s.name || !s.name.trim()) {
+          errs[`shift_${idx}_name`] = `Shift #${idx + 1} Name is required`;
+          sections.add("shifts");
+        }
+        if (!s.startTime) {
+          errs[`shift_${idx}_start`] = `Shift #${idx + 1} Start Time is required`;
+          sections.add("shifts");
+        }
+        if (!s.endTime) {
+          errs[`shift_${idx}_end`] = `Shift #${idx + 1} End Time is required`;
+          sections.add("shifts");
+        }
+      });
+      if (checkShiftOverlap(shifts)) {
+        errs.shift_overlap = "Shift timings overlap. Please adjust start/end times.";
+        sections.add("shifts");
+      }
+    }
+
+    // 7. Electricity Board
+    if (!formData.factory_op_electricity_board || !formData.factory_op_electricity_board.trim()) {
+      errs.electricity_board = "Electricity Board selection is required";
+      sections.add("electricity");
+    }
+
+    setErrors(errs);
+    setInvalidSections(sections);
+    return { isValid: Object.keys(errs).length === 0, errs, sections };
+  };
+
   const saveForm = async () => {
+    const { isValid, errs } = validateForm();
+    if (!isValid) {
+      const firstErrKey = Object.keys(errs)[0];
+      toast.error(`Validation Error: ${errs[firstErrKey]}`);
+      return;
+    }
     setSubmitting(true);
     try {
       const res = await saveClientFormByTokenFn({
@@ -326,6 +474,23 @@ function ClientFormPage() {
       toast.error("Error: " + err.message);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleVerifyEmail = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!site?.client_email) {
+      setIsEmailVerified(true);
+      return;
+    }
+    const cleanInput = emailInput.trim().toLowerCase();
+    const cleanClientEmail = site.client_email.trim().toLowerCase();
+    if (cleanInput === cleanClientEmail) {
+      sessionStorage.setItem(`client_verified_email_${token}`, "true");
+      setIsEmailVerified(true);
+      toast.success("Identity verified successfully!");
+    } else {
+      toast.error("Email address does not match our records for this link.");
     }
   };
 
@@ -381,22 +546,6 @@ function ClientFormPage() {
   }
 
   if (!isEmailVerified) {
-    const handleVerifyEmail = (e: React.FormEvent) => {
-      e.preventDefault();
-      const entered = emailInput.trim().toLowerCase();
-      const expected = (site?.client_email || "").trim().toLowerCase();
-      
-      if (!expected || entered === expected) {
-        setIsEmailVerified(true);
-        if (token) {
-          sessionStorage.setItem(`client_verified_email_${token}`, "true");
-        }
-        toast.success("Identity verified successfully!");
-      } else {
-        toast.error("The email address entered does not match the invitation.");
-      }
-    };
-
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6">
         <Card className="max-w-md w-full p-8 border border-border/80 bg-surface/40 space-y-6">
@@ -493,33 +642,68 @@ function ClientFormPage() {
           {step === 1 && (
             <div className="space-y-6 animate-in fade-in duration-200">
               <div>
-                <h3 className="text-sm font-mono uppercase text-lime mb-1">Company Details & Personnel</h3>
-                <p className="text-[10px] text-text-secondary mb-4">Please verify company info and add factory owner/operator contacts below.</p>
+                <h3 className="text-sm font-mono uppercase text-lime mb-1">Company Details & Key Personnel</h3>
+                <p className="text-[10px] text-text-secondary mb-4">Please verify company info and add factory owner and technical contacts below. <span className="text-red-400 font-bold">* Fields marked with asterisk are mandatory.</span></p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-b border-border/40 pb-6">
-                <div>
-                  <Label>Official Company Name</Label>
-                  <Input
-                    value={formData.factory_op_name || ""}
-                    onChange={(e) => setFormData({ ...formData, factory_op_name: e.target.value })}
-                    placeholder="Enter company name"
-                  />
-                </div>
-                <div>
-                  <Label>Registered Address</Label>
-                  <Input
-                    value={formData.factory_op_address || ""}
-                    onChange={(e) => setFormData({ ...formData, factory_op_address: e.target.value })}
-                    placeholder="Enter address"
-                  />
+              {/* Company & Machine Info Box */}
+              <div className={`p-4 rounded-xl border transition-all ${
+                invalidSections.has("company") ? "border-red-500 bg-red-500/5 ring-1 ring-red-500" : "border-border/40 bg-surface/10"
+              }`}>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <Label className="flex items-center justify-between">
+                      <span>Official Company Name <span className="text-red-400">*</span></span>
+                      {errors.factory_op_name && <span className="text-[10px] text-red-400">{errors.factory_op_name}</span>}
+                    </Label>
+                    <Input
+                      value={formData.factory_op_name || ""}
+                      onChange={(e) => setFormData({ ...formData, factory_op_name: e.target.value })}
+                      placeholder="Enter company name"
+                      className={`bg-surface ${errors.factory_op_name ? "border-red-500 ring-1 ring-red-500" : ""}`}
+                    />
+                  </div>
+                  <div>
+                    <Label className="flex items-center justify-between">
+                      <span>Registered Address <span className="text-red-400">*</span></span>
+                      {errors.factory_op_address && <span className="text-[10px] text-red-400">{errors.factory_op_address}</span>}
+                    </Label>
+                    <Input
+                      value={formData.factory_op_address || ""}
+                      onChange={(e) => setFormData({ ...formData, factory_op_address: e.target.value })}
+                      placeholder="Enter full factory address"
+                      className={`bg-surface ${errors.factory_op_address ? "border-red-500 ring-1 ring-red-500" : ""}`}
+                    />
+                  </div>
+                  <div>
+                    <Label className="flex items-center justify-between">
+                      <span>Monitored Machine Name <span className="text-red-400">*</span></span>
+                      {errors.machine && <span className="text-[10px] text-red-400">{errors.machine}</span>}
+                    </Label>
+                    <Input
+                      value={Array.isArray(formData.factory_op_machines) ? (formData.factory_op_machines[0] || "") : (formData.factory_op_machine || "")}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setFormData({ ...formData, factory_op_machine: val, factory_op_machines: [val] });
+                      }}
+                      placeholder="e.g. CNC Lathe Machine 01"
+                      className={`bg-surface font-medium text-lime ${errors.machine ? "border-red-500 ring-1 ring-red-500" : ""}`}
+                    />
+                  </div>
                 </div>
               </div>
 
               {/* Owners list */}
-              <div className="space-y-3 bg-surface/10 p-4 rounded-xl border border-border/40">
+              <div className={`space-y-3 p-4 rounded-xl border transition-all ${
+                invalidSections.has("owners") ? "border-red-500 bg-red-500/5 ring-1 ring-red-500" : "border-border/40 bg-surface/10"
+              }`}>
                 <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-mono font-bold uppercase text-text-secondary">Factory Owners / Key Contacts</h4>
+                  <div>
+                    <h4 className="text-xs font-mono font-bold uppercase text-text-secondary flex items-center gap-1.5">
+                      Factory Owners / Key Contacts <span className="text-red-400">*</span>
+                    </h4>
+                    {errors.owners && <p className="text-[10px] text-red-400 mt-0.5">{errors.owners}</p>}
+                  </div>
                   <Button
                     variant="secondary"
                     className="py-1 px-2.5 text-[9px] uppercase tracking-wider"
@@ -532,11 +716,12 @@ function ClientFormPage() {
                     + Add Owner
                   </Button>
                 </div>
+
                 <div className="space-y-3">
                   {(formData.factory_op_owners || []).map((o: any, idx: number) => (
                     <div key={idx} className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end border-b border-border/20 pb-3 last:border-0 last:pb-0">
                       <div>
-                        <Label className="text-[10px]">Name</Label>
+                        <Label className="text-[10px]">Owner Name <span className="text-red-400">*</span></Label>
                         <Input
                           value={o.name || ""}
                           onChange={(e) => {
@@ -544,11 +729,12 @@ function ClientFormPage() {
                             list[idx] = { ...list[idx], name: e.target.value };
                             setFormData({ ...formData, factory_op_owners: list });
                           }}
-                          className="h-8 text-xs bg-surface"
+                          placeholder="Full Name"
+                          className={`h-8 text-xs bg-surface ${errors[`owner_${idx}_name`] ? "border-red-500 ring-1 ring-red-500" : ""}`}
                         />
                       </div>
                       <div>
-                        <Label className="text-[10px]">Contact Mobile</Label>
+                        <Label className="text-[10px]">Contact Mobile <span className="text-red-400">*</span></Label>
                         <Input
                           value={o.contact || ""}
                           onChange={(e) => {
@@ -556,12 +742,13 @@ function ClientFormPage() {
                             list[idx] = { ...list[idx], contact: e.target.value };
                             setFormData({ ...formData, factory_op_owners: list });
                           }}
-                          className="h-8 text-xs bg-surface"
+                          placeholder="+91 Mobile No."
+                          className={`h-8 text-xs bg-surface ${errors[`owner_${idx}_contact`] ? "border-red-500 ring-1 ring-red-500" : ""}`}
                         />
                       </div>
                       <div className="flex items-center gap-2">
                         <div className="flex-1">
-                          <Label className="text-[10px]">Email Address</Label>
+                          <Label className="text-[10px]">Email Address <span className="text-red-400">*</span></Label>
                           <Input
                             value={o.email || ""}
                             onChange={(e) => {
@@ -569,7 +756,8 @@ function ClientFormPage() {
                               list[idx] = { ...list[idx], email: e.target.value };
                               setFormData({ ...formData, factory_op_owners: list });
                             }}
-                            className="h-8 text-xs bg-surface"
+                            placeholder="Email address"
+                            className={`h-8 text-xs bg-surface ${errors[`owner_${idx}_email`] ? "border-red-500 ring-1 ring-red-500" : ""}`}
                           />
                         </div>
                         <Button
@@ -586,90 +774,22 @@ function ClientFormPage() {
                     </div>
                   ))}
                   {(!formData.factory_op_owners || formData.factory_op_owners.length === 0) && (
-                    <p className="text-[10px] text-text-dim italic">No owner records added</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Operators list */}
-              <div className="space-y-3 bg-surface/10 p-4 rounded-xl border border-border/40">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-mono font-bold uppercase text-text-secondary">Machine Operators</h4>
-                  <Button
-                    variant="secondary"
-                    className="py-1 px-2.5 text-[9px] uppercase tracking-wider"
-                    onClick={() => {
-                      const list = [...(formData.factory_op_operators || [])];
-                      list.push({ name: "", contact: "", email: "" });
-                      setFormData({ ...formData, factory_op_operators: list });
-                    }}
-                  >
-                    + Add Operator
-                  </Button>
-                </div>
-                <div className="space-y-3">
-                  {(formData.factory_op_operators || []).map((o: any, idx: number) => (
-                    <div key={idx} className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end border-b border-border/20 pb-3 last:border-0 last:pb-0">
-                      <div>
-                        <Label className="text-[10px]">Name</Label>
-                        <Input
-                          value={o.name || ""}
-                          onChange={(e) => {
-                            const list = [...formData.factory_op_operators];
-                            list[idx] = { ...list[idx], name: e.target.value };
-                            setFormData({ ...formData, factory_op_operators: list });
-                          }}
-                          className="h-8 text-xs bg-surface"
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-[10px]">Contact Mobile</Label>
-                        <Input
-                          value={o.contact || ""}
-                          onChange={(e) => {
-                            const list = [...formData.factory_op_operators];
-                            list[idx] = { ...list[idx], contact: e.target.value };
-                            setFormData({ ...formData, factory_op_operators: list });
-                          }}
-                          className="h-8 text-xs bg-surface"
-                        />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1">
-                          <Label className="text-[10px]">Email Address</Label>
-                          <Input
-                            value={o.email || ""}
-                            onChange={(e) => {
-                              const list = [...formData.factory_op_operators];
-                              list[idx] = { ...list[idx], email: e.target.value };
-                              setFormData({ ...formData, factory_op_operators: list });
-                            }}
-                            className="h-8 text-xs bg-surface"
-                          />
-                        </div>
-                        <Button
-                          variant="danger"
-                          className="h-8 py-1 px-2.5 text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20"
-                          onClick={() => {
-                            const list = (formData.factory_op_operators || []).filter((_: any, i: number) => i !== idx);
-                            setFormData({ ...formData, factory_op_operators: list });
-                          }}
-                        >
-                          Delete
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                  {(!formData.factory_op_operators || formData.factory_op_operators.length === 0) && (
-                    <p className="text-[10px] text-text-dim italic">No operator records added</p>
+                    <p className="text-[10px] text-text-dim italic">No owner records added yet. Click "+ Add Owner".</p>
                   )}
                 </div>
               </div>
 
               {/* Technicians list */}
-              <div className="space-y-3 bg-surface/10 p-4 rounded-xl border border-border/40">
+              <div className={`space-y-3 p-4 rounded-xl border transition-all ${
+                invalidSections.has("technicians") ? "border-red-500 bg-red-500/5 ring-1 ring-red-500" : "border-border/40 bg-surface/10"
+              }`}>
                 <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-mono font-bold uppercase text-text-secondary">Technicians & Engineers</h4>
+                  <div>
+                    <h4 className="text-xs font-mono font-bold uppercase text-text-secondary flex items-center gap-1.5">
+                      Technicians & Engineers Details <span className="text-red-400">*</span>
+                    </h4>
+                    {errors.technicians && <p className="text-[10px] text-red-400 mt-0.5">{errors.technicians}</p>}
+                  </div>
                   <Button
                     variant="secondary"
                     className="py-1 px-2.5 text-[9px] uppercase tracking-wider"
@@ -682,11 +802,12 @@ function ClientFormPage() {
                     + Add Technician
                   </Button>
                 </div>
+
                 <div className="space-y-3">
                   {(formData.factory_op_technicians || []).map((o: any, idx: number) => (
                     <div key={idx} className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end border-b border-border/20 pb-3 last:border-0 last:pb-0">
                       <div>
-                        <Label className="text-[10px]">Name</Label>
+                        <Label className="text-[10px]">Technician Name <span className="text-red-400">*</span></Label>
                         <Input
                           value={o.name || ""}
                           onChange={(e) => {
@@ -694,11 +815,12 @@ function ClientFormPage() {
                             list[idx] = { ...list[idx], name: e.target.value };
                             setFormData({ ...formData, factory_op_technicians: list });
                           }}
-                          className="h-8 text-xs bg-surface"
+                          placeholder="Name"
+                          className={`h-8 text-xs bg-surface ${errors[`tech_${idx}_name`] ? "border-red-500 ring-1 ring-red-500" : ""}`}
                         />
                       </div>
                       <div>
-                        <Label className="text-[10px]">Contact Mobile</Label>
+                        <Label className="text-[10px]">Contact Mobile <span className="text-red-400">*</span></Label>
                         <Input
                           value={o.contact || ""}
                           onChange={(e) => {
@@ -706,12 +828,13 @@ function ClientFormPage() {
                             list[idx] = { ...list[idx], contact: e.target.value };
                             setFormData({ ...formData, factory_op_technicians: list });
                           }}
-                          className="h-8 text-xs bg-surface"
+                          placeholder="+91 Mobile No."
+                          className={`h-8 text-xs bg-surface ${errors[`tech_${idx}_contact`] ? "border-red-500 ring-1 ring-red-500" : ""}`}
                         />
                       </div>
                       <div className="flex items-center gap-2">
                         <div className="flex-1">
-                          <Label className="text-[10px]">Email Address</Label>
+                          <Label className="text-[10px]">Email Address <span className="text-red-400">*</span></Label>
                           <Input
                             value={o.email || ""}
                             onChange={(e) => {
@@ -719,7 +842,8 @@ function ClientFormPage() {
                               list[idx] = { ...list[idx], email: e.target.value };
                               setFormData({ ...formData, factory_op_technicians: list });
                             }}
-                            className="h-8 text-xs bg-surface"
+                            placeholder="Email address"
+                            className={`h-8 text-xs bg-surface ${errors[`tech_${idx}_email`] ? "border-red-500 ring-1 ring-red-500" : ""}`}
                           />
                         </div>
                         <Button
@@ -736,7 +860,7 @@ function ClientFormPage() {
                     </div>
                   ))}
                   {(!formData.factory_op_technicians || formData.factory_op_technicians.length === 0) && (
-                    <p className="text-[10px] text-text-dim italic">No technician records added</p>
+                    <p className="text-[10px] text-text-dim italic">No technician records added yet. Click "+ Add Technician".</p>
                   )}
                 </div>
               </div>
@@ -748,30 +872,39 @@ function ClientFormPage() {
             <div className="space-y-6 animate-in fade-in duration-200">
               <div>
                 <h3 className="text-sm font-mono uppercase text-lime mb-1">Operational Shifts & Downtimes</h3>
-                <p className="text-[10px] text-text-secondary mb-4">Set up factory shift timings and downtime reasons.</p>
+                <p className="text-[10px] text-text-secondary mb-4">Set up factory shift timings and downtime reasons. <span className="text-red-400 font-bold">* Shift timings are mandatory.</span></p>
               </div>
 
               {/* Shifts list */}
-              <div className="space-y-3 bg-surface/10 p-4 rounded-xl border border-border/40">
+              <div className={`space-y-3 p-4 rounded-xl border transition-all ${
+                invalidSections.has("shifts") ? "border-red-500 bg-red-500/5 ring-1 ring-red-500" : "border-border/40 bg-surface/10"
+              }`}>
                 <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-mono font-bold uppercase text-text-secondary">Shift Timings</h4>
+                  <div>
+                    <h4 className="text-xs font-mono font-bold uppercase text-text-secondary flex items-center gap-1.5">
+                      Shift Timings <span className="text-red-400">*</span>
+                    </h4>
+                    {errors.shifts && <p className="text-[10px] text-red-400 mt-0.5">{errors.shifts}</p>}
+                    {errors.shift_overlap && <p className="text-[10px] text-red-400 mt-0.5 font-bold">{errors.shift_overlap}</p>}
+                  </div>
                   <Button
                     variant="secondary"
                     className="py-1 px-2.5 text-[9px] uppercase tracking-wider"
                     onClick={() => {
                       const list = [...(formData.factory_op_shifts || [])];
-                      list.push({ name: "", type: "", startTime: "", endTime: "" });
+                      list.push({ name: "", startTime: "", endTime: "" });
                       setFormData({ ...formData, factory_op_shifts: list });
                     }}
                   >
                     + Add Shift
                   </Button>
                 </div>
+
                 <div className="space-y-3">
                   {(formData.factory_op_shifts || []).map((s: any, idx: number) => (
-                    <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end border-b border-border/20 pb-3 last:border-0 last:pb-0">
+                    <div key={idx} className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end border-b border-border/20 pb-3 last:border-0 last:pb-0">
                       <div>
-                        <Label className="text-[10px]">Shift Name (e.g. Morning)</Label>
+                        <Label className="text-[10px]">Shift Name (e.g. Shift A / Morning) <span className="text-red-400">*</span></Label>
                         <Input
                           value={s.name || ""}
                           onChange={(e) => {
@@ -779,23 +912,12 @@ function ClientFormPage() {
                             list[idx] = { ...list[idx], name: e.target.value };
                             setFormData({ ...formData, factory_op_shifts: list });
                           }}
-                          className="h-8 text-xs bg-surface"
+                          placeholder="Shift Name"
+                          className={`h-8 text-xs bg-surface ${errors[`shift_${idx}_name`] ? "border-red-500 ring-1 ring-red-500" : ""}`}
                         />
                       </div>
                       <div>
-                        <Label className="text-[10px]">Type</Label>
-                        <Input
-                          value={s.type || ""}
-                          onChange={(e) => {
-                            const list = [...formData.factory_op_shifts];
-                            list[idx] = { ...list[idx], type: e.target.value };
-                            setFormData({ ...formData, factory_op_shifts: list });
-                          }}
-                          className="h-8 text-xs bg-surface"
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-[10px]">Start Time</Label>
+                        <Label className="text-[10px]">Start Time <span className="text-red-400">*</span></Label>
                         <Input
                           type="time"
                           value={s.startTime || ""}
@@ -804,12 +926,12 @@ function ClientFormPage() {
                             list[idx] = { ...list[idx], startTime: e.target.value };
                             setFormData({ ...formData, factory_op_shifts: list });
                           }}
-                          className="h-8 text-xs bg-surface"
+                          className={`h-8 text-xs bg-surface ${errors[`shift_${idx}_start`] ? "border-red-500 ring-1 ring-red-500" : ""}`}
                         />
                       </div>
                       <div className="flex items-center gap-2">
-                        <div>
-                          <Label className="text-[10px]">End Time</Label>
+                        <div className="flex-1">
+                          <Label className="text-[10px]">End Time <span className="text-red-400">*</span></Label>
                           <Input
                             type="time"
                             value={s.endTime || ""}
@@ -818,7 +940,7 @@ function ClientFormPage() {
                               list[idx] = { ...list[idx], endTime: e.target.value };
                               setFormData({ ...formData, factory_op_shifts: list });
                             }}
-                            className="h-8 text-xs bg-surface"
+                            className={`h-8 text-xs bg-surface ${errors[`shift_${idx}_end`] ? "border-red-500 ring-1 ring-red-500" : ""}`}
                           />
                         </div>
                         <Button
@@ -835,7 +957,7 @@ function ClientFormPage() {
                     </div>
                   ))}
                   {(!formData.factory_op_shifts || formData.factory_op_shifts.length === 0) && (
-                    <p className="text-[10px] text-text-dim italic">No shift timings added</p>
+                    <p className="text-[10px] text-text-dim italic">No shift timings added yet. Click "+ Add Shift".</p>
                   )}
                 </div>
               </div>
@@ -933,46 +1055,63 @@ function ClientFormPage() {
             <div className="space-y-6 animate-in fade-in duration-200">
               <div>
                 <h3 className="text-sm font-mono uppercase text-lime mb-1">Machinery & Tracking Configuration</h3>
-                <p className="text-[10px] text-text-secondary mb-4">Choose tracking methodology and input engineering limits.</p>
+                <p className="text-[10px] text-text-secondary mb-4">Provide mandatory machine detail and electricity board information.</p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Single Machine Input Box */}
+              <div className={`p-4 rounded-xl border transition-all space-y-4 ${
+                invalidSections.has("machinery") ? "border-red-500 bg-red-500/5 ring-1 ring-red-500" : "border-border/40 bg-surface/10"
+              }`}>
                 <div>
-                  <Label>Electricity Board</Label>
-                  <Select
-                    value={formData.factory_op_electricity_board || ""}
-                    onChange={(e) => setFormData({ ...formData, factory_op_electricity_board: e.target.value })}
-                    className="w-full bg-surface"
-                  >
-                    <option value="">Select Board...</option>
-                    <option value="PGVCL">PGVCL</option>
-                    <option value="UGVCL">UGVCL</option>
-                    <option value="MGVCL">MGVCL</option>
-                    <option value="DGVCL">DGVCL</option>
-                    <option value="Torrent">Torrent</option>
-                  </Select>
-                </div>
-                <div>
-                  <Label>Ideal Threshold Time (Minutes)</Label>
+                  <Label className="flex items-center justify-between">
+                    <span>Machine Name <span className="text-red-400">*</span></span>
+                    {errors.machine && <span className="text-[10px] text-red-400">{errors.machine}</span>}
+                  </Label>
                   <Input
-                    type="number"
-                    value={formData.factory_op_downtime_threshold ?? ""}
-                    onChange={(e) => setFormData({ ...formData, factory_op_downtime_threshold: e.target.value ? Number(e.target.value) : "" })}
-                    placeholder="e.g. 10"
+                    value={Array.isArray(formData.factory_op_machines) ? (formData.factory_op_machines[0] || "") : (formData.factory_op_machine || "")}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setFormData({ ...formData, factory_op_machine: val, factory_op_machines: [val] });
+                    }}
+                    placeholder="Enter machine name (e.g. CNC Lathe Machine 01)"
+                    className={`bg-surface ${errors.machine ? "border-red-500 ring-1 ring-red-500" : ""}`}
                   />
+                  <p className="text-[10px] text-text-dim mt-1 italic">Single machine monitoring configuration.</p>
                 </div>
               </div>
 
-              <div>
-                <Label>Surveyed Machine Names (comma-separated)</Label>
-                <Input
-                  value={(formData.factory_op_machines || []).join(", ")}
-                  onChange={(e) => {
-                    const list = e.target.value.split(",").map(m => m.trim()).filter(Boolean);
-                    setFormData({ ...formData, factory_op_machines: list });
-                  }}
-                  placeholder="e.g. Extruder-01, Compressor, Mixer-A"
-                />
+              <div className={`p-4 rounded-xl border transition-all ${
+                invalidSections.has("electricity") ? "border-red-500 bg-red-500/5 ring-1 ring-red-500" : "border-border/40 bg-surface/10"
+              }`}>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label className="flex items-center justify-between">
+                      <span>Electricity Board <span className="text-red-400">*</span></span>
+                      {errors.electricity_board && <span className="text-[10px] text-red-400">{errors.electricity_board}</span>}
+                    </Label>
+                    <Select
+                      value={formData.factory_op_electricity_board || ""}
+                      onChange={(e) => setFormData({ ...formData, factory_op_electricity_board: e.target.value })}
+                      className={`w-full bg-surface ${errors.electricity_board ? "border-red-500 ring-1 ring-red-500" : ""}`}
+                    >
+                      <option value="">Select Board...</option>
+                      <option value="PGVCL">PGVCL</option>
+                      <option value="UGVCL">UGVCL</option>
+                      <option value="MGVCL">MGVCL</option>
+                      <option value="DGVCL">DGVCL</option>
+                      <option value="Torrent">Torrent</option>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Ideal Threshold Time (Minutes)</Label>
+                    <Input
+                      type="number"
+                      value={formData.factory_op_downtime_threshold ?? ""}
+                      onChange={(e) => setFormData({ ...formData, factory_op_downtime_threshold: e.target.value ? Number(e.target.value) : "" })}
+                      placeholder="e.g. 10"
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className="border-t border-border/40 pt-4 space-y-4">
@@ -1131,7 +1270,34 @@ function ClientFormPage() {
 
             {step < 4 ? (
               <Button
-                onClick={() => setStep(step + 1)}
+                onClick={() => {
+                  const { isValid, errs } = validateForm();
+                  // Check current step valid fields before allowing next
+                  if (step === 1) {
+                    const hasStep1Err = Boolean(
+                      errs.factory_op_name ||
+                      errs.machine ||
+                      errs.factory_op_address ||
+                      errs.owners ||
+                      errs.technicians ||
+                      Object.keys(errs).some(k => k.startsWith("owner_") || k.startsWith("tech_"))
+                    );
+                    if (hasStep1Err) {
+                      const firstErr = Object.values(errs)[0] || "Please fill all mandatory fields in Step 1 before proceeding.";
+                      toast.error(`Validation Error: ${firstErr}`);
+                      return;
+                    }
+                  }
+                  if (step === 2 && errs.shifts) {
+                    toast.error("Please fill shift details before proceeding.");
+                    return;
+                  }
+                  if (step === 3 && (errs.machine || errs.electricity_board)) {
+                    toast.error("Please provide Machine Name and Electricity Board.");
+                    return;
+                  }
+                  setStep(step + 1);
+                }}
                 className="py-1 px-4 text-xs bg-lime text-black hover:bg-lime/90 flex items-center gap-1.5"
               >
                 Next <ArrowRight size={13} />

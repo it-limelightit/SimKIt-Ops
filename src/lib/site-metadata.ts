@@ -19,6 +19,7 @@ export type SiteMeta = {
   assessor_number: string;
   assessor_email: string;
   assessor_address: string;
+  credential_created?: boolean;
   client_email?: string;
   client_token?: string;
 };

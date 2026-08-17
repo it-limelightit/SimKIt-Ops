@@ -316,6 +316,7 @@ export function OrderTab({ site, workerId }: OrderTabProps) {
                     <option value="">Select vibration model...</option>
                     <option value="renke">Renke</option>
                     <option value="witmotion">WitMotion</option>
+                    <option value="vibe-q">Vibe Q</option>
                   </Select>
                 </div>
                 <div className="pt-1">

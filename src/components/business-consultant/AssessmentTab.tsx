@@ -19,7 +19,7 @@ import { MediaUploader } from "@/components/MediaUploader";
 import { usePhaseData } from "@/lib/use-phase-data";
 import { useAuth } from "@/lib/auth-store";
 import { advanceSiteVisitStatus, parseSiteMetadata, serializeSiteMetadata } from "@/lib/site-metadata";
-import { Plus, Trash2, Users, Wrench, AlertTriangle, ChevronDown, ChevronUp, Building2, Check, Mail } from "lucide-react";
+import { Plus, Trash2, Users, Wrench, AlertTriangle, ChevronDown, ChevronUp, Building2, Check, Mail, Clock } from "lucide-react";
 
 type Props = { siteId: string; workerId: string; hiddenSections?: string[]; onSubmit?: () => void };
 
@@ -325,10 +325,9 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
                 checked={!!data.factory_operations_done}
                 onToggle={() => patch({ factory_operations_done: !data.factory_operations_done })}
                 validate={() => {
-                  const shifts = data.factory_op_shifts ?? [];
-                  const hasOverlap = checkShiftOverlap(shifts);
-                  if (hasOverlap) {
-                    toast.error("Please resolve the shift overlap before completing this section.");
+                  const check = validateFactoryOperationsForm(data);
+                  if (!check.isValid) {
+                    toast.error(check.errorMsg || "Mandatory fields missing in Factory Operations Form.");
                     return false;
                   }
                   return true;
@@ -347,9 +346,25 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
               return;
             }
 
+            if (shouldShow("MOM") && !(await validateSectionLinks("MOM", ["mom"]))) {
+              return;
+            }
+
             if (shouldShow("Media") && !data.media_uploaded) {
               toast.error("Please complete the Photos & Videos section.");
               return;
+            }
+
+            if (shouldShow("Media") && !(await validateSectionLinks("Media", []))) {
+              return;
+            }
+
+            if (shouldShow("Factory Operations")) {
+              const check = validateFactoryOperationsForm(data);
+              if (!check.isValid) {
+                toast.error(check.errorMsg || "Mandatory fields missing in Factory Operations Form.");
+                return;
+              }
             }
 
             if (shouldShow("Factory Operations") && !data.factory_operations_done) {
@@ -358,6 +373,7 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
             }
 
             await save({ ...data, assessment_phase_submitted: true });
+            toast.success("Assessment phase submitted.");
             if (onSubmit) onSubmit();
           }}
           className="w-full sm:w-auto text-base py-3 px-8"
@@ -550,7 +566,7 @@ const COMMON_DOWNTIME_REASONS = [
   "Material Shortage",
   "Die / Mould Change",
   "Planned Preventive Maintenance",
-  "Setup & Changeover",
+  "changeover",
   "Tool Breakage / Tool Change",
   "Quality Rejection / Rework",
   "Operator Absence",
@@ -577,7 +593,6 @@ function checkShiftOverlap(shifts: any[]): boolean {
       const end = eh * 60 + em;
       
       if (end <= start) {
-        // Crosses midnight
         return [
           { start, end: 1440 },
           { start: 0, end }
@@ -597,13 +612,95 @@ function checkShiftOverlap(shifts: any[]): boolean {
           const maxStart = Math.max(intI.start, intJ.start);
           const minEnd = Math.min(intI.end, intJ.end);
           if (maxStart < minEnd) {
-            return true; // Overlap detected!
+            return true;
           }
         }
       }
     }
   }
   return false;
+}
+
+export function validateFactoryOperationsForm(data: Record<string, any>): { isValid: boolean; errorMsg?: string; invalidSection?: string } {
+  // 1. Factory Name
+  if (!data.factory_op_name || !data.factory_op_name.trim()) {
+    return { isValid: false, errorMsg: "Official Factory Name is required.", invalidSection: "company" };
+  }
+
+  // 2. Address
+  if (!data.factory_op_address || !data.factory_op_address.trim()) {
+    return { isValid: false, errorMsg: "Registered Address is required.", invalidSection: "company" };
+  }
+
+  // 3. Machine Name
+  const singleMachine = Array.isArray(data.factory_op_machines) ? (data.factory_op_machines[0] || "") : (data.factory_op_machine || "");
+  if (!singleMachine || !singleMachine.trim()) {
+    return { isValid: false, errorMsg: "Monitored Machine Name is required.", invalidSection: "company" };
+  }
+
+  // 4. Owners (at least 1, and for all owner entries: name, contact, email)
+  const owners = data.factory_op_owners ?? [];
+  if (!owners.length) {
+    return { isValid: false, errorMsg: "At least one Owner Detail entry is required.", invalidSection: "owners" };
+  }
+  for (let i = 0; i < owners.length; i++) {
+    const o = owners[i];
+    if (!o.name || !o.name.trim()) {
+      return { isValid: false, errorMsg: `Owner #${i + 1} Name is required.`, invalidSection: "owners" };
+    }
+    if (!o.contact || !o.contact.trim()) {
+      return { isValid: false, errorMsg: `Owner #${i + 1} Mobile Contact is required.`, invalidSection: "owners" };
+    }
+    if (!o.email || !o.email.trim()) {
+      return { isValid: false, errorMsg: `Owner #${i + 1} Email Address is required.`, invalidSection: "owners" };
+    }
+  }
+
+  // 5. Technicians (at least 1, and for all tech entries: name, contact, email)
+  const technicians = data.factory_op_technicians ?? [];
+  if (!technicians.length) {
+    return { isValid: false, errorMsg: "At least one Technical Detail entry is required.", invalidSection: "technicians" };
+  }
+  for (let i = 0; i < technicians.length; i++) {
+    const t = technicians[i];
+    if (!t.name || !t.name.trim()) {
+      return { isValid: false, errorMsg: `Technician #${i + 1} Name is required.`, invalidSection: "technicians" };
+    }
+    if (!t.contact || !t.contact.trim()) {
+      return { isValid: false, errorMsg: `Technician #${i + 1} Mobile Contact is required.`, invalidSection: "technicians" };
+    }
+    if (!t.email || !t.email.trim()) {
+      return { isValid: false, errorMsg: `Technician #${i + 1} Email Address is required.`, invalidSection: "technicians" };
+    }
+  }
+
+  // 6. Shift Panel (all fields name, startTime, endTime, and no overlap)
+  const shifts = data.factory_op_shifts ?? [];
+  if (!shifts.length) {
+    return { isValid: false, errorMsg: "At least one Shift timing entry is required.", invalidSection: "shifts" };
+  }
+  for (let i = 0; i < shifts.length; i++) {
+    const s = shifts[i];
+    if (!s.name || !s.name.trim()) {
+      return { isValid: false, errorMsg: `Shift #${i + 1} Name is required.`, invalidSection: "shifts" };
+    }
+    if (!s.startTime) {
+      return { isValid: false, errorMsg: `Shift #${i + 1} Start Time is required.`, invalidSection: "shifts" };
+    }
+    if (!s.endTime) {
+      return { isValid: false, errorMsg: `Shift #${i + 1} End Time is required.`, invalidSection: "shifts" };
+    }
+  }
+  if (checkShiftOverlap(shifts)) {
+    return { isValid: false, errorMsg: "Shift timings overlap. Please adjust start/end times.", invalidSection: "shifts" };
+  }
+
+  // 7. Electricity Board
+  if (!data.factory_op_electricity_board || !data.factory_op_electricity_board.trim()) {
+    return { isValid: false, errorMsg: "Electricity Board Selection is required.", invalidSection: "electricity" };
+  }
+
+  return { isValid: true };
 }
 
 function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperationsCardContentProps) {
@@ -751,38 +848,28 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
       }
     })();
   }, [siteId, data.factory_op_name, data.factory_op_address]);
-  // Initialize dynamic lists
-  const machines = data.factory_op_machines ?? [""];
+
+  // Single machine resolution
+  const singleMachine = Array.isArray(data.factory_op_machines) ? (data.factory_op_machines[0] || "") : (data.factory_op_machine || "");
+
+  // Dynamic lists
   const owners = data.factory_op_owners ?? [{ name: "", email: "", contact: "" }];
-  const operators = data.factory_op_operators ?? [{ name: "", email: "", contact: "" }];
   const technicians = data.factory_op_technicians ?? [{ name: "", email: "", contact: "" }];
-  const shifts = data.factory_op_shifts ?? [{ name: "", type: "General", startTime: "", endTime: "" }];
+  const shifts = data.factory_op_shifts ?? [{ name: "", startTime: "", endTime: "" }];
   
   // Downtime Reasons
-  const downtimeReasons = data.factory_op_downtime_reasons ?? ["Setup & Changeover", "Operator Absence", "Lubrication Issue"];
+  const downtimeReasons = data.factory_op_downtime_reasons ?? ["changeover", "Operator Absence", "Lubrication Issue"];
   const customReasons = data.factory_op_downtime_custom_reasons ?? [];
   const allReasons = [...COMMON_DOWNTIME_REASONS, ...customReasons];
 
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [customReasonInput, setCustomReasonInput] = useState("");
   const [showCustomInput, setShowCustomInput] = useState(false);
 
   // Overlap status
   const hasOverlap = checkShiftOverlap(shifts);
 
-  const handleMachineChange = (index: number, val: string) => {
-    const updated = [...machines];
-    updated[index] = val;
-    patch({ factory_op_machines: updated });
-  };
-
-  const addMachine = () => {
-    patch({ factory_op_machines: [...machines, ""] });
-  };
-
-  const removeMachine = (index: number) => {
-    const updated = machines.filter((_: any, i: number) => i !== index);
-    patch({ factory_op_machines: updated.length > 0 ? updated : [""] });
+  const handleMachineChange = (val: string) => {
+    patch({ factory_op_machine: val, factory_op_machines: [val] });
   };
 
   const handleOwnerChange = (index: number, key: string, val: string) => {
@@ -798,21 +885,6 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
   const removeOwner = (index: number) => {
     const updated = owners.filter((_: any, i: number) => i !== index);
     patch({ factory_op_owners: updated.length > 0 ? updated : [{ name: "", email: "", contact: "" }] });
-  };
-
-  const handleOperatorChange = (index: number, key: string, val: string) => {
-    const updated = [...operators];
-    updated[index] = { ...updated[index], [key]: val };
-    patch({ factory_op_operators: updated });
-  };
-
-  const addOperator = () => {
-    patch({ factory_op_operators: [...operators, { name: "", email: "", contact: "" }] });
-  };
-
-  const removeOperator = (index: number) => {
-    const updated = operators.filter((_: any, i: number) => i !== index);
-    patch({ factory_op_operators: updated.length > 0 ? updated : [{ name: "", email: "", contact: "" }] });
   };
 
   const handleTechnicianChange = (index: number, key: string, val: string) => {
@@ -837,12 +909,12 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
   };
 
   const addShift = () => {
-    patch({ factory_op_shifts: [...shifts, { name: "", type: "General", startTime: "", endTime: "" }] });
+    patch({ factory_op_shifts: [...shifts, { name: "", startTime: "", endTime: "" }] });
   };
 
   const removeShift = (index: number) => {
     const updated = shifts.filter((_: any, i: number) => i !== index);
-    patch({ factory_op_shifts: updated.length > 0 ? updated : [{ name: "", type: "General", startTime: "", endTime: "" }] });
+    patch({ factory_op_shifts: updated.length > 0 ? updated : [{ name: "", startTime: "", endTime: "" }] });
   };
 
   const toggleReason = (reason: string) => {
@@ -871,35 +943,38 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-200">
-      {/* Client Form Sharing */}
-      <div className="bg-surface-raised/40 p-4 rounded-xl border border-border/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="space-y-6 animate-in fade-in duration-200">
+      {/* 1. Client Invitation & Self-Submission Portal Banner */}
+      <div className="bg-surface-raised/40 p-5 rounded-2xl border border-border/80 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <Mail className="text-lime w-5 h-5 shrink-0" />
+          <div className="w-10 h-10 rounded-xl bg-lime-dim/40 border border-lime/30 flex items-center justify-center text-lime shrink-0">
+            <Mail className="w-5 h-5" />
+          </div>
           <div>
-            <h4 className="font-syne font-bold text-xs uppercase tracking-wider text-text-primary">
-              Client Self-Submission Link
+            <h4 className="font-syne font-extrabold text-xs uppercase tracking-wider text-text-primary flex items-center gap-2">
+              Client Form Invitation Portal
+              <Badge tone="lime" className="text-[9px] py-0 px-1.5 font-mono">Live Sync</Badge>
             </h4>
-            <p className="text-[10px] text-text-secondary mt-0.5">
-              Enter the client's email address to generate and copy a secure link they can fill directly.
+            <p className="text-[11px] text-text-secondary mt-0.5">
+              Send client invitation email or generate shareable link for direct client submission.
             </p>
           </div>
         </div>
         
         <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center w-full md:max-w-lg">
-          <div className="flex-1 col-span-2">
+          <div className="flex-1">
             <Input
               placeholder="Client email address"
               value={clientShareEmail}
               onChange={(e) => setClientShareEmail(e.target.value)}
-              className="h-8 text-xs bg-surface"
+              className="h-9 text-xs bg-surface"
             />
           </div>
           <div className="flex gap-2">
             <Button
               type="button"
               onClick={handleGenerateShareLink}
-              className="py-1 px-3 text-xs bg-surface border border-border text-text-primary hover:bg-surface-raised font-bold uppercase tracking-wider shrink-0"
+              className="py-1.5 px-3 text-xs bg-surface border border-border text-text-primary hover:bg-surface-raised font-bold uppercase tracking-wider shrink-0"
             >
               Link Only
             </Button>
@@ -907,7 +982,7 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
               type="button"
               onClick={handleSendEmail}
               disabled={sendingEmail}
-              className="py-1 px-3 text-xs bg-lime text-black hover:bg-lime/90 font-bold uppercase tracking-wider shrink-0"
+              className="py-1.5 px-3 text-xs bg-lime text-black hover:bg-lime/90 font-bold uppercase tracking-wider shrink-0 shadow-sm"
             >
               {sendingEmail ? "Sending..." : "Send Mail"}
             </Button>
@@ -915,333 +990,286 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
               <Button
                 type="button"
                 onClick={handleCopyLink}
-                className="py-1 px-3 text-xs bg-surface border border-border text-text-primary hover:bg-surface-raised shrink-0 font-mono"
+                className="py-1.5 px-3 text-xs bg-surface border border-border text-text-primary hover:bg-surface-raised shrink-0 font-mono"
               >
-                Copy
+                Copy Link
               </Button>
             )}
           </div>
         </div>
       </div>
 
-      {/* A. Factory Details */}
-      <div className="space-y-4">
-        <div className="font-mono text-[11px] font-bold text-lime uppercase tracking-widest border-b border-border pb-1">
-          Factory Details
+      {/* 2. Primary Factory & Machinery Identification Card */}
+      <div className="bg-surface/30 border border-border/70 rounded-2xl p-5 space-y-4">
+        <div className="flex items-center justify-between border-b border-border/60 pb-3">
+          <div className="flex items-center gap-2.5">
+            <Building2 className="text-lime w-4 h-4" />
+            <h4 className="font-syne text-xs font-bold uppercase tracking-wider text-text-primary">
+              Factory & Machine Overview
+            </h4>
+          </div>
+          <Badge tone="ghost" className="text-[9px] font-mono">Core Specification</Badge>
         </div>
-        <div className="grid gap-4 md:grid-cols-2">
+
+        <div className="grid gap-4 md:grid-cols-3">
           <div>
-            <Label>Factory Name</Label>
+            <Label className="text-[10px] text-text-secondary font-mono uppercase tracking-wider">Factory / Company Name *</Label>
             <Input
               value={data.factory_op_name ?? ""}
               onChange={(e) => patch({ factory_op_name: e.target.value })}
               placeholder="Enter Factory Name"
+              className="mt-1 bg-surface"
             />
           </div>
           <div>
-            <Label>Full Address</Label>
+            <Label className="text-[10px] text-text-secondary font-mono uppercase tracking-wider">Registered Address *</Label>
             <Textarea
-              rows={2}
+              rows={1}
               value={data.factory_op_address ?? ""}
               onChange={(e) => patch({ factory_op_address: e.target.value })}
-              placeholder="Enter Full Address"
+              placeholder="Enter Address"
+              className="mt-1 bg-surface text-xs"
+            />
+          </div>
+          <div>
+            <Label className="text-[10px] text-text-secondary font-mono uppercase tracking-wider">Monitored Machine Name *</Label>
+            <Input
+              value={singleMachine}
+              onChange={(e) => handleMachineChange(e.target.value)}
+              placeholder="e.g. CNC Lathe Machine 01"
+              className="mt-1 bg-surface font-semibold text-lime"
             />
           </div>
         </div>
-        <div className="space-y-2 mt-2">
-          <Label>Machine Names</Label>
-          {machines.map((m: string, i: number) => (
-            <div key={i} className="flex gap-2 items-center">
-              <Input
-                value={m}
-                onChange={(e) => handleMachineChange(i, e.target.value)}
-                placeholder={`Machine Name ${i + 1}`}
-                className="flex-1"
-              />
-              {machines.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => removeMachine(i)}
-                  className="text-text-secondary hover:text-coral transition-colors p-1"
-                >
-                  <Trash2 size={16} />
-                </button>
-              )}
+      </div>
+
+      {/* 3. Key Stakeholders: Factory Owners */}
+      <div className="bg-surface/30 border border-border/70 rounded-2xl p-5 space-y-4">
+        <div className="flex items-center justify-between border-b border-border/60 pb-3">
+          <div className="flex items-center gap-2.5">
+            <Users className="text-lime w-4 h-4" />
+            <h4 className="font-syne text-xs font-bold uppercase tracking-wider text-text-primary">
+              Factory Owners & Key Decision Makers
+            </h4>
+          </div>
+          <Button
+            type="button"
+            variant="secondary"
+            className="py-1 px-3 text-[10px] uppercase font-bold tracking-wider"
+            onClick={addOwner}
+          >
+            + Add Owner
+          </Button>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          {owners.map((owner: any, i: number) => (
+            <div key={i} className="p-4 border border-border/60 rounded-xl bg-surface/50 space-y-3 relative group hover:border-lime/40 transition-all">
+              <div className="flex justify-between items-center">
+                <span className="font-mono text-[10px] font-bold text-lime uppercase">Owner Contact #{i + 1}</span>
+                {owners.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeOwner(i)}
+                    className="text-text-dim hover:text-red-400 transition-colors p-1"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </div>
+              <div className="grid gap-2 grid-cols-1 sm:grid-cols-3">
+                <div>
+                  <Label className="text-[9px]">Name</Label>
+                  <Input
+                    value={owner.name ?? ""}
+                    onChange={(e) => handleOwnerChange(i, "name", e.target.value)}
+                    placeholder="Full Name"
+                    className="h-8 text-xs bg-surface"
+                  />
+                </div>
+                <div>
+                  <Label className="text-[9px]">Mobile</Label>
+                  <Input
+                    type="tel"
+                    value={owner.contact ?? ""}
+                    onChange={(e) => handleOwnerChange(i, "contact", e.target.value)}
+                    placeholder="+91 Contact"
+                    className="h-8 text-xs bg-surface font-mono"
+                  />
+                </div>
+                <div>
+                  <Label className="text-[9px]">Email</Label>
+                  <Input
+                    type="email"
+                    value={owner.email ?? ""}
+                    onChange={(e) => handleOwnerChange(i, "email", e.target.value)}
+                    placeholder="Email Address"
+                    className="h-8 text-xs bg-surface"
+                  />
+                </div>
+              </div>
             </div>
           ))}
-          <div className="mt-1">
-            <Button
-              type="button"
-              variant="secondary"
-              className="py-1 px-3 text-xs"
-              onClick={addMachine}
-            >
-              <Plus size={12} /> Add Machine Name
-            </Button>
-          </div>
         </div>
       </div>
 
-      {/* B. Owner Information */}
-      <div className="space-y-4">
-        <div className="font-mono text-[11px] font-bold text-lime uppercase tracking-widest border-b border-border pb-1">
-          Owner Information
-        </div>
-        {owners.map((owner: any, i: number) => (
-          <div key={i} className="p-4 border border-border rounded-[8px] bg-surface-raised/10 space-y-3 relative">
-            <div className="flex justify-between items-center">
-              <span className="font-mono text-[10px] text-text-secondary">Owner {i + 1}</span>
-              {owners.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => removeOwner(i)}
-                  className="text-text-secondary hover:text-coral transition-colors"
-                >
-                  <Trash2 size={15} />
-                </button>
-              )}
-            </div>
-            <div className="grid gap-3 md:grid-cols-3">
-              <div>
-                <Label>Owner Name</Label>
-                <Input
-                  value={owner.name ?? ""}
-                  onChange={(e) => handleOwnerChange(i, "name", e.target.value)}
-                  placeholder="Name"
-                />
-              </div>
-              <div>
-                <Label>Email</Label>
-                <Input
-                  type="email"
-                  value={owner.email ?? ""}
-                  onChange={(e) => handleOwnerChange(i, "email", e.target.value)}
-                  placeholder="Email"
-                />
-              </div>
-              <div>
-                <Label>Contact No</Label>
-                <Input
-                  type="tel"
-                  value={owner.contact ?? ""}
-                  onChange={(e) => handleOwnerChange(i, "contact", e.target.value)}
-                  placeholder="Contact Number"
-                />
-              </div>
-            </div>
+      {/* 4. Engineering & Technical Contacts */}
+      <div className="bg-surface/30 border border-border/70 rounded-2xl p-5 space-y-4">
+        <div className="flex items-center justify-between border-b border-border/60 pb-3">
+          <div className="flex items-center gap-2.5">
+            <Wrench className="text-lime w-4 h-4" />
+            <h4 className="font-syne text-xs font-bold uppercase tracking-wider text-text-primary">
+              Technicians & Engineering Team
+            </h4>
           </div>
-        ))}
-        <Button
-          type="button"
-          variant="secondary"
-          className="py-1.5 px-4 text-xs"
-          onClick={addOwner}
-        >
-          <Plus size={14} /> Add Owner
-        </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            className="py-1 px-3 text-[10px] uppercase font-bold tracking-wider"
+            onClick={addTechnician}
+          >
+            + Add Technician
+          </Button>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          {technicians.map((tech: any, i: number) => (
+            <div key={i} className="p-4 border border-border/60 rounded-xl bg-surface/50 space-y-3 relative group hover:border-lime/40 transition-all">
+              <div className="flex justify-between items-center">
+                <span className="font-mono text-[10px] font-bold text-lime uppercase">Technician #{i + 1}</span>
+                {technicians.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeTechnician(i)}
+                    className="text-text-dim hover:text-red-400 transition-colors p-1"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </div>
+              <div className="grid gap-2 grid-cols-1 sm:grid-cols-3">
+                <div>
+                  <Label className="text-[9px]">Name</Label>
+                  <Input
+                    value={tech.name ?? ""}
+                    onChange={(e) => handleTechnicianChange(i, "name", e.target.value)}
+                    placeholder="Tech Name"
+                    className="h-8 text-xs bg-surface"
+                  />
+                </div>
+                <div>
+                  <Label className="text-[9px]">Mobile</Label>
+                  <Input
+                    type="tel"
+                    value={tech.contact ?? ""}
+                    onChange={(e) => handleTechnicianChange(i, "contact", e.target.value)}
+                    placeholder="+91 Contact"
+                    className="h-8 text-xs bg-surface font-mono"
+                  />
+                </div>
+                <div>
+                  <Label className="text-[9px]">Email</Label>
+                  <Input
+                    type="email"
+                    value={tech.email ?? ""}
+                    onChange={(e) => handleTechnicianChange(i, "email", e.target.value)}
+                    placeholder="Email Address"
+                    className="h-8 text-xs bg-surface"
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* C. Operator Detail */}
-      <div className="space-y-4">
-        <div className="font-mono text-[11px] font-bold text-lime uppercase tracking-widest border-b border-border pb-1">
-          Operator Details
-        </div>
-        {operators.map((op: any, i: number) => (
-          <div key={i} className="p-4 border border-border rounded-[8px] bg-surface-raised/10 space-y-3 relative">
-            <div className="flex justify-between items-center">
-              <span className="font-mono text-[10px] text-text-secondary">Operator {i + 1}</span>
-              {operators.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => removeOperator(i)}
-                  className="text-text-secondary hover:text-coral transition-colors"
-                >
-                  <Trash2 size={15} />
-                </button>
-              )}
-            </div>
-            <div className="grid gap-3 md:grid-cols-3">
-              <div>
-                <Label>Operator Name</Label>
-                <Input
-                  value={op.name ?? ""}
-                  onChange={(e) => handleOperatorChange(i, "name", e.target.value)}
-                  placeholder="Name"
-                />
-              </div>
-              <div>
-                <Label>Email</Label>
-                <Input
-                  type="email"
-                  value={op.email ?? ""}
-                  onChange={(e) => handleOperatorChange(i, "email", e.target.value)}
-                  placeholder="Email"
-                />
-              </div>
-              <div>
-                <Label>Contact No</Label>
-                <Input
-                  type="tel"
-                  value={op.contact ?? ""}
-                  onChange={(e) => handleOperatorChange(i, "contact", e.target.value)}
-                  placeholder="Contact Number"
-                />
-              </div>
-            </div>
+      {/* 5. Shift Schedule & Collision Analysis */}
+      <div className="bg-surface/30 border border-border/70 rounded-2xl p-5 space-y-4">
+        <div className="flex items-center justify-between border-b border-border/60 pb-3">
+          <div className="flex items-center gap-2.5">
+            <Clock className="text-lime w-4 h-4" />
+            <h4 className="font-syne text-xs font-bold uppercase tracking-wider text-text-primary">
+              Shift Timings & Operational Schedule
+            </h4>
           </div>
-        ))}
-        <Button
-          type="button"
-          variant="secondary"
-          className="py-1.5 px-4 text-xs"
-          onClick={addOperator}
-        >
-          <Plus size={14} /> Add Operator
-        </Button>
-      </div>
-
-      {/* D. Technician Contact */}
-      <div className="space-y-4">
-        <div className="font-mono text-[11px] font-bold text-lime uppercase tracking-widest border-b border-border pb-1">
-          Technician Contacts
+          <Button
+            type="button"
+            variant="secondary"
+            className="py-1 px-3 text-[10px] uppercase font-bold tracking-wider"
+            onClick={addShift}
+          >
+            + Add Shift
+          </Button>
         </div>
-        {technicians.map((tech: any, i: number) => (
-          <div key={i} className="p-4 border border-border rounded-[8px] bg-surface-raised/10 space-y-3 relative">
-            <div className="flex justify-between items-center">
-              <span className="font-mono text-[10px] text-text-secondary">Technician {i + 1}</span>
-              {technicians.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => removeTechnician(i)}
-                  className="text-text-secondary hover:text-coral transition-colors"
-                >
-                  <Trash2 size={15} />
-                </button>
-              )}
-            </div>
-            <div className="grid gap-3 md:grid-cols-3">
-              <div>
-                <Label>Technician Name</Label>
-                <Input
-                  value={tech.name ?? ""}
-                  onChange={(e) => handleTechnicianChange(i, "name", e.target.value)}
-                  placeholder="Name"
-                />
-              </div>
-              <div>
-                <Label>Email</Label>
-                <Input
-                  type="email"
-                  value={tech.email ?? ""}
-                  onChange={(e) => handleTechnicianChange(i, "email", e.target.value)}
-                  placeholder="Email"
-                />
-              </div>
-              <div>
-                <Label>Contact No</Label>
-                <Input
-                  type="tel"
-                  value={tech.contact ?? ""}
-                  onChange={(e) => handleTechnicianChange(i, "contact", e.target.value)}
-                  placeholder="Contact Number"
-                />
-              </div>
-            </div>
-          </div>
-        ))}
-        <Button
-          type="button"
-          variant="secondary"
-          className="py-1.5 px-4 text-xs"
-          onClick={addTechnician}
-        >
-          <Plus size={14} /> Add Technician
-        </Button>
-      </div>
 
-      {/* E. Shift Panel */}
-      <div className="space-y-4">
-        <div className="font-mono text-[11px] font-bold text-lime uppercase tracking-widest border-b border-border pb-1">
-          Shift Panel
-        </div>
         {hasOverlap && (
-          <div className="flex items-center gap-2 p-3 bg-coral-dim border border-coral/30 rounded-[6px] text-coral text-xs">
-            <AlertTriangle size={15} className="shrink-0" />
-            <span>Shift timings overlap or collide. Please check your start and end times.</span>
+          <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-xs">
+            <AlertTriangle size={16} className="shrink-0 animate-bounce" />
+            <span className="font-medium">Shift overlap detected! Please adjust start and end times to resolve timeline collisions.</span>
           </div>
         )}
-        {shifts.map((shift: any, i: number) => (
-          <div key={i} className="p-4 border border-border rounded-[8px] bg-surface-raised/10 space-y-3 relative">
-            <div className="flex justify-between items-center">
-              <span className="font-mono text-[10px] text-text-secondary">Shift {i + 1}</span>
+
+        <div className="space-y-3">
+          {shifts.map((shift: any, i: number) => (
+            <div key={i} className="p-4 border border-border/60 rounded-xl bg-surface/50 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <Label className="text-[9px]">Shift Name</Label>
+                  <Input
+                    value={shift.name ?? ""}
+                    onChange={(e) => handleShiftChange(i, "name", e.target.value)}
+                    placeholder="e.g. Shift A / Day"
+                    className="h-8 text-xs bg-surface font-semibold"
+                  />
+                </div>
+                <div>
+                  <Label className="text-[9px]">Start Time</Label>
+                  <Input
+                    type="time"
+                    value={shift.startTime ?? ""}
+                    onChange={(e) => handleShiftChange(i, "startTime", e.target.value)}
+                    className="h-8 text-xs bg-surface font-mono"
+                  />
+                </div>
+                <div>
+                  <Label className="text-[9px]">End Time</Label>
+                  <Input
+                    type="time"
+                    value={shift.endTime ?? ""}
+                    onChange={(e) => handleShiftChange(i, "endTime", e.target.value)}
+                    className="h-8 text-xs bg-surface font-mono"
+                  />
+                </div>
+              </div>
+
               {shifts.length > 1 && (
                 <button
                   type="button"
                   onClick={() => removeShift(i)}
-                  className="text-text-secondary hover:text-coral transition-colors"
+                  className="text-text-dim hover:text-red-400 transition-colors self-end md:self-center p-1.5"
                 >
                   <Trash2 size={15} />
                 </button>
               )}
             </div>
-            <div className="grid gap-3 md:grid-cols-4">
-              <div>
-                <Label>Shift Name</Label>
-                <Input
-                  value={shift.name ?? ""}
-                  onChange={(e) => handleShiftChange(i, "name", e.target.value)}
-                  placeholder="e.g. Day Shift"
-                />
-              </div>
-              <div>
-                <Label>Shift Type</Label>
-                <Select
-                  value={shift.type ?? "General"}
-                  onChange={(e) => handleShiftChange(i, "type", e.target.value)}
-                >
-                  <option value="Morning">Morning</option>
-                  <option value="Night">Night</option>
-                  <option value="Afternoon">Afternoon</option>
-                  <option value="General">General</option>
-                  <option value="Rotation">Rotation</option>
-                </Select>
-              </div>
-              <div>
-                <Label>Start Time</Label>
-                <Input
-                  type="time"
-                  value={shift.startTime ?? ""}
-                  onChange={(e) => handleShiftChange(i, "startTime", e.target.value)}
-                />
-              </div>
-              <div>
-                <Label>End Time</Label>
-                <Input
-                  type="time"
-                  value={shift.endTime ?? ""}
-                  onChange={(e) => handleShiftChange(i, "endTime", e.target.value)}
-                />
-              </div>
-            </div>
-          </div>
-        ))}
-        <Button
-          type="button"
-          variant="secondary"
-          className="py-1.5 px-4 text-xs"
-          onClick={addShift}
-        >
-          <Plus size={14} /> Add Shift
-        </Button>
+          ))}
+        </div>
       </div>
 
-      {/* F. Downtime Reason Selection */}
-      <div className="space-y-4">
-        <div className="font-mono text-[11px] font-bold text-lime uppercase tracking-widest border-b border-border pb-1">
-          Downtime Reason Selection
+      {/* 6. Downtime Reason Matrix & Custom Triggers */}
+      <div className="bg-surface/30 border border-border/70 rounded-2xl p-5 space-y-4">
+        <div className="flex items-center justify-between border-b border-border/60 pb-3">
+          <div className="flex items-center gap-2.5">
+            <AlertTriangle className="text-lime w-4 h-4" />
+            <h4 className="font-syne text-xs font-bold uppercase tracking-wider text-text-primary">
+              Downtime Reasons & Threshold Configuration
+            </h4>
+          </div>
+          <Badge tone="ghost" className="text-[9px] font-mono">Analytical Matrix</Badge>
         </div>
+
         <div className="space-y-3">
-          <Label>Common Reasons (Select all that apply)</Label>
+          <Label className="text-[10px] text-text-secondary uppercase tracking-wider">Selected Active Reasons</Label>
           <div className="flex flex-wrap gap-2 py-1">
             {allReasons.map((reason: string) => {
               const isChecked = downtimeReasons.includes(reason);
@@ -1250,20 +1278,20 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
                   key={reason}
                   type="button"
                   onClick={() => toggleReason(reason)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[6px] border text-xs font-mono font-medium transition-all duration-150 ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-mono font-medium transition-all duration-150 cursor-pointer ${
                     isChecked
-                      ? "border-lime bg-lime-dim/40 text-lime"
+                      ? "border-lime bg-lime-dim/40 text-lime font-bold shadow-sm"
                       : "border-border hover:border-border-bright text-text-secondary bg-surface-raised/20"
                   }`}
                 >
-                  {isChecked && <span className="h-1.5 w-1.5 rounded-full bg-lime" />}
+                  {isChecked && <span className="h-1.5 w-1.5 rounded-full bg-lime animate-pulse" />}
                   <span>{reason}</span>
                 </button>
               );
             })}
           </div>
-          
-          <div className="flex flex-col sm:flex-row gap-4 pt-2">
+
+          <div className="flex flex-col sm:flex-row gap-4 pt-3 border-t border-border/40 items-end">
             <div className="flex-1">
               {showCustomInput ? (
                 <div className="flex gap-2 max-w-md">
@@ -1271,11 +1299,11 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
                     value={customReasonInput}
                     onChange={(e) => setCustomReasonInput(e.target.value)}
                     placeholder="Enter custom downtime reason"
-                    className="text-xs"
+                    className="h-8 text-xs bg-surface"
                   />
                   <Button
                     type="button"
-                    className="py-1 px-3 text-xs"
+                    className="h-8 py-1 px-3 text-xs bg-lime text-black font-bold uppercase"
                     onClick={addCustomReason}
                   >
                     Add
@@ -1283,7 +1311,7 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
                   <Button
                     type="button"
                     variant="ghost"
-                    className="py-1 px-2 text-xs"
+                    className="h-8 py-1 px-2 text-xs"
                     onClick={() => {
                       setShowCustomInput(false);
                       setCustomReasonInput("");
@@ -1296,42 +1324,47 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
                 <Button
                   type="button"
                   variant="secondary"
-                  className="py-1 px-3 text-xs"
+                  className="py-1 px-3 text-xs font-mono uppercase tracking-wider"
                   onClick={() => setShowCustomInput(true)}
                 >
-                  <Plus size={12} /> Custom Add Downtime Reason
+                  + Add Custom Downtime Reason
                 </Button>
               )}
             </div>
-            
+
             <div className="w-full sm:w-64">
-              <Label>Ideal Threshold Time (Minutes)</Label>
+              <Label className="text-[10px] text-text-secondary uppercase">Ideal Threshold Time (Minutes)</Label>
               <Input
                 type="number"
                 value={data.factory_op_downtime_threshold ?? ""}
                 onChange={(e) => patch({ factory_op_downtime_threshold: e.target.value ? Number(e.target.value) : "" })}
                 placeholder="e.g. 15"
+                className="h-8 text-xs bg-surface font-mono font-bold text-lime mt-1"
               />
             </div>
           </div>
         </div>
       </div>
 
-      {/* G. Electricity Board Radio Group */}
-      <div className="space-y-3">
-        <div className="font-mono text-[11px] font-bold text-lime uppercase tracking-widest border-b border-border pb-1">
-          Electricity Board
+      {/* 7. Electricity Board Selector */}
+      <div className="bg-surface/30 border border-border/70 rounded-2xl p-5 space-y-4">
+        <div className="flex items-center justify-between border-b border-border/60 pb-3">
+          <h4 className="font-syne text-xs font-bold uppercase tracking-wider text-text-primary">
+            Electricity Board Provider *
+          </h4>
+          <Badge tone="lime" className="text-[9px] font-mono">Mandatory Field</Badge>
         </div>
-        <div className="flex flex-wrap gap-4 py-1">
+
+        <div className="flex flex-wrap gap-3 py-1">
           {["PGVCL", "UGVCL", "MGVCL", "Torrent", "DGVCL"].map((board) => {
             const isChecked = (data.factory_op_electricity_board ?? "") === board;
             return (
               <label
                 key={board}
-                className={`flex items-center gap-2 cursor-pointer select-none py-1.5 px-4 rounded-[6px] border text-xs font-mono font-bold transition-all duration-150 ${
+                className={`flex items-center gap-2 cursor-pointer select-none py-2 px-4 rounded-xl border text-xs font-mono font-bold transition-all duration-150 ${
                   isChecked
-                    ? "border-lime bg-lime-dim/50 text-lime"
-                    : "border-border hover:border-border-bright text-text-secondary"
+                    ? "border-lime bg-lime-dim/40 text-lime shadow-sm"
+                    : "border-border hover:border-border-bright text-text-secondary bg-surface/30"
                 }`}
               >
                 <input
@@ -1354,8 +1387,7 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
         </div>
       </div>
 
-
-      {/* H. Business Profile Details */}
+      {/* 8. Business Profile & Advanced Analytics Specifications */}
       <div className="space-y-6 bg-surface-raised/40 backdrop-blur-md border border-border/80 rounded-2xl p-6 shadow-sm relative overflow-hidden transition-all duration-300 hover:border-lime/40">
         <div className="flex items-center gap-3 border-b border-border/80 pb-3">
           <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-lime-dim/50 border border-lime/20 text-lime">
@@ -1363,10 +1395,10 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
           </div>
           <div className="flex-1">
             <h4 className="font-syne text-[14px] font-extrabold uppercase tracking-wider text-text-primary">
-              Business Profile Details
+              Machine Tracking Methodology & Specification
             </h4>
             <p className="text-[10px] text-text-secondary font-mono tracking-normal mt-0.5">
-              Configure machine type specification and parameters
+              Configure telemetry parameters and calculation logic
             </p>
           </div>
           <span className="flex h-2 w-2 relative">
@@ -1418,7 +1450,7 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
                 <Label className="text-[9px] text-lime font-bold font-mono tracking-wider block">Minimum stop duration (min)</Label>
                 <Input
                   type="number"
-                  value={data.expected_daily_run_hours && data.expected_runtime_day_min ? data.minimum_stop_duration_min ?? "" : data.minimum_stop_duration_min ?? ""}
+                  value={data.minimum_stop_duration_min ?? ""}
                   onChange={(e) => patch({ minimum_stop_duration_min: e.target.value ? Number(e.target.value) : "" })}
                   placeholder="5"
                   className="bg-transparent border-0 border-b border-border/80 focus:border-lime focus:ring-0 rounded-none text-base font-semibold py-1 px-0 w-full"
@@ -1466,7 +1498,7 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
                 </div>
                 <div className="flex-1">
                   <span className="text-xs font-semibold block font-sans">Vibration monitoring relevant</span>
-                  <span className="text-[9px] text-text-dim block mt-0.5">Toggle for hardware vibration sensors.</span>
+                  <span className="text-[9px] text-text-dim block mt-0.5 font-sans">Toggle for hardware vibration sensors.</span>
                 </div>
               </div>
             </div>
@@ -1492,16 +1524,6 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
                   );
                 })}
               </div>
-              <p className="text-[10px] text-text-secondary italic">
-                Current Selection: {data.machine_usage_type ?? "Production"} — {
-                  {
-                    Production: "Makes units (OEE applies)",
-                    Utility: "Compressor, pump, etc.",
-                    Auxiliary: "Conveyor, mixer, support equip.",
-                    Support: "AC, lighting, non-operating",
-                  }[data.machine_usage_type ?? "Production"]
-                }
-              </p>
             </div>
           </div>
         )}
@@ -1518,7 +1540,6 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
                   placeholder="Target meters per shift"
                   className="bg-transparent border-0 border-b border-border/80 focus:border-lime focus:ring-0 rounded-none text-base font-semibold py-1 px-0 w-full"
                 />
-                <p className="text-[9px] text-text-secondary mt-1">Target meters this machine should produce per shift.</p>
               </div>
               <div className="bg-surface/30 border border-border/40 rounded-xl p-4 space-y-2 hover:border-lime/30 transition-all">
                 <Label className="text-[9px] text-lime font-bold font-mono tracking-wider block">Target line speed * (mpm)</Label>
@@ -1529,7 +1550,6 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
                   placeholder="Ideal speed in mpm"
                   className="bg-transparent border-0 border-b border-border/80 focus:border-lime focus:ring-0 rounded-none text-base font-semibold py-1 px-0 w-full"
                 />
-                <p className="text-[9px] text-text-secondary mt-1">Ideal speed in meters per minute.</p>
               </div>
               <div className="bg-surface/30 border border-border/40 rounded-xl p-4 space-y-2 hover:border-lime/30 transition-all">
                 <Label className="text-[9px] text-lime font-bold font-mono tracking-wider block">Minimum acceptable speed (mpm)</Label>
@@ -1537,10 +1557,9 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
                   type="number"
                   value={data.minimum_acceptable_speed ?? ""}
                   onChange={(e) => patch({ minimum_acceptable_speed: e.target.value ? Number(e.target.value) : "" })}
-                  placeholder="Below this MPM is treated as idle/slow"
+                  placeholder="Idle speed threshold"
                   className="bg-transparent border-0 border-b border-border/80 focus:border-lime focus:ring-0 rounded-none text-base font-semibold py-1 px-0 w-full"
                 />
-                <p className="text-[9px] text-text-secondary mt-1">Below this speed the machine is considered idle.</p>
               </div>
             </div>
 
@@ -1565,21 +1584,10 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
                   );
                 })}
               </div>
-              <p className="text-[10px] text-text-secondary italic">
-                Current Selection: {data.machine_usage_type ?? "Production"} — {
-                  {
-                    Production: "Makes units (OEE applies)",
-                    Utility: "Compressor, pump, etc.",
-                    Auxiliary: "Conveyor, mixer, support equip.",
-                    Support: "AC, lighting, non-operating",
-                  }[data.machine_usage_type ?? "Production"]
-                }
-              </p>
             </div>
           </div>
         )}
       </div>
-
     </div>
   );
 }

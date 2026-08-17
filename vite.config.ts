@@ -18,5 +18,15 @@ export default defineConfig({
   nitro: process.env.VERCEL ? { preset: "vercel" } : {},
   vite: {
     base: "/",
+    server: {
+      watch: {
+        ignored: ["**/.git/**", "**/node_modules/**", "**/.output/**", "**/.nitro/**", "**/artifacts/**"],
+      },
+    },
+    build: {
+      target: "esnext",
+      minify: "esbuild",
+      sourcemap: false,
+    },
   },
 });

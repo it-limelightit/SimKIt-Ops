@@ -71,11 +71,16 @@ type Material = {
   remark: string | null;
 };
 
-export function InventoryPanel({ editable = false }: { editable?: boolean }) {
+type InventoryPanelProps = {
+  editable?: boolean;
+  defaultFilterState?: string;
+};
+
+export function InventoryPanel({ editable = false, defaultFilterState = "all" }: InventoryPanelProps) {
   const [materials, setMaterials] = useState<Material[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
-  const [filterState, setFilterState] = useState<string>("all");
+  const [filterState, setFilterState] = useState<string>(defaultFilterState);
   const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
@@ -190,30 +195,40 @@ export function InventoryPanel({ editable = false }: { editable?: boolean }) {
           label="Total Orders"
           value={metrics.total}
           tone="info"
+          active={filterState === "all"}
+          onClick={() => setFilterState("all")}
         />
         <MetricCard
           icon={AlertCircle}
           label="Pending Packing"
           value={metrics.pending}
           tone="danger"
+          active={filterState === "Pending"}
+          onClick={() => setFilterState("Pending")}
         />
         <MetricCard
           icon={Package}
           label="In Packing"
           value={metrics.packing}
           tone="warning"
+          active={filterState === "Packing"}
+          onClick={() => setFilterState("Packing")}
         />
         <MetricCard
           icon={Truck}
           label="Shipped / Transit"
           value={metrics.transit}
           tone="info"
+          active={filterState === "Transit"}
+          onClick={() => setFilterState("Transit")}
         />
         <MetricCard
           icon={PackageCheck}
           label="Delivered"
           value={metrics.delivered}
           tone="success"
+          active={filterState === "Delivered"}
+          onClick={() => setFilterState("Delivered")}
         />
       </div>
 
@@ -340,11 +355,15 @@ function MetricCard({
   label,
   value,
   tone,
+  active = false,
+  onClick,
 }: {
   icon: any;
   label: string;
   value: number;
   tone: "info" | "warning" | "success" | "danger";
+  active?: boolean;
+  onClick?: () => void;
 }) {
   const bgClass =
     tone === "success"
@@ -356,7 +375,13 @@ function MetricCard({
           : "bg-violet/15 text-violet";
 
   return (
-    <div className="flex items-center gap-3 rounded-[9px] border border-border bg-surface px-4 py-3">
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex items-center gap-3 rounded-[9px] border bg-surface px-4 py-3 text-left transition-all hover:border-lime/60 hover:bg-surface-hover ${
+        active ? "border-lime ring-2 ring-lime/15" : "border-border"
+      }`}
+    >
       <div className={`rounded-[6px] p-2 ${bgClass}`}>
         <Icon size={18} />
       </div>
@@ -366,7 +391,7 @@ function MetricCard({
           {label}
         </div>
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -1180,6 +1205,7 @@ function OrderCard({
                             <option value="">Select vibration model...</option>
                             <option value="renke">Renke</option>
                             <option value="witmotion">WitMotion</option>
+                            <option value="vibe-q">Vibe Q</option>
                           </Select>
                         </div>
                         <div>

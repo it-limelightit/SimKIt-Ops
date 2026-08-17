@@ -23,8 +23,9 @@ import {
   Plus,
   Trash2,
   Save,
-  FileJson,
-  XCircle
+  XCircle,
+  Copy,
+  Check
 } from "lucide-react";
 import { parseSiteMetadata, serializeSiteMetadata } from "@/lib/site-metadata";
 
@@ -64,6 +65,87 @@ type Machine = {
   condition?: string;
 };
 
+const FACTORY_OPERATIONS_EXPORT_KEYS = [
+  "factory_op_name",
+  "factory_op_address",
+  "factory_op_machine",
+  "factory_op_machines",
+  "factory_op_owners",
+  "factory_op_technicians",
+  "factory_op_shifts",
+  "factory_op_downtime_reasons",
+  "factory_op_downtime_custom_reasons",
+  "factory_op_downtime_threshold",
+  "factory_op_electricity_board",
+  "company_type",
+  "expected_daily_run_hours",
+  "expected_runtime_day_min",
+  "minimum_stop_duration_min",
+  "production_count_meaningful",
+  "vibration_monitoring_relevant",
+  "machine_usage_type",
+  "expected_meters_shift",
+  "target_line_speed",
+  "minimum_acceptable_speed",
+] as const;
+
+function cleanFilledFactoryValue(value: any): any {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? trimmed : undefined;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : undefined;
+  }
+  if (typeof value === "boolean") {
+    return value ? value : undefined;
+  }
+  if (Array.isArray(value)) {
+    const cleaned = value.map(cleanFilledFactoryValue).filter((item) => item !== undefined);
+    return cleaned.length > 0 ? cleaned : undefined;
+  }
+  if (value && typeof value === "object") {
+    const cleaned = Object.entries(value).reduce<Record<string, any>>((acc, [key, item]) => {
+      const cleanedItem = cleanFilledFactoryValue(item);
+      if (cleanedItem !== undefined) acc[key] = cleanedItem;
+      return acc;
+    }, {});
+    return Object.keys(cleaned).length > 0 ? cleaned : undefined;
+  }
+  return undefined;
+}
+
+function getFilledFactoryOperationsJson(data: Record<string, any>) {
+  return FACTORY_OPERATIONS_EXPORT_KEYS.reduce<Record<string, any>>((acc, key) => {
+    const cleanedValue = cleanFilledFactoryValue(data[key]);
+    if (cleanedValue !== undefined) acc[key] = cleanedValue;
+    return acc;
+  }, {});
+}
+
+async function copyTextToClipboard(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    textarea.style.top = "0";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+
+    try {
+      return document.execCommand("copy");
+    } finally {
+      textarea.remove();
+    }
+  }
+}
+
 export function FactoryDataPanel() {
   const [sites, setSites] = useState<Site[]>([]);
   const [assessments, setAssessments] = useState<Assessment[]>([]);
@@ -72,7 +154,10 @@ export function FactoryDataPanel() {
   const [loading, setLoading] = useState(true);
   const [selectedSiteId, setSelectedSiteId] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("credential_remaining");
+  const [monthFilter, setMonthFilter] = useState("all");
+  const [cityFilter, setCityFilter] = useState("all");
+  const [credentialStatus, setCredentialStatus] = useState<Record<string, boolean | undefined>>({});
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<Record<string, any>>({});
 
@@ -212,6 +297,7 @@ export function FactoryDataPanel() {
     return sites
       .map(s => {
         const assess = assessments.find(a => a.site_id === s.id);
+        const siteMeta = parseSiteMetadata(s.task_notes);
         const isSubmitted = !!assess?.data?.assessment_phase_submitted;
         const isDone = !!assess?.data?.factory_operations_done;
         
@@ -225,11 +311,19 @@ export function FactoryDataPanel() {
           fillStatus,
           isDone,
           isSubmitted,
-          updatedAt: assess?.updated_at
+          updatedAt: assess?.updated_at,
+          credentialCreated: credentialStatus[s.id] ?? !!siteMeta.credential_created,
+          submittedMonth: assess?.updated_at ? assess.updated_at.slice(0, 7) : "",
         };
       })
-      .filter(s => s.isSubmitted);
-  }, [sites, assessments]);
+      .filter(s => s.isSubmitted)
+      .sort((a, b) => {
+        if (a.credentialCreated !== b.credentialCreated) {
+          return a.credentialCreated ? 1 : -1;
+        }
+        return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
+      });
+  }, [sites, assessments, credentialStatus]);
 
   // Auto-select first site from the form-filled sites list if selection becomes invalid
   useEffect(() => {
@@ -263,10 +357,58 @@ export function FactoryDataPanel() {
         (s.city && s.city.toLowerCase().includes(searchQuery.toLowerCase()));
 
       if (!matchSearch) return false;
-      if (statusFilter === "all") return true;
-      return s.fillStatus === statusFilter;
+      if (monthFilter !== "all" && s.submittedMonth !== monthFilter) return false;
+      if (cityFilter !== "all" && (s.city || "Unknown") !== cityFilter) return false;
+      if (statusFilter === "credential_created") return s.credentialCreated;
+      return !s.credentialCreated;
     });
-  }, [processedSitesList, searchQuery, statusFilter]);
+  }, [processedSitesList, searchQuery, statusFilter, monthFilter, cityFilter]);
+
+  const availableMonths = useMemo(() => {
+    return Array.from(new Set(processedSitesList.map(s => s.submittedMonth).filter(Boolean))).sort().reverse();
+  }, [processedSitesList]);
+
+  const availableCities = useMemo(() => {
+    return Array.from(new Set(processedSitesList.map(s => s.city || "Unknown"))).sort((a, b) => a.localeCompare(b));
+  }, [processedSitesList]);
+
+  const analyticsSites = useMemo(() => {
+    return processedSitesList.filter(s => {
+      if (monthFilter !== "all" && s.submittedMonth !== monthFilter) return false;
+      if (cityFilter !== "all" && (s.city || "Unknown") !== cityFilter) return false;
+      return true;
+    });
+  }, [processedSitesList, monthFilter, cityFilter]);
+
+  const credentialCreatedCount = analyticsSites.filter(s => s.credentialCreated).length;
+  const credentialRemainingCount = analyticsSites.length - credentialCreatedCount;
+  const toggleCredentialCreated = async (siteId: string, checked: boolean) => {
+    const site = sites.find((s) => s.id === siteId);
+    if (!site) return;
+
+    const previousValue = credentialStatus[siteId];
+    setCredentialStatus(prev => ({ ...prev, [siteId]: checked }));
+
+    const meta = parseSiteMetadata(site.task_notes);
+    const nextNotes = serializeSiteMetadata(site.task_notes, {
+      ...meta,
+      credential_created: checked,
+    });
+
+    const { error } = await supabase
+      .from("sites")
+      .update({ task_notes: nextNotes } as never)
+      .eq("id", siteId);
+
+    if (error) {
+      setCredentialStatus(prev => ({ ...prev, [siteId]: previousValue }));
+      toast.error("Could not save credential status: " + error.message);
+      return;
+    }
+
+    setSites(prev => prev.map((s) => (s.id === siteId ? { ...s, task_notes: nextNotes } : s)));
+    toast.success(checked ? "Moved to Credential Created." : "Moved back to Pending.");
+  };
 
   const formatDate = (isoStr?: string) => {
     if (!isoStr) return "N/A";
@@ -280,6 +422,97 @@ export function FactoryDataPanel() {
   };
 
   const handleSave = async () => {
+    // 1. Factory Name
+    if (!editData.factory_op_name || !editData.factory_op_name.trim()) {
+      toast.error("Validation Error: Official Company Name is required");
+      return;
+    }
+
+    // 2. Monitored Machine Name
+    const singleMachine = Array.isArray(editData.factory_op_machines) ? (editData.factory_op_machines[0] || "") : (editData.factory_op_machine || "");
+    if (!singleMachine || !singleMachine.trim()) {
+      toast.error("Validation Error: Monitored Machine Name is required");
+      return;
+    }
+
+    // 3. Registered Address
+    if (!editData.factory_op_address || !editData.factory_op_address.trim()) {
+      toast.error("Validation Error: Registered Address is required");
+      return;
+    }
+
+    // 4. Owners Validation
+    const owners = editData.factory_op_owners || [];
+    if (owners.length === 0) {
+      toast.error("Validation Error: At least 1 Factory Owner entry is required");
+      return;
+    }
+    for (let idx = 0; idx < owners.length; idx++) {
+      const o = owners[idx];
+      if (!o.name || !o.name.trim()) {
+        toast.error(`Validation Error: Owner #${idx + 1} Name is required`);
+        return;
+      }
+      if (!o.contact || !o.contact.trim()) {
+        toast.error(`Validation Error: Owner #${idx + 1} Contact Mobile is required`);
+        return;
+      }
+      if (!o.email || !o.email.trim()) {
+        toast.error(`Validation Error: Owner #${idx + 1} Email Address is required`);
+        return;
+      }
+    }
+
+    // 5. Technicians Validation
+    const technicians = editData.factory_op_technicians || [];
+    if (technicians.length === 0) {
+      toast.error("Validation Error: At least 1 Technician detail entry is required");
+      return;
+    }
+    for (let idx = 0; idx < technicians.length; idx++) {
+      const t = technicians[idx];
+      if (!t.name || !t.name.trim()) {
+        toast.error(`Validation Error: Technician #${idx + 1} Name is required`);
+        return;
+      }
+      if (!t.contact || !t.contact.trim()) {
+        toast.error(`Validation Error: Technician #${idx + 1} Contact Mobile is required`);
+        return;
+      }
+      if (!t.email || !t.email.trim()) {
+        toast.error(`Validation Error: Technician #${idx + 1} Email Address is required`);
+        return;
+      }
+    }
+
+    // 6. Shift Validation
+    const shifts = editData.factory_op_shifts || [];
+    if (shifts.length === 0) {
+      toast.error("Validation Error: At least 1 Shift timing entry is required");
+      return;
+    }
+    for (let idx = 0; idx < shifts.length; idx++) {
+      const s = shifts[idx];
+      if (!s.name || !s.name.trim()) {
+        toast.error(`Validation Error: Shift #${idx + 1} Name is required`);
+        return;
+      }
+      if (!s.startTime) {
+        toast.error(`Validation Error: Shift #${idx + 1} Start Time is required`);
+        return;
+      }
+      if (!s.endTime) {
+        toast.error(`Validation Error: Shift #${idx + 1} End Time is required`);
+        return;
+      }
+    }
+
+    // 7. Electricity Board
+    if (!editData.factory_op_electricity_board || !editData.factory_op_electricity_board.trim()) {
+      toast.error("Validation Error: Electricity Board selection is required");
+      return;
+    }
+
     try {
       const { error } = await supabase
         .from("assessment")
@@ -301,30 +534,70 @@ export function FactoryDataPanel() {
     }
   };
 
-  const handleExportJson = () => {
+  const handleCopyFactoryJson = async (targetSite?: SiteWithStatus) => {
+    const siteObj = targetSite || selectedSite;
+    if (!siteObj) return;
+
+    const siteAssessment = assessments.find((a) => a.site_id === siteObj.id) || (siteObj.id === selectedSiteId ? selectedAssessment : undefined);
+    const factoryJson = getFilledFactoryOperationsJson(siteAssessment?.data || {});
+
+    if (Object.keys(factoryJson).length === 0) {
+      toast.error(`No Factory Operations data available for ${siteObj.name}`);
+      return;
+    }
+
+    try {
+      const copied = await copyTextToClipboard(JSON.stringify(factoryJson, null, 2));
+      if (!copied) throw new Error("Copy command failed");
+      toast.success(`Copied Factory Operations JSON for ${siteObj.name}`);
+    } catch {
+      toast.error("Could not copy JSON. Your browser blocked clipboard access.");
+    }
+  };
+
+  const copyToClipboard = (text: string, label: string) => {
+    if (!text || !text.trim()) {
+      toast.error(`No ${label} available to copy`);
+      return;
+    }
+    navigator.clipboard.writeText(text);
+    toast.success(`Copied ${label} to clipboard!`);
+  };
+
+  const copyFullSummary = () => {
     if (!selectedSite || !selectedAssessment) return;
-    const exportObj = {
-      site: {
-        id: selectedSite.id,
-        name: selectedSite.name,
-        company_name: selectedSite.company_name,
-        city: selectedSite.city,
-        address: selectedSite.address,
-      },
-      assessment_data: selectedAssessment.data,
-      contacts: selectedContacts,
-      machines: selectedMachines,
-    };
-    
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportObj, null, 2));
-    const downloadAnchor = document.createElement("a");
-    downloadAnchor.setAttribute("href", dataStr);
-    const fileName = `${selectedSite.name.toLowerCase().replace(/[^a-z0-9]/g, "_")}_factory_data.json`;
-    downloadAnchor.setAttribute("download", fileName);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-    toast.success("Data exported to JSON successfully");
+    const d = selectedAssessment.data || {};
+    const text = `
+=== FACTORY ASSESSMENT SUMMARY ===
+Official Company Name: ${d.factory_op_name || selectedSite.company_name || selectedSite.name}
+Registered Address: ${d.factory_op_address || selectedSite.address || "N/A"}
+Monitored Machine: ${Array.isArray(d.factory_op_machines) ? d.factory_op_machines[0] : d.factory_op_machine || "N/A"}
+Electricity Board: ${d.factory_op_electricity_board || "N/A"}
+
+--- FACTORY OWNERS ---
+${(d.factory_op_owners || []).map((o: any) => `- Name: ${o.name || "N/A"} | Mobile: ${o.contact || "N/A"} | Email: ${o.email || "N/A"}`).join("\n") || "No owner records"}
+
+--- TECHNICIANS / ENGINEERS ---
+${(d.factory_op_technicians || []).map((t: any) => `- Name: ${t.name || "N/A"} | Mobile: ${t.contact || "N/A"} | Email: ${t.email || "N/A"}`).join("\n") || "No technician records"}
+
+--- SHIFT TIMINGS ---
+${(d.factory_op_shifts || []).map((s: any) => `- ${s.name || "Shift"}: ${s.startTime || "N/A"} to ${s.endTime || "N/A"}`).join("\n") || "No shift records"}
+
+--- DOWNTIME REASONS ---
+Reasons: ${(d.factory_op_downtime_reasons || []).join(", ") || "None"}
+Threshold Duration: ${d.factory_op_downtime_threshold ?? "N/A"} mins
+
+--- TELEMETRY & TRACKING CONFIG ---
+Machine Type: ${d.company_type || "N/A"}
+Classification: ${d.machine_usage_type || "N/A"}
+Daily Run Hours: ${d.expected_daily_run_hours ?? "N/A"}
+Target Line Speed: ${d.target_line_speed ?? "N/A"}
+Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
+==================================
+    `.trim();
+
+    navigator.clipboard.writeText(text);
+    toast.success("Full Factory Summary copied to clipboard!");
   };
 
   const handleDeleteForm = async () => {
@@ -381,118 +654,224 @@ export function FactoryDataPanel() {
       </header>
 
       {loading ? (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <Skeleton className="h-96 col-span-1" />
-          <Skeleton className="h-96 col-span-2" />
+        <div className="space-y-6">
+          <Skeleton className="h-48 w-full" />
+          <Skeleton className="h-96 w-full" />
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+        <div className="space-y-8">
           
-          {/* Left Column: Factories List */}
-          <div className="space-y-4">
-            <Card className="p-4 space-y-4 bg-surface/50 backdrop-blur-md border border-border">
-              <div className="flex flex-col gap-2">
-                <Label className="text-xs font-mono uppercase text-text-secondary">Search &amp; Filter</Label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-text-dim" />
+          {/* PART 1 (TOP HORIZONTAL SECTION): Factory Companies Row Deck */}
+          <Card className="p-5 bg-surface/50 backdrop-blur-md border border-border space-y-4 shadow-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setStatusFilter("credential_remaining")}
+                className={`rounded-xl border p-4 text-left transition-all cursor-pointer ${
+                  statusFilter === "credential_remaining"
+                    ? "border-amber-400 bg-amber-500/15 ring-2 ring-amber-500/20"
+                    : "border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/15"
+                }`}
+              >
+                <div className="text-[9px] font-mono uppercase tracking-widest text-amber-400">Remaining / Pending</div>
+                <div className="mt-1 text-2xl font-extrabold text-amber-400 font-mono">{credentialRemainingCount}</div>
+                <div className="mt-1 text-[10px] text-text-secondary">Click to show pending companies</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter("credential_created")}
+                className={`rounded-xl border p-4 text-left transition-all cursor-pointer ${
+                  statusFilter === "credential_created"
+                    ? "border-lime bg-lime/15 ring-2 ring-lime/20"
+                    : "border-lime/30 bg-lime/10 hover:bg-lime/15"
+                }`}
+              >
+                <div className="text-[9px] font-mono uppercase tracking-widest text-lime">Credential Created</div>
+                <div className="mt-1 text-2xl font-extrabold text-lime font-mono">{credentialCreatedCount}</div>
+                <div className="mt-1 text-[10px] text-text-secondary">Click to show created companies</div>
+              </button>
+            </div>
+
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border/60 pb-3">
+              <div>
+                <span className="font-mono text-[9px] uppercase tracking-widest text-lime font-bold">
+                  Part 1 &bull; Active Company Submissions
+                </span>
+                <h3 className="text-base font-extrabold font-syne uppercase text-text-primary mt-0.5">
+                  Factory Assessment Directory ({filteredSites.length})
+                </h3>
+              </div>
+
+              {/* Controls: Search & Filter */}
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="relative w-64">
+                  <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-text-dim" />
                   <Input
                     placeholder="Search factory or city…"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-9 h-9 text-xs"
+                    className="pl-8 h-8 text-xs bg-surface"
                   />
                 </div>
                 <Select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
-                  className="h-9 text-xs py-1"
+                  className="h-8 text-xs py-0.5 bg-surface"
                 >
-                  <option value="all">All Submissions</option>
-                  <option value="completed">Completed Form</option>
-                  <option value="in_progress">In Progress</option>
+                  <option value="credential_remaining">Pending</option>
+                  <option value="credential_created">Credential Created</option>
+                </Select>
+                <Select
+                  value={monthFilter}
+                  onChange={(e) => setMonthFilter(e.target.value)}
+                  className="h-8 text-xs py-0.5 bg-surface"
+                >
+                  <option value="all">All Months</option>
+                  {availableMonths.map((month) => (
+                    <option key={month} value={month}>
+                      {new Date(`${month}-01T00:00:00`).toLocaleDateString(undefined, { month: "short", year: "numeric" })}
+                    </option>
+                  ))}
+                </Select>
+                <Select
+                  value={cityFilter}
+                  onChange={(e) => setCityFilter(e.target.value)}
+                  className="h-8 text-xs py-0.5 bg-surface"
+                >
+                  <option value="all">All Cities</option>
+                  {availableCities.map((city) => (
+                    <option key={city} value={city}>{city}</option>
+                  ))}
                 </Select>
               </div>
+            </div>
 
-              {/* Factories Vertical Selection Deck */}
-              <div className="max-h-[500px] overflow-y-auto space-y-2 pr-1">
-                {filteredSites.length === 0 ? (
-                  <div className="text-center text-xs text-text-dim py-8 italic border border-dashed border-border rounded-lg">
-                    No matching factories found
-                  </div>
-                ) : (
-                  filteredSites.map((s) => {
-                    const isActive = s.id === selectedSiteId;
-                    return (
-                      <button
-                        key={s.id}
-                        onClick={() => setSelectedSiteId(s.id)}
-                        className={`w-full text-left p-3 rounded-lg border transition-all duration-200 cursor-pointer flex flex-col gap-1.5 ${
-                          isActive
-                            ? "bg-lime/10 border-lime ring-2 ring-lime/20"
-                            : "bg-surface border-border/80 hover:border-border-bright"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between w-full">
-                          <span className="font-mono text-[9px] uppercase tracking-wider text-text-dim">
-                            {s.city || "No Location"}
+            {/* Horizontal Company Rows Deck */}
+            <div className="space-y-2.5 max-h-[360px] overflow-y-auto pr-1">
+              {filteredSites.length === 0 ? (
+                <div className="text-center text-xs text-text-dim py-8 italic border border-dashed border-border rounded-xl">
+                  No matching factory companies found
+                </div>
+              ) : (
+                filteredSites.map((s) => {
+                  const isActive = s.id === selectedSiteId;
+                  return (
+                    <div
+                      key={s.id}
+                      className={`w-full p-4 rounded-xl border transition-all duration-200 flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+                        isActive
+                          ? "bg-lime/10 border-lime ring-2 ring-lime/20 shadow-sm"
+                          : "bg-surface/70 border-border/80 hover:border-border-bright"
+                      }`}
+                    >
+                      {/* Left Company Info */}
+                      <div className="flex-1 min-w-0 flex flex-col md:flex-row md:items-center gap-4">
+                        <label
+                          className="flex items-center gap-2 shrink-0 rounded-lg border border-border bg-surface-raised/30 px-3 py-2 cursor-pointer select-none"
+                          title={s.credentialCreated ? "Credential created" : "Mark credential as created"}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={s.credentialCreated}
+                            onChange={(e) => toggleCredentialCreated(s.id, e.target.checked)}
+                            className="h-4 w-4 accent-lime cursor-pointer"
+                          />
+                          <span className={`text-[9px] font-mono font-bold uppercase ${s.credentialCreated ? "text-lime" : "text-amber-400"}`}>
+                            {s.credentialCreated ? "Credential Created" : "Pending Credential"}
                           </span>
-                          <span className="flex items-center">
+                        </label>
+
+                        <div className="min-w-[200px]">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-[9px] uppercase tracking-wider text-text-dim">
+                              {s.city || "No Location"}
+                            </span>
                             {s.fillStatus === "completed" && (
-                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" title="Completed" />
+                              <Badge tone="success" className="text-[9px] py-0 px-1.5 font-mono">Completed</Badge>
                             )}
                             {s.fillStatus === "in_progress" && (
-                              <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" title="In Progress" />
+                              <Badge tone="warning" className="text-[9px] py-0 px-1.5 font-mono animate-pulse">In Progress</Badge>
                             )}
-                          </span>
+                          </div>
+                          <h4 className="font-bold text-sm text-text-primary uppercase tracking-tight truncate mt-0.5">
+                            {s.name}
+                          </h4>
                         </div>
-                        <h4 className="font-bold text-sm text-text-primary uppercase tracking-tight leading-tight truncate">
-                          {s.name}
-                        </h4>
-                        <div className="flex items-center justify-between mt-0.5">
-                          <span className="text-[10px] text-text-secondary">
-                            {s.fillStatus === "completed"
-                              ? "Form Completed"
-                              : "In Progress"}
-                          </span>
-                          {s.updatedAt && (
-                            <span className="text-[9px] font-mono text-text-dim">
-                              {formatDate(s.updatedAt)}
-                            </span>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-            </Card>
-          </div>
 
-          {/* Right Column: Factory Detail View */}
-          <div className="lg:col-span-2 space-y-6">
+                        <div className="hidden lg:block text-xs text-text-secondary truncate max-w-xs">
+                          {s.address || "No registered address provided"}
+                        </div>
+
+                        {s.updatedAt && (
+                          <div className="text-[10px] font-mono text-text-dim">
+                            Updated: {formatDate(s.updatedAt)}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Right Action Options: Copy JSON & View Details */}
+                      <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => handleCopyFactoryJson(s)}
+                          className="py-1 px-3 text-xs flex items-center gap-1.5 bg-surface-raised border border-border hover:border-lime/50 transition-all cursor-pointer"
+                          title="Copy filled Factory Operations JSON for this company"
+                        >
+                          <Copy size={14} className="text-lime" />
+                          <span>Copy Entire JSON</span>
+                        </Button>
+
+                        <Button
+                          variant={isActive ? "primary" : "outline"}
+                          size="sm"
+                          onClick={() => setSelectedSiteId(s.id)}
+                          className="py-1 px-4 text-xs font-bold uppercase tracking-wider cursor-pointer"
+                        >
+                          {isActive ? "Viewing Form" : "View Details"}
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </Card>
+
+          {/* PART 2 (BOTTOM HORIZONTAL SECTION): Selected Factory Detail Form View */}
+          <div className="space-y-6">
             {!selectedSite ? (
               <Card className="p-12 text-center bg-surface/50 border border-border/60">
                 <Building2 className="mx-auto h-12 w-12 text-text-dim stroke-[1.5] mb-4" />
                 <h3 className="text-lg font-bold text-text-primary">No Factory Selected</h3>
                 <p className="text-text-secondary text-xs mt-1">
-                  Please choose a site from the list on the left to view its operations details.
+                  Please choose a site from the factory directory above to view its operational details.
                 </p>
               </Card>
             ) : (
               <div className="space-y-6 animate-in fade-in duration-300">
                 
-                {/* Header Information Box */}
-                <div className="bg-surface/55 backdrop-blur-md p-6 rounded-xl border border-border shadow-[0_4px_30px_rgba(0,0,0,0.05)] space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/60 pb-4">
+                {/* Sticky Header Information Box */}
+                <div className="sticky top-2 z-20 bg-surface/90 backdrop-blur-xl p-5 rounded-xl border border-border shadow-lg space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/60 pb-3">
                     <div>
-                      <span className="text-[10px] uppercase font-mono tracking-widest text-lime font-bold">
-                        Detailed Form View
-                      </span>
-                      <h2 className="text-2xl font-extrabold font-syne text-text-primary uppercase tracking-tight mt-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] uppercase font-mono tracking-widest text-lime font-bold">
+                          Part 2 &bull; Detailed Form Showcase
+                        </span>
+                        {selectedSite.fillStatus === "completed" && (
+                          <Badge tone="success" className="text-[9px] py-0 px-2 font-mono">Completed</Badge>
+                        )}
+                        {selectedSite.fillStatus === "in_progress" && (
+                          <Badge tone="warning" className="text-[9px] py-0 px-2 font-mono animate-pulse">In Progress</Badge>
+                        )}
+                      </div>
+                      <h2 className="text-xl font-extrabold font-syne text-text-primary uppercase tracking-tight mt-0.5">
                         {selectedSite.name}
                       </h2>
-                      <div className="flex items-center gap-2 mt-1">
-                        <MapPin size={13} className="text-text-secondary" />
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <MapPin size={12} className="text-text-secondary" />
                         <span className="text-xs text-text-secondary">
                           {selectedSite.address ? `${selectedSite.address}, ` : ""}{selectedSite.city}
                         </span>
@@ -501,24 +880,38 @@ export function FactoryDataPanel() {
                     <div className="flex flex-wrap items-center gap-2">
                       <Button
                         variant="secondary"
-                        onClick={handleExportJson}
-                        className="py-1 px-3 text-xs flex items-center gap-1.5"
+                        size="sm"
+                        onClick={copyFullSummary}
+                        className="py-1 px-3 text-xs flex items-center gap-1.5 bg-lime/10 border border-lime/30 text-lime hover:bg-lime/20 cursor-pointer font-bold"
+                        title="Copy entire formatted factory form summary to clipboard"
                       >
-                        <FileJson size={13} /> Export JSON
+                        <Copy size={13} /> Copy Summary
+                      </Button>
+
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => handleCopyFactoryJson()}
+                        className="py-1 px-3 text-xs flex items-center gap-1.5 cursor-pointer"
+                        title="Copy filled Factory Operations JSON"
+                      >
+                        <Copy size={13} /> Copy Entire JSON
                       </Button>
                       
                       {isEditing ? (
                         <>
                           <Button
                             variant="secondary"
+                            size="sm"
                             onClick={() => setIsEditing(false)}
-                            className="py-1 px-3 text-xs flex items-center gap-1"
+                            className="py-1 px-3 text-xs flex items-center gap-1 cursor-pointer"
                           >
                             <XCircle size={13} /> Cancel
                           </Button>
                           <Button
+                            size="sm"
                             onClick={handleSave}
-                            className="py-1 px-3 text-xs bg-lime text-black hover:bg-lime/90 flex items-center gap-1"
+                            className="py-1 px-3 text-xs bg-lime text-black hover:bg-lime/90 flex items-center gap-1 font-bold cursor-pointer"
                           >
                             <Save size={13} /> Save Changes
                           </Button>
@@ -526,17 +919,19 @@ export function FactoryDataPanel() {
                       ) : (
                         <>
                           <Button
+                            size="sm"
                             onClick={() => {
                               setEditData(selectedAssessment?.data || {});
                               setIsEditing(true);
                             }}
-                            className="py-1 px-3 text-xs flex items-center gap-1"
+                            className="py-1 px-3 text-xs flex items-center gap-1 cursor-pointer"
                           >
-                            Edit Data
+                            <Wrench size={13} /> Edit Data
                           </Button>
                           <Button
+                            size="sm"
                             onClick={handleDeleteForm}
-                            className="py-1 px-3 text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20 hover:text-red-300 border border-red-500/20 flex items-center gap-1"
+                            className="py-1 px-3 text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20 hover:text-red-300 border border-red-500/20 flex items-center gap-1 cursor-pointer"
                           >
                             <Trash2 size={13} /> Delete Form
                           </Button>
@@ -604,19 +999,33 @@ export function FactoryDataPanel() {
                         General Info & Verification
                       </h3>
                       <Card className="p-4 bg-surface/40 border border-border/60 space-y-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div>
-                            <Label>Official Company Name</Label>
+                            <Label>Official Company Name <span className="text-red-400">*</span></Label>
                             <Input
                               value={editData.factory_op_name || ""}
                               onChange={(e) => setEditData({ ...editData, factory_op_name: e.target.value })}
+                              placeholder="Enter Company Name"
                             />
                           </div>
                           <div>
-                            <Label>Registered Address</Label>
+                            <Label>Registered Address <span className="text-red-400">*</span></Label>
                             <Input
                               value={editData.factory_op_address || ""}
                               onChange={(e) => setEditData({ ...editData, factory_op_address: e.target.value })}
+                              placeholder="Enter Registered Address"
+                            />
+                          </div>
+                          <div>
+                            <Label>Monitored Machine Name <span className="text-red-400">*</span></Label>
+                            <Input
+                              value={Array.isArray(editData.factory_op_machines) ? (editData.factory_op_machines[0] || "") : (editData.factory_op_machine || "")}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setEditData({ ...editData, factory_op_machine: val, factory_op_machines: [val] });
+                              }}
+                              placeholder="e.g. CNC Lathe Machine 01"
+                              className="font-medium text-lime"
                             />
                           </div>
                         </div>
@@ -716,82 +1125,6 @@ export function FactoryDataPanel() {
                             ))}
                             {(!editData.factory_op_owners || editData.factory_op_owners.length === 0) && (
                               <p className="text-xs text-text-dim italic">No owner records added</p>
-                            )}
-                          </div>
-                        </Card>
-
-                        {/* Operators array editor */}
-                        <Card className="p-4 bg-surface/40 border border-border/60 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <h4 className="text-xs font-mono font-bold uppercase text-text-secondary">Machine Operators</h4>
-                            <Button
-                              variant="secondary"
-                              className="py-0.5 px-2 text-[10px]"
-                              onClick={() => {
-                                const operators = [...(editData.factory_op_operators || [])];
-                                operators.push({ name: "", contact: "", email: "" });
-                                setEditData({ ...editData, factory_op_operators: operators });
-                              }}
-                            >
-                              + Add Operator
-                            </Button>
-                          </div>
-                          
-                          <div className="space-y-3">
-                            {(editData.factory_op_operators || []).map((o: any, idx: number) => (
-                              <div key={idx} className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end border-b border-border/20 pb-3 last:border-0 last:pb-0">
-                                <div>
-                                  <Label className="text-[10px]">Operator Name</Label>
-                                  <Input
-                                    value={o.name || ""}
-                                    onChange={(e) => {
-                                      const operators = [...editData.factory_op_operators];
-                                      operators[idx] = { ...operators[idx], name: e.target.value };
-                                      setEditData({ ...editData, factory_op_operators: operators });
-                                    }}
-                                    className="h-8 text-xs"
-                                  />
-                                </div>
-                                <div>
-                                  <Label className="text-[10px]">Operator Contact</Label>
-                                  <Input
-                                    value={o.contact || ""}
-                                    onChange={(e) => {
-                                      const operators = [...editData.factory_op_operators];
-                                      operators[idx] = { ...operators[idx], contact: e.target.value };
-                                      setEditData({ ...editData, factory_op_operators: operators });
-                                    }}
-                                    className="h-8 text-xs"
-                                  />
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <div className="flex-1">
-                                    <Label className="text-[10px]">Operator Email</Label>
-                                    <Input
-                                      value={o.email || ""}
-                                      onChange={(e) => {
-                                        const operators = [...editData.factory_op_operators];
-                                        operators[idx] = { ...operators[idx], email: e.target.value };
-                                        setEditData({ ...editData, factory_op_operators: operators });
-                                      }}
-                                      className="h-8 text-xs"
-                                    />
-                                  </div>
-                                  <Button
-                                    variant="danger"
-                                    className="h-8 py-1 px-2.5 text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20"
-                                    onClick={() => {
-                                      const operators = (editData.factory_op_operators || []).filter((_: any, i: number) => i !== idx);
-                                      setEditData({ ...editData, factory_op_operators: operators });
-                                    }}
-                                  >
-                                    Delete
-                                  </Button>
-                                </div>
-                              </div>
-                            ))}
-                            {(!editData.factory_op_operators || editData.factory_op_operators.length === 0) && (
-                              <p className="text-xs text-text-dim italic">No operator records added</p>
                             )}
                           </div>
                         </Card>
@@ -896,7 +1229,7 @@ export function FactoryDataPanel() {
                             className="py-0.5 px-2 text-[10px]"
                             onClick={() => {
                               const shifts = [...(editData.factory_op_shifts || [])];
-                              shifts.push({ name: "", type: "General", startTime: "", endTime: "" });
+                              shifts.push({ name: "", startTime: "", endTime: "" });
                               setEditData({ ...editData, factory_op_shifts: shifts });
                             }}
                           >
@@ -906,40 +1239,32 @@ export function FactoryDataPanel() {
                         
                         <div className="space-y-3">
                           {(editData.factory_op_shifts || []).map((s: any, idx: number) => (
-                            <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end border-b border-border/20 pb-3 last:border-0 last:pb-0">
+                            <div key={idx} className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end border-b border-border/20 pb-3 last:border-0 last:pb-0">
                               <div>
-                                <Label className="text-[10px]">Shift Name</Label>
+                                <Label className="text-[10px]">Shift Name <span className="text-red-400">*</span></Label>
                                 <Input
                                   value={s.name || ""}
                                   onChange={(e) => handleShiftChange(idx, "name", e.target.value)}
-                                  className="h-8 text-xs"
+                                  className="h-8 text-xs bg-surface"
                                 />
                               </div>
                               <div>
-                                <Label className="text-[10px]">Shift Type</Label>
-                                <Input
-                                  value={s.type || ""}
-                                  onChange={(e) => handleShiftChange(idx, "type", e.target.value)}
-                                  className="h-8 text-xs"
-                                />
-                              </div>
-                              <div>
-                                <Label className="text-[10px]">Start Time</Label>
+                                <Label className="text-[10px]">Start Time <span className="text-red-400">*</span></Label>
                                 <Input
                                   type="time"
                                   value={s.startTime || ""}
                                   onChange={(e) => handleShiftChange(idx, "startTime", e.target.value)}
-                                  className="h-8 text-xs"
+                                  className="h-8 text-xs bg-surface"
                                 />
                               </div>
                               <div className="flex items-center gap-2">
                                 <div className="flex-1">
-                                  <Label className="text-[10px]">End Time</Label>
+                                  <Label className="text-[10px]">End Time <span className="text-red-400">*</span></Label>
                                   <Input
                                     type="time"
                                     value={s.endTime || ""}
                                     onChange={(e) => handleShiftChange(idx, "endTime", e.target.value)}
-                                    className="h-8 text-xs"
+                                    className="h-8 text-xs bg-surface"
                                   />
                                 </div>
                                 <Button
@@ -1164,129 +1489,357 @@ export function FactoryDataPanel() {
                     </div>
                   </div>
                 ) : (
-                  /* Read Only Mode View */
+                  /* Read Only Mode View - Exact Input Form Section Sequence & Titles */
                   <div className="space-y-6">
                     
-                    {/* SECTION 1: Factory Info & Contacts */}
+                    {/* SECTION 1: Factory Operations General Info & Address */}
                     <div className="space-y-3">
-                      <h3 className="font-syne font-extrabold text-base uppercase tracking-wider text-text-primary flex items-center gap-2">
-                        <span className="flex h-5 w-5 items-center justify-center rounded bg-lime/10 text-lime text-xs font-mono font-bold">1</span>
-                        OPERATIONS GENERAL INFO &amp; CONTACTS
-                      </h3>
+                      <div className="flex items-center justify-between">
+                        <h3 className="font-syne font-extrabold text-base uppercase tracking-wider text-text-primary flex items-center gap-2">
+                          <span className="flex h-5 w-5 items-center justify-center rounded bg-lime/10 text-lime text-xs font-mono font-bold">1</span>
+                          1. FACTORY OPERATIONS GENERAL INFO &amp; ADDRESS
+                        </h3>
+                        <Badge tone="ghost" className="text-[9px] font-mono">Input Order #1</Badge>
+                      </div>
                       
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {/* Name & Address */}
-                        <Card className="p-4 bg-surface/40 border border-border/60 space-y-3">
+                      <Card className="p-4 bg-surface/50 border border-border/70 space-y-3.5 shadow-sm">
+                        <div className="flex items-start justify-between gap-2">
                           <div>
-                            <div className="text-[10px] font-mono uppercase text-text-secondary">Official Company Name</div>
-                            <p className="text-sm font-bold text-text-primary mt-0.5">
+                            <div className="text-[10px] font-mono uppercase tracking-wider text-text-secondary font-bold">Official Company Name</div>
+                            <p className="text-sm font-extrabold text-text-primary mt-0.5">
                               {selectedAssessment.data.factory_op_name || selectedSite.company_name || selectedSite.name}
                             </p>
                           </div>
+                          <button
+                            onClick={() => copyToClipboard(selectedAssessment.data.factory_op_name || selectedSite.company_name || selectedSite.name, "Company Name")}
+                            className="text-text-dim hover:text-lime transition-colors p-1 rounded hover:bg-surface-raised cursor-pointer shrink-0"
+                            title="Copy Official Company Name"
+                          >
+                            <Copy size={13} />
+                          </button>
+                        </div>
+
+                        <div className="flex items-start justify-between gap-2 border-t border-border/40 pt-2.5">
                           <div>
-                            <div className="text-[10px] font-mono uppercase text-text-secondary">Registered Address</div>
+                            <div className="text-[10px] font-mono uppercase tracking-wider text-text-secondary font-bold">Registered Address</div>
                             <p className="text-xs text-text-secondary mt-0.5">
-                              {selectedAssessment.data.factory_op_address || selectedSite.address || "No address submitted"}
+                              {selectedAssessment.data.factory_op_address || selectedSite.address || "No registered address provided"}
                             </p>
                           </div>
-                        </Card>
+                          <button
+                            onClick={() => copyToClipboard(selectedAssessment.data.factory_op_address || selectedSite.address || "", "Registered Address")}
+                            className="text-text-dim hover:text-lime transition-colors p-1 rounded hover:bg-surface-raised cursor-pointer shrink-0"
+                            title="Copy Registered Address"
+                          >
+                            <Copy size={13} />
+                          </button>
+                        </div>
 
-                        {/* Additional Contacts Table/List */}
-                        <Card className="p-4 bg-surface/40 border border-border/60 space-y-3">
-                          <div className="text-[10px] font-mono uppercase text-text-secondary flex justify-between">
-                            <span>Field Survey Contacts</span>
-                            <span className="font-bold text-lime">{selectedContacts.length} Added</span>
+                        <div className="flex items-start justify-between gap-2 border-t border-border/40 pt-2.5">
+                          <div>
+                            <div className="text-[10px] font-mono uppercase tracking-wider text-text-secondary font-bold">Monitored Machine Name</div>
+                            <p className="text-xs font-bold text-lime mt-0.5">
+                              {Array.isArray(selectedAssessment.data.factory_op_machines) ? selectedAssessment.data.factory_op_machines[0] : (selectedAssessment.data.factory_op_machine || "No machine specified")}
+                            </p>
                           </div>
-                          {selectedContacts.length === 0 ? (
-                            <p className="text-xs text-text-dim italic">No contacts added during survey</p>
-                          ) : (
-                            <div className="space-y-2.5 max-h-[140px] overflow-y-auto pr-1">
-                              {selectedContacts.map((c) => (
-                                <div key={c.id} className="border-b border-border/40 pb-2 last:border-0 last:pb-0 flex items-start justify-between gap-2 text-xs">
-                                  <div>
-                                    <p className="font-semibold text-text-primary">{c.name}</p>
-                                    {c.designation && <p className="text-[10px] text-text-secondary">{c.designation}</p>}
-                                  </div>
-                                  <div className="text-right font-mono text-[10px]">
-                                    <a href={`tel:${c.mobile}`} className="text-lime hover:underline block">{c.mobile}</a>
-                                    {c.email && <span className="text-text-dim text-[9px]">{c.email}</span>}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </Card>
+                          <button
+                            onClick={() => copyToClipboard(Array.isArray(selectedAssessment.data.factory_op_machines) ? selectedAssessment.data.factory_op_machines[0] : (selectedAssessment.data.factory_op_machine || ""), "Monitored Machine Name")}
+                            className="text-text-dim hover:text-lime transition-colors p-1 rounded hover:bg-surface-raised cursor-pointer shrink-0"
+                            title="Copy Machine Name"
+                          >
+                            <Copy size={13} />
+                          </button>
+                        </div>
+                      </Card>
+                    </div>
+
+                    {/* SECTION 2: Executive Leadership & Owners Detail */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h3 className="font-syne font-extrabold text-base uppercase tracking-wider text-text-primary flex items-center gap-2">
+                          <span className="flex h-5 w-5 items-center justify-center rounded bg-lime/10 text-lime text-xs font-mono font-bold">2</span>
+                          2. EXECUTIVE LEADERSHIP &amp; OWNERS DETAIL
+                        </h3>
+                        <span className="text-[9px] text-text-dim font-mono">{(selectedAssessment.data.factory_op_owners ?? []).length} Owner(s)</span>
                       </div>
 
-                      {/* Owners / Operators / Technicians Deck */}
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        {/* Owners */}
-                        <div className="bg-surface/30 border border-border/60 p-4 rounded-lg space-y-3">
-                          <div className="text-[10px] font-mono uppercase text-text-secondary font-bold flex items-center gap-1.5">
-                            <Users size={12} className="text-lime" /> Factory Owners
-                          </div>
-                          <div className="space-y-2 max-h-[150px] overflow-y-auto">
-                            {(selectedAssessment.data.factory_op_owners ?? []).map((o: any, idx: number) => (
-                              <div key={idx} className="text-xs border-b border-border/30 pb-2 last:border-0 last:pb-0">
-                                <p className="font-semibold text-text-primary">{o.name || "Unnamed Owner"}</p>
-                                {o.contact && <a href={`tel:${o.contact}`} className="text-lime text-[10px] font-mono">{o.contact}</a>}
-                                {o.email && <p className="text-[10px] text-text-dim font-mono truncate">{o.email}</p>}
+                      <div className="bg-surface/50 border border-border/70 p-4 rounded-xl space-y-3 shadow-sm">
+                        <div className="space-y-2.5 max-h-[220px] overflow-y-auto pr-1">
+                          {(selectedAssessment.data.factory_op_owners ?? []).map((o: any, idx: number) => (
+                            <div key={idx} className="text-xs border-b border-border/30 pb-2.5 last:border-0 last:pb-0 flex items-center justify-between gap-2">
+                              <div>
+                                <p className="font-bold text-text-primary text-xs">{o.name || "Unnamed Owner"}</p>
+                                <div className="flex flex-wrap items-center gap-3 mt-1 text-[11px]">
+                                  {o.contact && (
+                                    <a href={`tel:${o.contact}`} className="text-lime font-mono hover:underline flex items-center gap-1">
+                                      <Phone size={11} /> {o.contact}
+                                    </a>
+                                  )}
+                                  {o.email && (
+                                    <span className="text-text-secondary font-mono flex items-center gap-1">
+                                      <Mail size={11} /> {o.email}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
-                            ))}
-                            {(!selectedAssessment.data.factory_op_owners || selectedAssessment.data.factory_op_owners.length === 0) && (
-                              <p className="text-xs text-text-dim italic">No owner records</p>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Operators */}
-                        <div className="bg-surface/30 border border-border/60 p-4 rounded-lg space-y-3">
-                          <div className="text-[10px] font-mono uppercase text-text-secondary font-bold flex items-center gap-1.5">
-                            <Users size={12} className="text-lime" /> Machine Operators
-                          </div>
-                          <div className="space-y-2 max-h-[150px] overflow-y-auto">
-                            {(selectedAssessment.data.factory_op_operators ?? []).map((o: any, idx: number) => (
-                              <div key={idx} className="text-xs border-b border-border/30 pb-2 last:border-0 last:pb-0">
-                                <p className="font-semibold text-text-primary">{o.name || "Unnamed Operator"}</p>
-                                {o.contact && <a href={`tel:${o.contact}`} className="text-lime text-[10px] font-mono">{o.contact}</a>}
-                                {o.email && <p className="text-[10px] text-text-dim font-mono truncate">{o.email}</p>}
-                              </div>
-                            ))}
-                            {(!selectedAssessment.data.factory_op_operators || selectedAssessment.data.factory_op_operators.length === 0) && (
-                              <p className="text-xs text-text-dim italic">No operator records</p>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Technicians */}
-                        <div className="bg-surface/30 border border-border/60 p-4 rounded-lg space-y-3">
-                          <div className="text-[10px] font-mono uppercase text-text-secondary font-bold flex items-center gap-1.5">
-                            <Users size={12} className="text-lime" /> Technicians / Engineers
-                          </div>
-                          <div className="space-y-2 max-h-[150px] overflow-y-auto">
-                            {(selectedAssessment.data.factory_op_technicians ?? []).map((t: any, idx: number) => (
-                              <div key={idx} className="text-xs border-b border-border/30 pb-2 last:border-0 last:pb-0">
-                                <p className="font-semibold text-text-primary">{t.name || "Unnamed Tech"}</p>
-                                {t.contact && <a href={`tel:${t.contact}`} className="text-lime text-[10px] font-mono">{t.contact}</a>}
-                                {t.email && <p className="text-[10px] text-text-dim font-mono truncate">{t.email}</p>}
-                              </div>
-                            ))}
-                            {(!selectedAssessment.data.factory_op_technicians || selectedAssessment.data.factory_op_technicians.length === 0) && (
-                              <p className="text-xs text-text-dim italic">No technician records</p>
-                            )}
-                          </div>
+                              <button
+                                onClick={() => copyToClipboard(`${o.name} | ${o.contact || "No Phone"} | ${o.email || "No Email"}`, "Owner Details")}
+                                className="text-text-dim hover:text-lime p-1 rounded cursor-pointer shrink-0"
+                                title="Copy Owner Details"
+                              >
+                                <Copy size={13} />
+                              </button>
+                            </div>
+                          ))}
+                          {(!selectedAssessment.data.factory_op_owners || selectedAssessment.data.factory_op_owners.length === 0) && (
+                            <p className="text-xs text-text-dim italic">No owner details recorded</p>
+                          )}
                         </div>
                       </div>
                     </div>
 
-                    {/* SECTION 2: Machinery & Equipment */}
+                    {/* SECTION 3: Technical & Engineering Team Details */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h3 className="font-syne font-extrabold text-base uppercase tracking-wider text-text-primary flex items-center gap-2">
+                          <span className="flex h-5 w-5 items-center justify-center rounded bg-lime/10 text-lime text-xs font-mono font-bold">3</span>
+                          3. TECHNICAL &amp; ENGINEERING TEAM DETAILS
+                        </h3>
+                        <span className="text-[9px] text-text-dim font-mono">{(selectedAssessment.data.factory_op_technicians ?? []).length} Technician(s)</span>
+                      </div>
+
+                      <div className="bg-surface/50 border border-border/70 p-4 rounded-xl space-y-3 shadow-sm">
+                        <div className="space-y-2.5 max-h-[220px] overflow-y-auto pr-1">
+                          {(selectedAssessment.data.factory_op_technicians ?? []).map((t: any, idx: number) => (
+                            <div key={idx} className="text-xs border-b border-border/30 pb-2.5 last:border-0 last:pb-0 flex items-center justify-between gap-2">
+                              <div>
+                                <p className="font-bold text-text-primary text-xs">{t.name || "Unnamed Tech"}</p>
+                                <div className="flex flex-wrap items-center gap-3 mt-1 text-[11px]">
+                                  {t.contact && (
+                                    <a href={`tel:${t.contact}`} className="text-lime font-mono hover:underline flex items-center gap-1">
+                                      <Phone size={11} /> {t.contact}
+                                    </a>
+                                  )}
+                                  {t.email && (
+                                    <span className="text-text-secondary font-mono flex items-center gap-1">
+                                      <Mail size={11} /> {t.email}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => copyToClipboard(`${t.name} | ${t.contact || "No Phone"} | ${t.email || "No Email"}`, "Technician Details")}
+                                className="text-text-dim hover:text-lime p-1 rounded cursor-pointer shrink-0"
+                                title="Copy Technician Details"
+                              >
+                                <Copy size={13} />
+                              </button>
+                            </div>
+                          ))}
+                          {(!selectedAssessment.data.factory_op_technicians || selectedAssessment.data.factory_op_technicians.length === 0) && (
+                            <p className="text-xs text-text-dim italic">No technician details recorded</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* SECTION 4: Operational Shift Schedule & Timings */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h3 className="font-syne font-extrabold text-base uppercase tracking-wider text-text-primary flex items-center gap-2">
+                          <span className="flex h-5 w-5 items-center justify-center rounded bg-lime/10 text-lime text-xs font-mono font-bold">4</span>
+                          4. OPERATIONAL SHIFT SCHEDULE &amp; TIMINGS
+                        </h3>
+                        {hasOverlap && (
+                          <span className="flex items-center gap-1 font-mono text-[10px] font-bold text-red-400 bg-red-500/10 border border-red-500/20 px-2 py-0.5 rounded">
+                            <AlertTriangle size={11} /> OVERLAP DETECTED
+                          </span>
+                        )}
+                      </div>
+
+                      {(!selectedAssessment.data.factory_op_shifts || selectedAssessment.data.factory_op_shifts.length === 0) ? (
+                        <p className="text-xs text-text-dim italic">No shift information submitted</p>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {selectedAssessment.data.factory_op_shifts.map((s: any, idx: number) => (
+                            <Card key={idx} className={`p-4 bg-surface/50 border flex items-center gap-3.5 justify-between shadow-sm ${
+                              hasOverlap ? "border-red-500/30" : "border-border/70"
+                            }`}>
+                              <div className="flex items-center gap-3">
+                                <Clock className="text-lime h-5 w-5 shrink-0" />
+                                <div>
+                                  <h4 className="font-bold text-xs uppercase tracking-tight text-text-primary">
+                                    {s.name || `Shift ${idx + 1}`}
+                                  </h4>
+                                  <p className="text-[10px] text-text-secondary mt-0.5">
+                                    Shift Timing: <strong className="text-lime font-mono">{s.startTime || "—"} ➔ {s.endTime || "—"}</strong>
+                                  </p>
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => copyToClipboard(`${s.name || `Shift ${idx + 1}`}: ${s.startTime || "—"} to ${s.endTime || "—"}`, "Shift Timings")}
+                                className="text-text-dim hover:text-lime p-1.5 rounded hover:bg-surface-raised cursor-pointer shrink-0"
+                                title="Copy Shift Timing"
+                              >
+                                <Copy size={13} />
+                              </button>
+                            </Card>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* SECTION 5: Electricity Board & Power Configuration */}
                     <div className="space-y-3">
                       <h3 className="font-syne font-extrabold text-base uppercase tracking-wider text-text-primary flex items-center gap-2">
-                        <span className="flex h-5 w-5 items-center justify-center rounded bg-lime/10 text-lime text-xs font-mono font-bold">2</span>
-                        MACHINES &amp; EQUIPMENT SURVEY
+                        <span className="flex h-5 w-5 items-center justify-center rounded bg-lime/10 text-lime text-xs font-mono font-bold">5</span>
+                        5. ELECTRICITY BOARD &amp; POWER CONFIGURATION
+                      </h3>
+                      
+                      <Card className="p-4 bg-surface/50 border border-border/70 space-y-3 text-xs shadow-sm">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <span className="text-[10px] font-mono uppercase text-text-secondary font-bold">Electricity Board Provider</span>
+                            <p className="text-sm font-extrabold text-text-primary mt-0.5">
+                              {selectedAssessment.data.factory_op_electricity_board || "Not selected / None specified"}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => copyToClipboard(selectedAssessment.data.factory_op_electricity_board || "", "Electricity Board")}
+                            className="text-text-dim hover:text-lime p-1 rounded cursor-pointer"
+                            title="Copy Electricity Board Provider"
+                          >
+                            <Copy size={13} />
+                          </button>
+                        </div>
+                      </Card>
+                    </div>
+
+                    {/* SECTION 6: Downtime Reasons & Threshold Matrix */}
+                    <div className="space-y-3">
+                      <h3 className="font-syne font-extrabold text-base uppercase tracking-wider text-text-primary flex items-center gap-2">
+                        <span className="flex h-5 w-5 items-center justify-center rounded bg-lime/10 text-lime text-xs font-mono font-bold">6</span>
+                        6. DOWNTIME REASONS &amp; THRESHOLD MATRIX
                       </h3>
 
-                      {/* Main Survey Machines Grid */}
+                      <Card className="p-4 bg-surface/50 border border-border/70 space-y-3.5 shadow-sm">
+                        <div className="text-[10px] font-mono uppercase text-text-secondary font-bold flex justify-between items-center">
+                          <span>Active Downtime Reasons (Selected by Field Associate/Client)</span>
+                          {selectedAssessment.data.factory_op_downtime_reasons && (
+                            <button
+                              onClick={() => copyToClipboard((selectedAssessment.data.factory_op_downtime_reasons || []).join(", "), "Downtime Reasons")}
+                              className="text-text-dim hover:text-lime text-[10px] flex items-center gap-1 cursor-pointer"
+                            >
+                              <Copy size={11} /> Copy All Reasons
+                            </button>
+                          )}
+                        </div>
+                        {(!selectedAssessment.data.factory_op_downtime_reasons || selectedAssessment.data.factory_op_downtime_reasons.length === 0) ? (
+                          <p className="text-xs text-text-dim italic">No downtime pain points selected</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5">
+                            {selectedAssessment.data.factory_op_downtime_reasons.map((reason: string) => (
+                              <span
+                                key={reason}
+                                className="px-2.5 py-1 text-xs rounded-lg border border-lime/25 bg-lime/10 text-text-primary flex items-center gap-1.5 font-medium"
+                              >
+                                <span className="h-1.5 w-1.5 rounded-full bg-lime" />
+                                {reason}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        <div className="border-t border-border/40 pt-3 flex items-start justify-between gap-2">
+                          <div>
+                            <span className="text-[10px] font-mono uppercase text-text-secondary font-bold">Ideal Downtime Threshold Time (Minutes)</span>
+                            <p className="text-sm font-extrabold text-lime mt-0.5">
+                              {selectedAssessment.data.factory_op_downtime_threshold !== undefined && selectedAssessment.data.factory_op_downtime_threshold !== null
+                                ? `${selectedAssessment.data.factory_op_downtime_threshold} Minutes` 
+                                : "Not specified"}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => copyToClipboard(String(selectedAssessment.data.factory_op_downtime_threshold ?? ""), "Threshold Time")}
+                            className="text-text-dim hover:text-lime p-1 rounded cursor-pointer"
+                            title="Copy Threshold Time"
+                          >
+                            <Copy size={13} />
+                          </button>
+                        </div>
+                      </Card>
+                    </div>
+
+                    {/* SECTION 7: Survey Notes & Minutes of Meeting (MOM) */}
+                    {selectedAssessment.data.mom_notes && (
+                      <div className="space-y-3">
+                        <h3 className="font-syne font-extrabold text-base uppercase tracking-wider text-text-primary flex items-center gap-2">
+                          <span className="flex h-5 w-5 items-center justify-center rounded bg-lime/10 text-lime text-xs font-mono font-bold">7</span>
+                          7. SURVEY NOTES &amp; MINUTES OF MEETING (MOM)
+                        </h3>
+                        <Card className="p-5 bg-surface/50 border border-border/70 flex items-start justify-between gap-3 shadow-sm">
+                          <div className="flex items-start gap-3">
+                            <FileText className="text-lime shrink-0 h-5 w-5 mt-0.5" />
+                            <div className="space-y-1">
+                              <span className="text-[10px] font-mono uppercase text-text-secondary font-bold">Survey Minutes Notes</span>
+                              <p className="text-sm text-text-primary leading-relaxed whitespace-pre-line">
+                                {selectedAssessment.data.mom_notes}
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => copyToClipboard(selectedAssessment.data.mom_notes, "Survey Notes")}
+                            className="text-text-dim hover:text-lime p-1 rounded hover:bg-surface-raised cursor-pointer shrink-0"
+                            title="Copy Survey Notes"
+                          >
+                            <Copy size={13} />
+                          </button>
+                        </Card>
+                      </div>
+                    )}
+
+                    {/* SECTION 8: Additional Field Survey Contacts */}
+                    {selectedContacts.length > 0 && (
+                      <div className="space-y-3">
+                        <h3 className="font-syne font-extrabold text-base uppercase tracking-wider text-text-primary flex items-center gap-2">
+                          <span className="flex h-5 w-5 items-center justify-center rounded bg-lime/10 text-lime text-xs font-mono font-bold">8</span>
+                          8. ADDITIONAL FIELD SURVEY CONTACTS
+                        </h3>
+                        <Card className="p-4 bg-surface/50 border border-border/70 space-y-3 shadow-sm">
+                          <div className="space-y-2.5 max-h-[180px] overflow-y-auto pr-1">
+                            {selectedContacts.map((c) => (
+                              <div key={c.id} className="border-b border-border/40 pb-2.5 last:border-0 last:pb-0 flex items-start justify-between gap-2 text-xs">
+                                <div>
+                                  <p className="font-bold text-text-primary">{c.name}</p>
+                                  {c.designation && <p className="text-[10px] text-text-secondary">{c.designation}</p>}
+                                </div>
+                                <div className="text-right font-mono text-[10px] flex items-center gap-1.5">
+                                  <div>
+                                    <a href={`tel:${c.mobile}`} className="text-lime hover:underline font-bold block">{c.mobile}</a>
+                                    {c.email && <span className="text-text-dim text-[9px]">{c.email}</span>}
+                                  </div>
+                                  <button
+                                    onClick={() => copyToClipboard(`${c.name} - ${c.mobile} ${c.email || ""}`, "Contact")}
+                                    className="text-text-dim hover:text-lime p-1 rounded cursor-pointer"
+                                    title="Copy Contact Details"
+                                  >
+                                    <Copy size={12} />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </Card>
+                      </div>
+                    )}
+
+                    {/* SECTION 9: Machinery & Equipment Survey */}
+                    <div className="space-y-3">
+                      <h3 className="font-syne font-extrabold text-base uppercase tracking-wider text-text-primary flex items-center gap-2">
+                        <span className="flex h-5 w-5 items-center justify-center rounded bg-lime/10 text-lime text-xs font-mono font-bold">9</span>
+                        9. MACHINERY &amp; EQUIPMENT SURVEY
+                      </h3>
+
                       {selectedMachines.length === 0 ? (
                         <Card className="p-6 text-center bg-surface/30 border border-border/60">
                           <Wrench className="mx-auto h-8 w-8 text-text-dim stroke-[1.5] mb-2" />
@@ -1301,7 +1854,7 @@ export function FactoryDataPanel() {
                             else if (m.condition === "Poor") condColor = "bg-red-500/10 text-red-400 border-red-500/20";
 
                             return (
-                              <Card key={m.id} className="p-4 bg-surface/40 border border-border/60 flex flex-col justify-between gap-3">
+                              <Card key={m.id} className="p-4 bg-surface/40 border border-border/60 flex flex-col justify-between gap-3 shadow-sm">
                                 <div>
                                   <div className="flex items-center justify-between w-full">
                                     <span className="font-mono text-[9px] text-text-secondary uppercase">
@@ -1340,159 +1893,9 @@ export function FactoryDataPanel() {
                           })}
                         </div>
                       )}
-
-                      {/* General list of surveyed machines (Quick notes list) */}
-                      {selectedAssessment.data.factory_op_machines && selectedAssessment.data.factory_op_machines.length > 0 && (
-                        <div className="bg-surface/30 border border-border/60 p-4 rounded-lg">
-                          <span className="text-[10px] font-mono uppercase text-text-secondary block mb-2">
-                            Quick Machines Checklist
-                          </span>
-                          <div className="flex flex-wrap gap-2">
-                            {selectedAssessment.data.factory_op_machines.map((mName: string, i: number) => {
-                              if (!mName) return null;
-                              return (
-                                <Badge key={i} tone="ghost" className="px-2.5 py-1 text-xs">
-                                  {mName}
-                                </Badge>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
                     </div>
 
-                    {/* SECTION 3: Operations & Shifts */}
-                    <div className="space-y-3">
-                      <h3 className="font-syne font-extrabold text-base uppercase tracking-wider text-text-primary flex items-center gap-2">
-                        <span className="flex h-5 w-5 items-center justify-center rounded bg-lime/10 text-lime text-xs font-mono font-bold">3</span>
-                        SHIFT OPERATIONS &amp; DOWNTIME ANALYSIS
-                      </h3>
-
-                      {/* Shift List Cards */}
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-mono uppercase text-text-secondary">Operational Shifts</span>
-                          {hasOverlap && (
-                            <span className="flex items-center gap-1 font-mono text-[10px] font-bold text-red-400 bg-red-500/10 border border-red-500/20 px-2 py-0.5 rounded">
-                              <AlertTriangle size={11} /> OVERLAP DETECTED
-                            </span>
-                          )}
-                        </div>
-
-                        {(!selectedAssessment.data.factory_op_shifts || selectedAssessment.data.factory_op_shifts.length === 0) ? (
-                          <p className="text-xs text-text-dim italic">No shift information submitted</p>
-                        ) : (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {selectedAssessment.data.factory_op_shifts.map((s: any, idx: number) => (
-                              <Card key={idx} className={`p-4 bg-surface/40 border flex items-center gap-3.5 justify-between ${
-                                hasOverlap ? "border-red-500/20" : "border-border/60"
-                              }`}>
-                                <div className="flex items-center gap-3">
-                                  <Clock className="text-lime h-5 w-5 shrink-0" />
-                                  <div>
-                                    <h4 className="font-bold text-xs uppercase tracking-tight text-text-primary">
-                                      {s.name || `Shift ${idx + 1}`}
-                                    </h4>
-                                    <p className="text-[10px] text-text-secondary mt-0.5">
-                                      Type: <strong className="text-lime">{s.type || "General"}</strong>
-                                    </p>
-                                  </div>
-                                </div>
-                                <div className="text-right font-mono text-xs font-bold text-text-primary">
-                                  {s.startTime || "—"} ➔ {s.endTime || "—"}
-                                </div>
-                              </Card>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Downtime Reasons tag cloud */}
-                      <Card className="p-4 bg-surface/40 border border-border/60 space-y-3">
-                        <div className="text-[10px] font-mono uppercase text-text-secondary">
-                          Downtime / Operational Pain Points
-                        </div>
-                        {(!selectedAssessment.data.factory_op_downtime_reasons || selectedAssessment.data.factory_op_downtime_reasons.length === 0) ? (
-                          <p className="text-xs text-text-dim italic">No downtime pain points selected</p>
-                        ) : (
-                          <div className="flex flex-wrap gap-1.5">
-                            {selectedAssessment.data.factory_op_downtime_reasons.map((reason: string) => (
-                              <span
-                                key={reason}
-                                className="px-2.5 py-1 text-xs rounded border border-lime/20 bg-lime/5 text-text-primary flex items-center gap-1.5"
-                              >
-                                <span className="h-1.5 w-1.5 rounded-full bg-lime" />
-                                {reason}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </Card>
-                    </div>
-
-                    {/* SECTION 4: MOM Quick Notes */}
-                    {selectedAssessment.data.mom_notes && (
-                      <div className="space-y-3">
-                        <h3 className="font-syne font-extrabold text-base uppercase tracking-wider text-text-primary flex items-center gap-2">
-                          <span className="flex h-5 w-5 items-center justify-center rounded bg-lime/10 text-lime text-xs font-mono font-bold">4</span>
-                          SURVEY NOTES &amp; MEMORANDUM
-                        </h3>
-                        <Card className="p-5 bg-surface/40 border border-border/60 flex items-start gap-3">
-                          <FileText className="text-lime shrink-0 h-5 w-5 mt-0.5" />
-                          <div className="space-y-1">
-                            <span className="text-[10px] font-mono uppercase text-text-secondary">Survey Minutes Notes</span>
-                            <p className="text-sm text-text-primary leading-relaxed whitespace-pre-line">
-                              {selectedAssessment.data.mom_notes}
-                            </p>
-                          </div>
-                        </Card>
-                      </div>
-                    )}
-
-                    {/* SECTION 5: BUSINESS PROFILE & TRACKING CONFIG */}
-                    <div className="space-y-3">
-                      <h3 className="font-syne font-extrabold text-base uppercase tracking-wider text-text-primary flex items-center gap-2">
-                        <span className="flex h-5 w-5 items-center justify-center rounded bg-lime/10 text-lime text-xs font-mono font-bold">5</span>
-                        BUSINESS PROFILE &amp; TRACKING CONFIG
-                      </h3>
-                      
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {/* Core Details */}
-                        <Card className="p-4 bg-surface/40 border border-border/60 space-y-3 text-xs">
-                          <div>
-                            <span className="text-[10px] font-mono uppercase text-text-secondary">Electricity Board</span>
-                            <p className="text-sm font-bold text-text-primary mt-0.5">
-                              {selectedAssessment.data.factory_op_electricity_board || "Not selected"}
-                            </p>
-                          </div>
-                          <div>
-                            <span className="text-[10px] font-mono uppercase text-text-secondary">Ideal Threshold Time (Minutes)</span>
-                            <p className="text-sm font-bold text-text-primary mt-0.5">
-                              {selectedAssessment.data.factory_op_downtime_threshold !== undefined && selectedAssessment.data.factory_op_downtime_threshold !== null
-                                ? `${selectedAssessment.data.factory_op_downtime_threshold} Minutes` 
-                                : "Not specified"}
-                            </p>
-                          </div>
-                        </Card>
-
-                        {/* Machine classification & Tracking Mode */}
-                        <Card className="p-4 bg-surface/40 border border-border/60 space-y-3 text-xs">
-                          <div>
-                            <span className="text-[10px] font-mono uppercase text-text-secondary">Tracking / Machine Type</span>
-                            <p className="text-sm font-bold text-text-primary mt-0.5">
-                              {selectedAssessment.data.company_type || "Not configured"}
-                            </p>
-                          </div>
-                          <div>
-                            <span className="text-[10px] font-mono uppercase text-text-secondary">Machine Classification</span>
-                            <p className="text-sm font-bold text-text-primary mt-0.5">
-                              {selectedAssessment.data.machine_usage_type || "Production"}
-                            </p>
-                          </div>
-                        </Card>
-                      </div>
-
-                      {/* Detail Metrics depending on Type */}
+                    {/* Detail Metrics depending on Type */}
                       {selectedAssessment.data.company_type && (
                         <Card className="p-4 bg-surface/40 border border-border/60 text-xs">
                           <span className="text-[10px] font-mono uppercase text-text-secondary block mb-3">
@@ -1555,13 +1958,11 @@ export function FactoryDataPanel() {
                         </Card>
                       )}
                     </div>
-                  </div>
-                )}
-              </div>
-            )}
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-
-        </div>
       )}
     </div>
   );

@@ -190,27 +190,31 @@ export const Route = createFileRoute("/auth")({
 function AuthPage() {
   const navigate = useNavigate();
   const { ready, userId, role, refresh } = useAuth();
+  const [mounted, setMounted] = useState(false);
   const [tab, setTab] = useState<"login" | "signup">("login");
   const [isRecovery, setIsRecovery] = useState(false);
   const [token, setToken] = useState<string | null>(null);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      const hashParams = new URLSearchParams(window.location.hash.substring(1));
-      const hasRecovery = params.get("type") === "recovery" || hashParams.get("type") === "recovery" || window.location.href.includes("type=recovery");
-      setIsRecovery(!!hasRecovery);
+    const params = new URLSearchParams(window.location.search);
+    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+    const hasRecovery =
+      params.get("type") === "recovery" ||
+      hashParams.get("type") === "recovery" ||
+      window.location.href.includes("type=recovery");
 
-      const resetToken = params.get("token") || hashParams.get("token");
-      setToken(resetToken);
-    }
+    setIsRecovery(hasRecovery);
+    setToken(params.get("token") || hashParams.get("token"));
+    setMounted(true);
   }, []);
 
   useEffect(() => {
-    if (ready && userId && role && !isRecovery) {
+    if (mounted && ready && userId && role && !isRecovery) {
       navigate({ to: role === "supervisor" ? "/manager" : "/business-consultant" });
     }
-  }, [ready, userId, role, navigate, isRecovery]);
+  }, [mounted, ready, userId, role, navigate, isRecovery]);
+
+  if (!mounted) return null;
 
   return (
     <div className="min-h-screen bg-background">
