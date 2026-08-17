@@ -220,10 +220,7 @@ export function Overview() {
 
     setSendingEmail(true);
     try {
-      let token = parseSiteMetadata(site.task_notes).client_token;
-      if (!token) {
-        token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-      }
+      const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
       const { error } = await supabase.rpc("save_client_invitation", {
         site_id: site.id,
         client_email: clientShareEmail.trim(),

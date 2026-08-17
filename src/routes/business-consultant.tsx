@@ -58,10 +58,7 @@ function BusinessConsultantPage() {
 
     setSendingEmail(true);
     try {
-      let token = parseSiteMetadata(site.task_notes).client_token;
-      if (!token) {
-        token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-      }
+      const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
       const { error } = await supabase.rpc("save_client_invitation", {
         site_id: site.id,
         client_email: clientShareEmail.trim(),
@@ -166,6 +163,7 @@ function BusinessConsultantPage() {
   const fetchSites = async () => {
     if (!userId) return;
     const { data, error } = await supabase
+      .from("sites")
       .select("id,name,company_name,city,address,assigned_at,appt_date,appt_time,task_notes,consultant_stage")
       .or(`assigned_worker_id.eq.${userId},task_notes.ilike.%"${userId}"%`)
       .order("assigned_at", { ascending: false });
