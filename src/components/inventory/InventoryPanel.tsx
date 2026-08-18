@@ -733,6 +733,7 @@ function OrderCard({
   const [otaAccount, setOtaAccount] = useState(material.ota_account || "");
   const [uplink, setUplink] = useState(material.uplink || "");
   const [iccid, setIccid] = useState(material.iccid || "");
+  const [deviceName, setDeviceName] = useState(material.device_id || "");
 
   // Form State - Step 2
   const [state, setState] = useState(initialNotes.logistics_status || "Pending");
@@ -762,6 +763,7 @@ function OrderCard({
     setOtaAccount(material.ota_account || "");
     setUplink(material.uplink || "");
     setIccid(material.iccid || "");
+    setDeviceName(material.device_id || "");
 
     setQuickCourierId(material.tracking_number || "");
     setQuickStatus(initialNotes.logistics_status || "Pending");
@@ -771,6 +773,10 @@ function OrderCard({
   const handleSaveQuick = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!editable) return;
+    if (!deviceName.trim()) {
+      toast.error("Please enter device name.");
+      return;
+    }
     setQuickSaving(true);
 
     let currentPackingDate = packingDate;
@@ -801,6 +807,7 @@ function OrderCard({
     const { error } = await supabase
       .from("inventory_materials")
       .update({
+        device_id: deviceName.trim(),
         tracking_number: quickCourierId || null,
         state: quickStatus === "Transit" ? "In transit" : quickStatus,
         notes: JSON.stringify(newNotes),
@@ -820,11 +827,16 @@ function OrderCard({
   const handleSaveStep1 = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editable) return;
+    if (!deviceName.trim()) {
+      toast.error("Please enter device name.");
+      return;
+    }
     setSaving(true);
 
     const { error } = await supabase
       .from("inventory_materials")
       .update({
+        device_id: deviceName.trim(),
         ct1: ct1 ? "TRUE" : "FALSE",
         ct2: ct2 ? "TRUE" : "FALSE",
         ct3: ct3 ? "TRUE" : "FALSE",
@@ -859,6 +871,10 @@ function OrderCard({
   const handleSaveStep2 = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editable) return;
+    if (!deviceName.trim()) {
+      toast.error("Please enter device name.");
+      return;
+    }
     setSaving(true);
 
     // Save corresponding date based on the selected status
@@ -890,6 +906,7 @@ function OrderCard({
     const { error } = await supabase
       .from("inventory_materials")
       .update({
+        device_id: deviceName.trim(),
         state: state === "Transit" ? "In transit" : "Available", // Pass CHECK constraint validation
         dispatch: courierPartner || null,
         tracking_number: courierId || null,
@@ -912,6 +929,10 @@ function OrderCard({
     e.stopPropagation();
     e.preventDefault();
     if (!editable) return;
+    if (!deviceName.trim()) {
+      toast.error("Please enter device name.");
+      return;
+    }
     setSaving(true);
 
     const updatedNotes: CourierNotes = {
@@ -922,6 +943,7 @@ function OrderCard({
     const { error } = await supabase
       .from("inventory_materials")
       .update({
+        device_id: deviceName.trim(),
         tracking_number: courierId || null,
         notes: JSON.stringify(updatedNotes),
       })
@@ -1070,6 +1092,16 @@ function OrderCard({
             >
               <div className="text-[9px] uppercase font-mono tracking-wider text-text-secondary font-bold">
                 Quick Logistics Update
+              </div>
+              <div>
+                <input
+                  type="text"
+                  required
+                  value={deviceName}
+                  onChange={(e) => setDeviceName(e.target.value)}
+                  placeholder="Device Name / Model *"
+                  className="w-full text-xs bg-surface border border-border hover:border-border-bright rounded px-2 py-1 outline-none text-text-primary placeholder:text-text-dim font-mono focus:border-lime"
+                />
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
@@ -1235,6 +1267,15 @@ function OrderCard({
                       </div>
 
                       <div className="grid gap-4 sm:grid-cols-2 border-t border-border/50 pt-4">
+                        <div>
+                          <Label>Device Name / Model <span className="text-red-500">*</span></Label>
+                          <Input
+                            required
+                            value={deviceName}
+                            onChange={(e) => setDeviceName(e.target.value)}
+                            placeholder="e.g. SIM-Kit Gateway V3"
+                          />
+                        </div>
                         <div>
                           <Label>Hardware Version</Label>
                           <Input value={version} onChange={(e) => setVersion(e.target.value)} placeholder="e.g. v3.2.1" />

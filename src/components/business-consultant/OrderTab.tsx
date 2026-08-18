@@ -16,7 +16,6 @@ interface OrderTabProps {
 }
 
 export function OrderTab({ site, workerId }: OrderTabProps) {
-  const [deviceName, setDeviceName] = useState("");
   const [ct1, setCt1] = useState(false);
   const [ct2, setCt2] = useState(false);
   const [ct3, setCt3] = useState(false);
@@ -64,10 +63,6 @@ export function OrderTab({ site, workerId }: OrderTabProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!deviceName.trim()) {
-      toast.error("Please enter a device name.");
-      return;
-    }
 
     setSubmitting(true);
     try {
@@ -91,7 +86,7 @@ export function OrderTab({ site, workerId }: OrderTabProps) {
         .insert({
           material_name: companyName,
           location: address,
-          device_id: deviceName.trim(),
+          device_id: null,
           submitted: true,
           state: "Available", // Must be one of ('Available', 'Low stock', 'Out of stock', 'In transit', 'Reserved') to pass DB CHECK constraint
           ct1: ct1 ? "TRUE" : "FALSE",
@@ -127,7 +122,6 @@ export function OrderTab({ site, workerId }: OrderTabProps) {
       toast.success("Device order submitted successfully!");
       setSubmittedOrder(inserted);
       // Reset form
-      setDeviceName("");
       setCt1(false);
       setCt2(false);
       setCt3(false);
@@ -176,7 +170,6 @@ export function OrderTab({ site, workerId }: OrderTabProps) {
           The order for <strong className="text-text-primary">{companyName}</strong> has been transmitted to Logistics. The manager will prepare the packing list shortly.
         </p>
         <div className="p-4 bg-surface rounded-[8px] border border-border text-left space-y-2 max-w-md mx-auto font-mono text-xs">
-          <div><span className="text-text-dim">Device:</span> {orderToShow.device_id}</div>
           <div><span className="text-text-dim">Company:</span> {orderToShow.material_name}</div>
           <div>
             <span className="text-text-dim">Status:</span>{" "}
@@ -217,22 +210,7 @@ export function OrderTab({ site, workerId }: OrderTabProps) {
           </div>
         </div>
 
-        {/* B. Device Details */}
-        <div className="space-y-3">
-          <Label className="text-lime">Device Details</Label>
-          <div>
-            <Label>Device Name / Model</Label>
-            <Input
-              required
-              value={deviceName}
-              onChange={(e) => setDeviceName(e.target.value)}
-              placeholder="e.g. SIM-Kit Gateway V3"
-              className="w-full"
-            />
-          </div>
-        </div>
-
-        {/* C. Sensors Configuration */}
+        {/* B. Sensors Configuration */}
         <div className="space-y-4 pt-2">
           <div className="font-mono text-[11px] font-bold text-lime uppercase tracking-widest border-b border-border pb-1">
             Sensors Section
