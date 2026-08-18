@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, SectionTitle, Label, Input, Select, Button, Checkbox } from "@/components/ui-kit";
 import { toast } from "sonner";
-import { Cpu, Layers, CheckCircle2, RefreshCw, Activity } from "lucide-react";
+import { Cpu, Layers, CheckCircle2, RefreshCw, Activity, ExternalLink } from "lucide-react";
 
 interface OrderTabProps {
   site: {
@@ -51,6 +51,8 @@ export function OrderTab({ site, workerId }: OrderTabProps) {
 
         if (!error && data) {
           setExistingOrder(data);
+        } else if (!error) {
+          setExistingOrder(null);
         }
       } catch (err) {
         console.error("Error checking existing order:", err);
@@ -59,6 +61,19 @@ export function OrderTab({ site, workerId }: OrderTabProps) {
       }
     };
     fetchExistingOrder();
+
+    const channel = supabase
+      .channel(`bc-order-${companyName}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "inventory_materials" },
+        () => void fetchExistingOrder()
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
   }, [companyName]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -156,6 +171,15 @@ export function OrderTab({ site, workerId }: OrderTabProps) {
   const orderToShow = submittedOrder || existingOrder;
 
   if (orderToShow) {
+    let orderNotes: any = {};
+    try {
+      orderNotes = orderToShow.notes ? JSON.parse(orderToShow.notes) : {};
+    } catch (e) {
+      orderNotes = {};
+    }
+
+    const logisticsStatus = orderNotes.logistics_status || "Pending";
+    const trackingId = (orderToShow.tracking_number || orderNotes.courier_id || "").trim();
     return (
       <Card className="max-w-2xl mx-auto border border-lime p-8 text-center space-y-6 animate-fade-in">
         <div className="flex justify-center">
@@ -174,16 +198,38 @@ export function OrderTab({ site, workerId }: OrderTabProps) {
           <div>
             <span className="text-text-dim">Status:</span>{" "}
             <span className="text-yellow font-bold">
-              {(() => {
-                try {
-                  const notesObj = JSON.parse(orderToShow.notes);
-                  return notesObj.logistics_status;
-                } catch (e) {
-                  return "Pending";
-                }
-              })()}
+              {logisticsStatus}
             </span>
           </div>
+          {trackingId && (
+            <>
+              <div>
+                <span className="text-text-dim">Tracking ID:</span>{" "}
+                <span className="text-text-primary font-bold">{trackingId}</span>
+              </div>
+              <div className="pt-2 border-t border-border">
+                <form
+                  method="post"
+                  action="https://www.shreetirupaticourier.net/TopHeader.aspx"
+                  target="_blank"
+                  className="inline"
+                >
+                  <input type="hidden" name="__VIEWSTATE" value="/wEPDwUJMjM2OTI0MjUwD2QWAgIBD2QWBAIBDw9kFgIeCm9ua2V5cHJlc3MFHHJldHVybiBkaWdpdEZvckF3Yk5vKGV2ZW50KTtkAgMPD2QWAh4Hb25jbGljawUacmV0dXJuIFZhbGlkYXRlVHJhY2tpbmcoKTtkZDRSJIrZ+Og+mmhys2nVy5M+JSny" />
+                  <input type="hidden" name="__VIEWSTATEGENERATOR" value="AA404F49" />
+                  <input type="hidden" name="__EVENTVALIDATION" value="/wEWBQL60+WVCQKY2J7eAwLV5PDDBQKI9fuZCALGrczMAgthJfe1nRl4yKw9QN3vV/9yKST7" />
+                  <input type="hidden" name="trackingno" value={trackingId} />
+                  <input type="hidden" name="btnTrack" value="Go" />
+                  <button
+                    type="submit"
+                    className="inline-flex items-center gap-1.5 text-lime hover:underline font-bold bg-transparent border-0 p-0 cursor-pointer"
+                  >
+                    Track on Shree Tirupati Courier
+                    <ExternalLink size={12} />
+                  </button>
+                </form>
+              </div>
+            </>
+          )}
         </div>
       </Card>
     );
