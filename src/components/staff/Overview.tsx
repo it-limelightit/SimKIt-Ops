@@ -829,8 +829,10 @@ const filteredForCounts = allProcessedRows.filter((row) => {
 });
 
 // Calculate counts based on current filters and canonical status partitioning
+const logisticsStatusKey = (r: SiteRow) => r.logisticsStatus.trim().toLowerCase();
+const isActualDispatchLogisticsStatus = (r: SiteRow) => ["shipped", "transit", "in transit", "delivered"].includes(logisticsStatusKey(r));
+
 const isPendingPanelDispatched = (r: SiteRow) => {
-  const logisticsStatus = r.logisticsStatus.trim().toLowerCase();
   return ![
     "Submitted",
     "Unsubmitted",
@@ -839,12 +841,13 @@ const isPendingPanelDispatched = (r: SiteRow) => {
     "Pending Assignment",
     "Installed",
     "Commissioned",
-  ].includes(r.status) && (r.status === "Panel Dispatched" || (r.hasLogisticsOrder && ["pending", "packing"].includes(logisticsStatus)));
+  ].includes(r.status) &&
+    !isActualDispatchLogisticsStatus(r) &&
+    (r.status === "Panel Dispatched" || (r.hasLogisticsOrder && ["pending", "packing"].includes(logisticsStatusKey(r))));
 };
 const isDispatchedActual = (r: SiteRow) => {
-  const logisticsStatus = r.logisticsStatus.trim().toLowerCase();
   return r.hasLogisticsOrder &&
-    ["shipped", "transit", "in transit", "delivered"].includes(logisticsStatus) &&
+    isActualDispatchLogisticsStatus(r) &&
     ![
       "Installed",
       "Commissioned",
@@ -878,8 +881,8 @@ const countPendingDispatched = activeAssignedRows.filter((r) => isPendingPanelDi
 const countDispatched = activeAssignedRows.filter((r) => isDispatchedActual(r)).length;
 const countAssessment = activeAssignedRows.filter((r) => r.status === "Assessed").length;
 const countDropped = filteredForCounts.filter((r) => r.status === "Dropped / Rejected").length;
-const countNotStarted = activeAssignedRows.filter((r) => r.status === "Not Started Yet" && !isPendingPanelDispatched(r)).length;
-const countAssignedBc = countNotStarted + countAssessment + countPendingDispatched + countInstalled + countCommissioned;
+const countNotStarted = activeAssignedRows.filter((r) => r.status === "Not Started Yet" && !isPendingPanelDispatched(r) && !isDispatchedActual(r)).length;
+const countAssignedBc = activeAssignedRows.length;
 
 // Apply selected KPI filter to table
 const filteredByKpi = filteredForCounts.filter((row) => {
@@ -903,7 +906,7 @@ const filteredByKpi = filteredForCounts.filter((row) => {
     case "assigned_bc":
       return assignedWorkflowRows.some((r) => r.id === row.id);
     case "not_started":
-      return row.workerIds.length > 0 && status === "Not Started Yet" && !isPendingPanelDispatched(row);
+      return row.workerIds.length > 0 && status === "Not Started Yet" && !isPendingPanelDispatched(row) && !isDispatchedActual(row);
     case "assessment":
       return row.workerIds.length > 0 && status === "Assessed";
     case "dispatched":
