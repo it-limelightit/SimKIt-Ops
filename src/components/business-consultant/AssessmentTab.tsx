@@ -599,6 +599,8 @@ const COMMON_DOWNTIME_REASONS = [
   "Machine Warm-up"
 ];
 
+const WORKING_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
 function checkShiftOverlap(shifts: any[]): boolean {
   const parsedShifts = (shifts ?? [])
     .filter(s => s && s.startTime && s.endTime)
@@ -672,25 +674,7 @@ export function validateFactoryOperationsForm(data: Record<string, any>): { isVa
     }
   }
 
-  // 5. Technicians (at least 1, and for all tech entries: name, contact, email)
-  const technicians = data.factory_op_technicians ?? [];
-  if (!technicians.length) {
-    return { isValid: false, errorMsg: "At least one Technical Detail entry is required.", invalidSection: "technicians" };
-  }
-  for (let i = 0; i < technicians.length; i++) {
-    const t = technicians[i];
-    if (!t.name || !t.name.trim()) {
-      return { isValid: false, errorMsg: `Technician #${i + 1} Name is required.`, invalidSection: "technicians" };
-    }
-    if (!t.contact || !t.contact.trim()) {
-      return { isValid: false, errorMsg: `Technician #${i + 1} Mobile Contact is required.`, invalidSection: "technicians" };
-    }
-    if (!t.email || !t.email.trim()) {
-      return { isValid: false, errorMsg: `Technician #${i + 1} Email Address is required.`, invalidSection: "technicians" };
-    }
-  }
-
-  // 6. Shift Panel (all fields name, startTime, endTime, and no overlap)
+  // 5. Shift Panel (all fields name, startTime, endTime, and no overlap)
   const shifts = data.factory_op_shifts ?? [];
   if (!shifts.length) {
     return { isValid: false, errorMsg: "At least one Shift timing entry is required.", invalidSection: "shifts" };
@@ -706,12 +690,15 @@ export function validateFactoryOperationsForm(data: Record<string, any>): { isVa
     if (!s.endTime) {
       return { isValid: false, errorMsg: `Shift #${i + 1} End Time is required.`, invalidSection: "shifts" };
     }
+    if (!Array.isArray(s.workingDays) || s.workingDays.length === 0) {
+      return { isValid: false, errorMsg: `Shift #${i + 1} Working Day is required.`, invalidSection: "shifts" };
+    }
   }
   if (checkShiftOverlap(shifts)) {
     return { isValid: false, errorMsg: "Shift timings overlap. Please adjust start/end times.", invalidSection: "shifts" };
   }
 
-  // 7. Electricity Board
+  // 6. Electricity Board
   if (!data.factory_op_electricity_board || !data.factory_op_electricity_board.trim()) {
     return { isValid: false, errorMsg: "Electricity Board Selection is required.", invalidSection: "electricity" };
   }
@@ -868,7 +855,7 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
   // Dynamic lists
   const owners = data.factory_op_owners ?? [{ name: "", email: "", contact: "" }];
   const technicians = data.factory_op_technicians ?? [{ name: "", email: "", contact: "" }];
-  const shifts = data.factory_op_shifts ?? [{ name: "", startTime: "", endTime: "" }];
+  const shifts = data.factory_op_shifts ?? [{ name: "", startTime: "", endTime: "", workingDays: [] }];
 
   const downtimeReasons = data.factory_op_downtime_reasons ?? ["changeover", "Operator Absence", "Lubrication Issue"];
   const customReasons = data.factory_op_downtime_custom_reasons ?? [];
@@ -921,12 +908,24 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
   };
 
   const addShift = () => {
-    patch({ factory_op_shifts: [...shifts, { name: "", startTime: "", endTime: "" }] });
+    patch({ factory_op_shifts: [...shifts, { name: "", startTime: "", endTime: "", workingDays: [] }] });
   };
 
   const removeShift = (index: number) => {
       const updated = shifts.filter((_: any, i: number) => i !== index);
-      patch({ factory_op_shifts: updated.length > 0 ? updated : [{ name: "", startTime: "", endTime: "" }] });
+      patch({ factory_op_shifts: updated.length > 0 ? updated : [{ name: "", startTime: "", endTime: "", workingDays: [] }] });
+    };
+
+    const toggleShiftWorkingDay = (shiftIndex: number, day: string) => {
+      const updated = [...shifts];
+      const selectedDays = updated[shiftIndex]?.workingDays ?? [];
+      updated[shiftIndex] = {
+        ...updated[shiftIndex],
+        workingDays: selectedDays.includes(day)
+          ? selectedDays.filter((item: string) => item !== day)
+          : [...selectedDays, day]
+      };
+      patch({ factory_op_shifts: updated });
     };
 
     const toggleReason = (reason: string) => {
@@ -1223,46 +1222,79 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
 
           <div className="space-y-3">
             {shifts.map((shift: any, i: number) => (
-              <div key={i} className="p-4 border border-border/60 rounded-xl bg-surface/50 flex flex-col md:flex-row md:items-center justify-between gap-3">
-                <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div>
-                    <Label className="text-[9px]">Shift Name</Label>
-                    <Input
-                      value={shift.name ?? ""}
-                      onChange={(e) => handleShiftChange(i, "name", e.target.value)}
-                      placeholder="e.g. Shift A / Day"
-                      className="h-8 text-xs bg-surface font-semibold"
-                    />
+              <div key={i} className="p-4 border border-border/60 rounded-xl bg-surface/50 space-y-4">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                  <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div>
+                      <Label className="text-[9px]">Shift Name</Label>
+                      <Input
+                        value={shift.name ?? ""}
+                        onChange={(e) => handleShiftChange(i, "name", e.target.value)}
+                        placeholder="e.g. Shift A / Day"
+                        className="h-8 text-xs bg-surface font-semibold"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-[9px]">Start Time</Label>
+                      <Input
+                        type="time"
+                        value={shift.startTime ?? ""}
+                        onChange={(e) => handleShiftChange(i, "startTime", e.target.value)}
+                        className="h-8 text-xs bg-surface font-mono"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-[9px]">End Time</Label>
+                      <Input
+                        type="time"
+                        value={shift.endTime ?? ""}
+                        onChange={(e) => handleShiftChange(i, "endTime", e.target.value)}
+                        className="h-8 text-xs bg-surface font-mono"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <Label className="text-[9px]">Start Time</Label>
-                    <Input
-                      type="time"
-                      value={shift.startTime ?? ""}
-                      onChange={(e) => handleShiftChange(i, "startTime", e.target.value)}
-                      className="h-8 text-xs bg-surface font-mono"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-[9px]">End Time</Label>
-                    <Input
-                      type="time"
-                      value={shift.endTime ?? ""}
-                      onChange={(e) => handleShiftChange(i, "endTime", e.target.value)}
-                      className="h-8 text-xs bg-surface font-mono"
-                    />
-                  </div>
+
+                  {shifts.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeShift(i)}
+                      className="text-text-dim hover:text-red-400 transition-colors self-end md:self-center p-1.5"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  )}
                 </div>
 
-                {shifts.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => removeShift(i)}
-                    className="text-text-dim hover:text-red-400 transition-colors self-end md:self-center p-1.5"
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                )}
+                <div className="border-t border-border/50 pt-3 space-y-2">
+                  <Label className="text-[10px] text-text-secondary font-mono uppercase tracking-wider">Working Days *</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {WORKING_DAYS.map((day) => {
+                      const selectedDays = shift.workingDays ?? [];
+                      const isChecked = selectedDays.includes(day);
+                      return (
+                        <label
+                          key={day}
+                          className={`flex items-center gap-2 cursor-pointer select-none py-2 px-3 rounded-xl border text-xs font-mono font-bold transition-all duration-150 ${
+                            isChecked
+                              ? "border-lime bg-lime-dim/40 text-lime shadow-sm"
+                              : "border-border hover:border-border-bright text-text-secondary bg-surface/30"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => toggleShiftWorkingDay(i, day)}
+                            className="sr-only"
+                          />
+                          <span className={`inline-flex h-3.5 w-3.5 items-center justify-center rounded border transition-all ${isChecked ? "border-lime bg-lime text-bg" : "border-text-dim"}`}>
+                            {isChecked && <Check size={10} />}
+                          </span>
+                          <span>{day}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             ))}
           </div>

@@ -631,6 +631,23 @@ export function Overview() {
 
   const renderStatusSelect = (row: any) => {
     const canonicalStatus = row.status;
+    if (selectedKpi === "dispatched_actual") {
+      const logisticsStatus = row.logisticsStatus || "Pending";
+      return (
+        <select
+          value={logisticsStatus}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => e.stopPropagation()}
+          className="rounded border px-2 py-0.5 text-[11px] font-semibold cursor-default outline-none transition-colors bg-blue-50 text-blue-700 border-blue-200"
+          title="Logistics status"
+        >
+          <optgroup label="Logistics Category">
+            <option value={logisticsStatus}>{logisticsStatus}</option>
+          </optgroup>
+        </select>
+      );
+    }
+
     let toneClass = "bg-surface text-text-dim border-border";
     if (canonicalStatus === "Submitted" || canonicalStatus === "Commissioned") {
       toneClass = "bg-emerald-50 text-emerald-700 border-emerald-250";
@@ -812,16 +829,31 @@ const filteredForCounts = allProcessedRows.filter((row) => {
 });
 
 // Calculate counts based on current filters and canonical status partitioning
-const isPendingPanelDispatched = (r: SiteRow) => ![
-  "Submitted",
-  "Unsubmitted",
-  "Certification Pending",
-  "Dropped / Rejected",
-  "Pending Assignment",
-  "Assessed",
-  "Installed",
-  "Commissioned",
-].includes(r.status) && (r.status === "Panel Dispatched" || (r.hasLogisticsOrder && ["Pending", "Packing", "Shipped", "Transit", "In transit", "Delivered"].includes(r.logisticsStatus)));
+const isPendingPanelDispatched = (r: SiteRow) => {
+  const logisticsStatus = r.logisticsStatus.trim().toLowerCase();
+  return ![
+    "Submitted",
+    "Unsubmitted",
+    "Certification Pending",
+    "Dropped / Rejected",
+    "Pending Assignment",
+    "Installed",
+    "Commissioned",
+  ].includes(r.status) && (r.status === "Panel Dispatched" || (r.hasLogisticsOrder && ["pending", "packing"].includes(logisticsStatus)));
+};
+const isDispatchedActual = (r: SiteRow) => {
+  const logisticsStatus = r.logisticsStatus.trim().toLowerCase();
+  return r.hasLogisticsOrder &&
+    ["shipped", "transit", "in transit", "delivered"].includes(logisticsStatus) &&
+    ![
+      "Installed",
+      "Commissioned",
+      "Submitted",
+      "Certification Pending",
+      "Unsubmitted",
+      "Dropped / Rejected",
+    ].includes(r.status);
+};
 const assignedWorkflowRows = filteredForCounts.filter((r) => ![
   "Submitted",
   "Unsubmitted",
@@ -843,6 +875,7 @@ const countCertification = filteredForCounts.filter((r) => r.status === "Certifi
 const countInstalled = activeAssignedRows.filter((r) => r.status === "Installed").length;
 const countCommissioned = activeAssignedRows.filter((r) => r.status === "Commissioned").length;
 const countPendingDispatched = activeAssignedRows.filter((r) => isPendingPanelDispatched(r)).length;
+const countDispatched = activeAssignedRows.filter((r) => isDispatchedActual(r)).length;
 const countAssessment = activeAssignedRows.filter((r) => r.status === "Assessed").length;
 const countDropped = filteredForCounts.filter((r) => r.status === "Dropped / Rejected").length;
 const countNotStarted = activeAssignedRows.filter((r) => r.status === "Not Started Yet" && !isPendingPanelDispatched(r)).length;
@@ -875,6 +908,8 @@ const filteredByKpi = filteredForCounts.filter((row) => {
       return row.workerIds.length > 0 && status === "Assessed";
     case "dispatched":
       return isPendingPanelDispatched(row);
+    case "dispatched_actual":
+      return isDispatchedActual(row);
     case "dropped":
       return status === "Dropped / Rejected";
     default:
@@ -914,6 +949,18 @@ const searchedRows = myTasksFiltered.filter((row) => {
 
 // Apply Sorting
 const sortedRows = [...searchedRows].sort((a, b) => {
+  if (selectedKpi === "dispatched_actual") {
+    const logisticsRank = (status: string) => {
+      const normalized = status.trim().toLowerCase();
+      if (normalized === "delivered") return 0;
+      if (normalized === "transit" || normalized === "in transit") return 1;
+      if (normalized === "shipped") return 2;
+      return 3;
+    };
+    const statusComp = logisticsRank(a.logisticsStatus) - logisticsRank(b.logisticsStatus);
+    if (statusComp !== 0) return statusComp;
+  }
+
   // 1. Prioritize by Executive (Worker) Name: Jenil first, then others alphabetically, then unassigned
   const nameA = a.workerIds && a.workerIds.length > 0 ? (profileNameMap.get(a.workerIds[0]) || "") : "";
   const nameB = b.workerIds && b.workerIds.length > 0 ? (profileNameMap.get(b.workerIds[0]) || "") : "";
@@ -1291,6 +1338,15 @@ const kpis = [
     dotStyle: "bg-blue-500",
   },
   {
+    id: "dispatched_actual",
+    label: "Dispatched",
+    value: countDispatched,
+    desc: "Transit + delivered before installation",
+    icon: Truck,
+    badgeStyle: "text-blue-600 bg-blue-50 border-blue-200",
+    dotStyle: "bg-blue-500",
+  },
+  {
     id: "installed",
     label: "Installed",
     value: countInstalled,
@@ -1586,94 +1642,66 @@ return (
               })}
             </div>
 
-            {/* Column 3: Middle Container Box (Assessed, Dispatched, Installed, Commissioned) */}
+            {/* Column 3: Middle Container Box (Logistics + workflow cards) */}
             <div className="lg:col-span-6 border border-border bg-surface/30 rounded-2xl p-4 flex flex-col justify-between h-full">
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-4 flex-1">
-                {/* Assessed & Pending Panel Dispatched Stack */}
-                <div className="md:col-span-6 flex flex-col gap-3 justify-between h-full">
-                  {[
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-3 flex-1">
+                {[
+                  [
                     kpis.find(x => x.id === "assessment")!,
-                    kpis.find(x => x.id === "dispatched")!
-                  ].filter(Boolean).map((k) => {
-                    const active = selectedKpi === k.id;
-                    const Icon = k.icon;
-                    const cardBorder = active
-                      ? "border-blue-500 ring-2 ring-blue-500/10 bg-white scale-[1.01] shadow-md"
-                      : "border-border bg-white hover:border-blue-400 hover:shadow-md transition-all";
-                    return (
-                      <button
-                        key={k.id}
-                        onClick={() => handleKpiClick(k.id)}
-                        className={`flex items-center justify-between w-full text-left px-3 py-2.5 border rounded-xl shadow-xs transition-all duration-200 group cursor-pointer flex-1 ${cardBorder}`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className={`p-1.5 rounded-lg border shrink-0 ${k.badgeStyle}`}>
-                            <Icon size={14} strokeWidth={2.5} />
-                          </div>
-                          <div>
-                            <div className="text-xs font-bold text-text-primary">
-                              {k.label}
-                            </div>
-                            <div className="text-[9px] text-text-secondary leading-tight mt-0.5">
-                              {k.desc}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className="text-xl font-extrabold text-text-primary font-mono">
-                            {k.value}
-                          </div>
-                          <span className={`h-2 w-2 rounded-full ${k.dotStyle} shrink-0`} />
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Installed & Commissioned Stack */}
-                <div className="md:col-span-6 flex flex-col gap-3 justify-between h-full">
-                  {[
+                    kpis.find(x => x.id === "dispatched_actual")!,
+                    kpis.find(x => x.id === "dispatched")!,
+                  ],
+                  [
                     kpis.find(x => x.id === "installed")!,
-                    kpis.find(x => x.id === "commissioned")!
-                  ].filter(Boolean).map((k) => {
-                    const active = selectedKpi === k.id;
-                    const Icon = k.icon;
-                    const isGreen = k.id === "commissioned";
-                    const hoverColor = isGreen ? "hover:border-emerald-400" : "hover:border-blue-400";
-                    const cardBorder = active
-                      ? (isGreen
-                        ? "border-emerald-500 ring-2 ring-emerald-500/10 bg-white scale-[1.01] shadow-md"
-                        : "border-blue-500 ring-2 ring-blue-500/10 bg-white scale-[1.01] shadow-md")
-                      : `border-border bg-white ${hoverColor} hover:shadow-md transition-all`;
-                    return (
-                      <button
-                        key={k.id}
-                        onClick={() => handleKpiClick(k.id)}
-                        className={`flex items-center justify-between w-full text-left px-3 py-2.5 border rounded-xl shadow-xs transition-all duration-200 group cursor-pointer flex-1 ${cardBorder}`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className={`p-1.5 rounded-lg border shrink-0 ${k.badgeStyle}`}>
-                            <Icon size={14} strokeWidth={2.5} />
-                          </div>
-                          <div>
-                            <div className="text-xs font-bold text-text-primary">
-                              {k.label}
+                    kpis.find(x => x.id === "commissioned")!,
+                  ],
+                ].map((group, groupIndex) => (
+                  <div
+                    key={groupIndex}
+                    className={groupIndex === 0
+                      ? "md:col-span-6 grid grid-cols-1 gap-2"
+                      : "md:col-span-6 grid grid-cols-1 gap-2"}
+                  >
+                    {group.filter(Boolean).map((k) => {
+                      const active = selectedKpi === k.id;
+                      const Icon = k.icon;
+                      const isGreen = k.id === "commissioned";
+                      const hoverColor = isGreen ? "hover:border-emerald-400" : "hover:border-blue-400";
+                      const cardBorder = active
+                        ? (isGreen
+                          ? "border-emerald-500 ring-2 ring-emerald-500/10 bg-white scale-[1.01] shadow-md"
+                          : "border-blue-500 ring-2 ring-blue-500/10 bg-white scale-[1.01] shadow-md")
+                        : `border-border bg-white ${hoverColor} hover:shadow-md transition-all`;
+                      return (
+                        <button
+                          key={k.id}
+                          onClick={() => handleKpiClick(k.id)}
+                          className={`flex min-h-20 flex-col justify-between w-full text-left px-3 py-2 border rounded-xl shadow-xs transition-all duration-200 group cursor-pointer ${cardBorder}`}
+                        >
+                          <div className="flex items-start gap-2.5 min-w-0">
+                            <div className={`p-1.5 rounded-lg border shrink-0 ${k.badgeStyle}`}>
+                              <Icon size={15} strokeWidth={2.5} />
                             </div>
-                            <div className="text-[9px] text-text-secondary leading-tight mt-0.5">
-                              {k.desc}
+                            <div className="min-w-0">
+                              <div className="text-xs font-bold text-text-primary leading-tight break-words">
+                                {k.label}
+                              </div>
+                              <div className="text-[10px] text-text-secondary leading-tight mt-0.5 break-words">
+                                {k.desc}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className="text-xl font-extrabold text-text-primary font-mono">
-                            {k.value}
+                          <div className="flex items-end justify-between gap-2 pt-1.5">
+                            <div className="text-2xl font-extrabold text-text-primary font-mono leading-none">
+                              {k.value}
+                            </div>
+                            <span className={`h-2.5 w-2.5 rounded-full ${k.dotStyle} shrink-0 mb-1`} />
                           </div>
-                          <span className={`h-2 w-2 rounded-full ${k.dotStyle} shrink-0`} />
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
             </div>
           </div>

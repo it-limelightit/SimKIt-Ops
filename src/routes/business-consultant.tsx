@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-store";
@@ -25,7 +25,7 @@ type Site = { id: string; name: string; company_name: string | null; city: strin
 function BusinessConsultantPage() {
   const navigate = useNavigate();
   const { ready, userId, email, role, profile, signOut } = useAuth();
-  
+
   const [view, setView] = useState<"dashboard" | "submission" | "inventory">("dashboard");
   const [sitesList, setSitesList] = useState<Site[]>([]);
   const [sitesWithProgress, setSitesWithProgress] = useState<Array<Site & {
@@ -39,7 +39,7 @@ function BusinessConsultantPage() {
   const [selectedSiteId, setSelectedSiteId] = useState<string>("");
   const [selectedFactoryId, setSelectedFactoryId] = useState<string>("");
   const [site, setSite] = useState<Site | null | undefined>(undefined);
-  
+
   const [queryError, setQueryError] = useState<string | null>(null);
   const [tab, setTab] = useState<"assessment" | "installation" | "commissioning">("assessment");
   const [progress, setProgress] = useState({ assessment: 0, installation: 0, commissioning: 0 });
@@ -48,6 +48,7 @@ function BusinessConsultantPage() {
   const [clientShareEmail, setClientShareEmail] = useState("");
   const [generatedLink, setGeneratedLink] = useState("");
   const [sendingEmail, setSendingEmail] = useState(false);
+  const lastTabbedSiteIdRef = useRef<string | null>(null);
 
   const handleSendEmail = async () => {
     if (!site) return;
@@ -107,7 +108,7 @@ function BusinessConsultantPage() {
     if (!site) return;
     try {
       const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-      
+
       const { error } = await supabase.rpc("save_client_invitation", {
         site_id: site.id,
         client_email: clientShareEmail.trim(),
@@ -167,7 +168,7 @@ function BusinessConsultantPage() {
       .select("id,name,company_name,city,address,assigned_at,appt_date,appt_time,task_notes,consultant_stage")
       .or(`assigned_worker_id.eq.${userId},task_notes.ilike.%"${userId}"%`)
       .order("assigned_at", { ascending: false });
-    
+
     if (error) {
       setQueryError(error.message);
       return;
@@ -199,11 +200,11 @@ function BusinessConsultantPage() {
       const aData = aMap.get(s.id)?.data;
       const iData = iMap.get(s.id)?.data;
       const cData = cMap.get(s.id)?.data;
-      
+
       const aPctRaw = aData?.assessment_phase_submitted ? 100 : pctCount(aData, ASSESSMENT_KEYS);
-      const iPctRaw = pctCount(iData, INSTALLATION_KEYS);
-      const cPctRaw = pctCount(cData, COMMISSIONING_KEYS);
-      
+      const iPctRaw = iData?.installation_phase_submitted ? 100 : pctCount(iData, INSTALLATION_KEYS);
+      const cPctRaw = cData?.commissioning_phase_submitted ? 100 : pctCount(cData, COMMISSIONING_KEYS);
+
       const derivedStatus = getCanonicalStatus(s, aMap, iMap, cMap, materials);
 
       let aPct = aPctRaw;
@@ -229,14 +230,14 @@ function BusinessConsultantPage() {
       }
 
       const overall = Math.round((aPct + iPct + cPct) / 3);
-      
+
       let status: "Complete" | "Working" | "Pending" = "Pending";
       if (overall === 100) {
         status = "Complete";
       } else if (overall > 0) {
         status = "Working";
       }
-      
+
       return {
         ...s,
         aPct,
@@ -251,7 +252,7 @@ function BusinessConsultantPage() {
     setQueryError(null);
     setSitesList(data);
     setSitesWithProgress(sitesData);
-    
+
     if (sitesData.length > 0) {
       const currentStillExists = sitesData.find(s => s.id === selectedSiteId);
       if (!currentStillExists) {
@@ -349,7 +350,7 @@ function BusinessConsultantPage() {
     setView("submission");
   };
 
-  const { phase: activePhase, cleanNotes } = parseTaskNotes(site?.task_notes ?? null);
+  const { cleanNotes } = parseTaskNotes(site?.task_notes ?? null);
   const meta = parseSiteMetadata(site?.task_notes ?? null);
   const selectedSiteWithProgress = sitesWithProgress.find(s => s.id === site?.id);
   const displayedStatus = selectedSiteWithProgress?.derivedStatus || site?.consultant_stage || meta.status || "Not Started Yet";
@@ -418,12 +419,6 @@ function BusinessConsultantPage() {
   };
 
   useEffect(() => {
-    if (activePhase && (activePhase === "assessment" || activePhase === "installation" || activePhase === "commissioning")) {
-      setTab(activePhase);
-    }
-  }, [activePhase]);
-
-  useEffect(() => {
     if (!site) return;
     setProgress({
       assessment: (site as any).aPct || 0,
@@ -436,7 +431,27 @@ function BusinessConsultantPage() {
     if ((site as any).iPct === 100) nextSubmitted.add("installation");
     if ((site as any).cPct === 100) nextSubmitted.add("commissioning");
     setSubmittedPhases(nextSubmitted);
-  }, [site, tab]);
+
+    const nextForwardTab =
+      !nextSubmitted.has("assessment")
+        ? "assessment"
+        : !nextSubmitted.has("installation")
+          ? "installation"
+          : "commissioning";
+    const siteChanged = lastTabbedSiteIdRef.current !== site.id;
+
+    if (siteChanged) {
+      lastTabbedSiteIdRef.current = site.id;
+      setTab(nextForwardTab);
+      return;
+    }
+
+    setTab((current) => {
+      if (current === "commissioning" && !nextSubmitted.has("installation")) return nextForwardTab;
+      if (current === "installation" && !nextSubmitted.has("assessment")) return "assessment";
+      return current;
+    });
+  }, [site]);
 
   if (!ready || site === undefined) {
     return (
@@ -505,7 +520,7 @@ function BusinessConsultantPage() {
   return (
     <Shell onSignOut={signOut} profileName={profile?.name ?? undefined} showDashboardBtn={true} onGoToDashboard={() => setView("dashboard")}>
       <div className="mt-8 space-y-6">
-        
+
         {/* Factory Details Box matching Mockup */}
         <div className="bg-surface/50 backdrop-blur-md p-6 rounded-xl border border-border hover:border-lime/20 transition-all duration-300 shadow-[0_4px_30px_rgba(0,0,0,0.05)] space-y-6">
           <div className="flex items-center justify-between border-b border-border/60 pb-3">
@@ -517,11 +532,11 @@ function BusinessConsultantPage() {
                 {site.name}
               </h3>
             </div>
-             <Badge tone={displayedStatus === "Submitted" || displayedStatus === "Commissioned" || displayedStatus === "Billing" || displayedStatus === "Completion" ? "success" : displayedStatus === "Dropped / Rejected" ? "danger" : "warning"}>
-               {displayedStatus}
-             </Badge>
+            <Badge tone={displayedStatus === "Submitted" || displayedStatus === "Commissioned" || displayedStatus === "Billing" || displayedStatus === "Completion" ? "success" : displayedStatus === "Dropped / Rejected" ? "danger" : "warning"}>
+              {displayedStatus}
+            </Badge>
           </div>
-          
+
           <div className="grid gap-4 md:grid-cols-3">
             {/* Location Address Card */}
             <div className="bg-surface-raised/40 p-4 rounded-xl border border-border/80 flex gap-3">
@@ -597,7 +612,7 @@ function BusinessConsultantPage() {
                 </p>
               </div>
             </div>
-            
+
             <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center w-full md:max-w-lg">
               <div className="flex-1 col-span-2">
                 <Input
@@ -632,7 +647,7 @@ function BusinessConsultantPage() {
               </div>
             </div>
           </div>
-          
+
           <div className="grid gap-4 md:grid-cols-2 pt-4 border-t border-border/60 items-center">
             {/* Appointment Pills */}
             <div className="flex flex-wrap gap-2">
@@ -645,7 +660,7 @@ function BusinessConsultantPage() {
                 Time: {site.appt_time ? site.appt_time.slice(0, 5) : "No time set"}
               </span>
             </div>
-            
+
             {/* Update Stage dropdown */}
             <div className="flex flex-col gap-1.5 md:items-end">
               <div className="flex items-center gap-2 w-full md:max-w-xs justify-between md:justify-end">
@@ -665,7 +680,7 @@ function BusinessConsultantPage() {
               </div>
             </div>
           </div>
-          
+
           {cleanNotes && (
             <div className="pt-4 border-t border-border/60 flex gap-2 text-sm text-text-secondary">
               <BookOpen size={16} className="text-lime shrink-0 mt-0.5" />
@@ -679,7 +694,7 @@ function BusinessConsultantPage() {
           {segments.map((s) => {
             const isActive = tab === s.k;
             const isLocked = (() => {
-              if (s.k === "installation")  return !submittedPhases.has("assessment");
+              if (s.k === "installation") return !submittedPhases.has("assessment");
               if (s.k === "commissioning") return !submittedPhases.has("installation");
               return false;
             })();
@@ -690,18 +705,17 @@ function BusinessConsultantPage() {
                 onClick={() => {
                   if (isLocked) {
                     const needed = s.k === "commissioning" ? "Installation" : "Assessment";
-                  toast.error(`Please submit the ${needed} phase first to unlock this tab.`);
+                    toast.error(`Please submit the ${needed} phase first to unlock this tab.`);
                     return;
                   }
                   setTab(s.k);
                 }}
-                className={`relative flex-1 h-[58px] bg-surface/80 backdrop-blur-sm border rounded-xl overflow-hidden flex items-center px-5 transition-all duration-300 ${
-                  isLocked
+                className={`relative flex-1 h-[58px] bg-surface/80 backdrop-blur-sm border rounded-xl overflow-hidden flex items-center px-5 transition-all duration-300 ${isLocked
                     ? "opacity-50 border-border/40 cursor-not-allowed"
-                    : isActive 
-                      ? "border-lime ring-2 ring-lime/20 scale-[1.02] shadow-[0_0_20px_rgba(200,255,74,0.1)] cursor-pointer" 
+                    : isActive
+                      ? "border-lime ring-2 ring-lime/20 scale-[1.02] shadow-[0_0_20px_rgba(200,255,74,0.1)] cursor-pointer"
                       : "border-border hover:border-border-bright hover:bg-surface-raised/20 cursor-pointer"
-                }`}
+                  }`}
               >
                 <div
                   className="absolute left-0 top-0 bottom-0 bg-gradient-to-r from-lime/30 to-mint/30 transition-all duration-500 ease-out"
@@ -762,7 +776,17 @@ function BusinessConsultantPage() {
               <Button onClick={() => setTab("assessment")}>Go to Assessment</Button>
             </Card>
           ) : (
-            <InstallationTab siteId={site.id} workerId={userId!} onSubmit={() => { setSubmittedPhases(prev => new Set([...prev, "installation"])); void fetchSites(); }} />
+            <InstallationTab
+              siteId={site.id}
+              workerId={userId!}
+              onSubmit={() => {
+                setSubmittedPhases(prev => new Set([...prev, "installation"]));
+                setProgress(prev => ({ ...prev, installation: 100 }));
+                setTab("commissioning");
+                toast.success("Installation phase submitted.");
+                void fetchSites();
+              }}
+            />
           )
         )}
         {tab === "commissioning" && (
@@ -818,22 +842,22 @@ function siteStatusStyle(status: string) {
     case "Commissioned":
     case "Billing":
     case "Completion":
-    case "Running":       return { bg: "bg-lime/10", text: "text-lime", border: "border-lime/20" };
+    case "Running": return { bg: "bg-lime/10", text: "text-lime", border: "border-lime/20" };
     case "Dropped / Rejected":
-    case "Reject":        return { bg: "bg-coral-dim", text: "text-coral", border: "border-coral/20" };
+    case "Reject": return { bg: "bg-coral-dim", text: "text-coral", border: "border-coral/20" };
     case "Panel Dispatched":
-    case "Shipped":       return { bg: "bg-violet/10", text: "text-violet", border: "border-violet/20" };
+    case "Shipped": return { bg: "bg-violet/10", text: "text-violet", border: "border-violet/20" };
     case "Certification Pending":
-    case "Verification":  return { bg: "bg-[#1D4ED8]/10", text: "text-[#1D4ED8]", border: "border-[#1D4ED8]/20" };
+    case "Verification": return { bg: "bg-[#1D4ED8]/10", text: "text-[#1D4ED8]", border: "border-[#1D4ED8]/20" };
     case "Installed":
-    case "Installation":  return { bg: "bg-warning/10", text: "text-warning", border: "border-warning/20" };
-    case "Concept":       return { bg: "bg-warning/8", text: "text-warning", border: "border-warning/20" };
+    case "Installation": return { bg: "bg-warning/10", text: "text-warning", border: "border-warning/20" };
+    case "Concept": return { bg: "bg-warning/8", text: "text-warning", border: "border-warning/20" };
     case "Assessed":
     case "Assessment & Visit": return { bg: "bg-[#C4E1F6]/20", text: "text-[#1D4ED8]", border: "border-[#1D4ED8]/20" };
     case "Pending Assignment":
-    case "Assigned":      return { bg: "bg-[#800000]/10", text: "text-[#D07070]", border: "border-[#800000]/20" };
+    case "Assigned": return { bg: "bg-[#800000]/10", text: "text-[#D07070]", border: "border-[#800000]/20" };
     case "Not Started Yet": return { bg: "bg-indigo-600/10", text: "text-indigo-600", border: "border-indigo-600/20" };
-    default:              return { bg: "bg-surface-raised", text: "text-text-secondary", border: "border-border" };
+    default: return { bg: "bg-surface-raised", text: "text-text-secondary", border: "border-border" };
   }
 }
 
@@ -1168,17 +1192,17 @@ function PhaseSubmittedCard({ label, onNext, nextLabel }: { label: string; onNex
   );
 }
 
-function Shell({ 
-  children, 
-  onSignOut, 
+function Shell({
+  children,
+  onSignOut,
   profileName,
   showDashboardBtn,
   onGoToDashboard,
   onGoToInventory,
   inventoryActive,
-}: { 
-  children: React.ReactNode; 
-  onSignOut: () => void; 
+}: {
+  children: React.ReactNode;
+  onSignOut: () => void;
   profileName?: string;
   showDashboardBtn?: boolean;
   onGoToDashboard?: () => void;
@@ -1217,7 +1241,7 @@ function Shell({
     <div className="min-h-screen bg-background text-text-primary font-sans antialiased">
       <div className="sticky top-0 z-40 border-b border-border bg-surface/90 backdrop-blur-md">
         <div className="mx-auto flex max-w-6xl h-14 items-center justify-between px-6">
-          <button 
+          <button
             onClick={onGoToDashboard}
             className="flex items-center gap-2 font-syne font-bold uppercase tracking-wider text-lime cursor-pointer bg-transparent border-0 outline-none"
           >
