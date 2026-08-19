@@ -354,7 +354,8 @@ export function InstallationTab({ siteId, workerId, hiddenSections, onSubmit }: 
       <div className="mt-8 flex justify-end">
         <Button 
           onClick={async () => {
-            await save({ ...data, installation_phase_submitted: true });
+            const saved = await save({ ...data, installation_phase_submitted: true });
+            if (!saved) return;
             if (onSubmit) onSubmit();
           }} 
           className="w-full sm:w-auto text-base py-3 px-8"

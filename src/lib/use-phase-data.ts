@@ -27,7 +27,7 @@ export function usePhaseData<T extends Record<string, any>>(
 
   const save = useCallback(
     async (next: T) => {
-      if (!siteId) return;
+      if (!siteId) return false;
       setData(next);
       setSaving(true);
       const { error } = await supabase
@@ -36,9 +36,10 @@ export function usePhaseData<T extends Record<string, any>>(
       setSaving(false);
       if (error) {
         toast.error("Auto-save failed");
-        return;
+        return false;
       }
       setLastSaved(new Date());
+      return true;
     },
     [phase, siteId, workerId],
   );

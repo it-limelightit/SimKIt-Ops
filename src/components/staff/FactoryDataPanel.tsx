@@ -73,6 +73,7 @@ const FACTORY_OPERATIONS_EXPORT_KEYS = [
   "factory_op_owners",
   "factory_op_technicians",
   "factory_op_shifts",
+  "factory_op_working_days",
   "factory_op_downtime_reasons",
   "factory_op_downtime_custom_reasons",
   "factory_op_downtime_threshold",
@@ -88,6 +89,8 @@ const FACTORY_OPERATIONS_EXPORT_KEYS = [
   "target_line_speed",
   "minimum_acceptable_speed",
 ] as const;
+
+const WORKING_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 function cleanFilledFactoryValue(value: any): any {
   if (typeof value === "string") {
@@ -121,6 +124,31 @@ function getFilledFactoryOperationsJson(data: Record<string, any>) {
     if (cleanedValue !== undefined) acc[key] = cleanedValue;
     return acc;
   }, {});
+}
+
+function formatTime24(value?: string) {
+  if (!value) return "—";
+  const trimmed = String(value).trim();
+  const twelveHourMatch = trimmed.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)$/i);
+  if (twelveHourMatch) {
+    let hours = Number(twelveHourMatch[1]);
+    const minutes = twelveHourMatch[2];
+    const period = twelveHourMatch[3].toUpperCase();
+    if (period === "PM" && hours < 12) hours += 12;
+    if (period === "AM" && hours === 12) hours = 0;
+    return `${String(hours).padStart(2, "0")}:${minutes}`;
+  }
+  const twentyFourHourMatch = trimmed.match(/^(\d{1,2}):(\d{2})/);
+  if (twentyFourHourMatch) {
+    return `${twentyFourHourMatch[1].padStart(2, "0")}:${twentyFourHourMatch[2]}`;
+  }
+  return trimmed;
+}
+
+function getShiftWorkingDays(shift: any, data?: Record<string, any>) {
+  if (Array.isArray(shift?.workingDays)) return shift.workingDays;
+  if (Array.isArray(data?.factory_op_working_days)) return data.factory_op_working_days;
+  return [];
 }
 
 async function copyTextToClipboard(text: string) {
@@ -463,29 +491,7 @@ export function FactoryDataPanel() {
       }
     }
 
-    // 5. Technicians Validation
-    const technicians = editData.factory_op_technicians || [];
-    if (technicians.length === 0) {
-      toast.error("Validation Error: At least 1 Technician detail entry is required");
-      return;
-    }
-    for (let idx = 0; idx < technicians.length; idx++) {
-      const t = technicians[idx];
-      if (!t.name || !t.name.trim()) {
-        toast.error(`Validation Error: Technician #${idx + 1} Name is required`);
-        return;
-      }
-      if (!t.contact || !t.contact.trim()) {
-        toast.error(`Validation Error: Technician #${idx + 1} Contact Mobile is required`);
-        return;
-      }
-      if (!t.email || !t.email.trim()) {
-        toast.error(`Validation Error: Technician #${idx + 1} Email Address is required`);
-        return;
-      }
-    }
-
-    // 6. Shift Validation
+    // 5. Shift Validation
     const shifts = editData.factory_op_shifts || [];
     if (shifts.length === 0) {
       toast.error("Validation Error: At least 1 Shift timing entry is required");
@@ -505,9 +511,13 @@ export function FactoryDataPanel() {
         toast.error(`Validation Error: Shift #${idx + 1} End Time is required`);
         return;
       }
+      if (!Array.isArray(s.workingDays) || s.workingDays.length === 0) {
+        toast.error(`Validation Error: Shift #${idx + 1} Working Day is required`);
+        return;
+      }
     }
 
-    // 7. Electricity Board
+    // 6. Electricity Board
     if (!editData.factory_op_electricity_board || !editData.factory_op_electricity_board.trim()) {
       toast.error("Validation Error: Electricity Board selection is required");
       return;
@@ -581,7 +591,7 @@ ${(d.factory_op_owners || []).map((o: any) => `- Name: ${o.name || "N/A"} | Mobi
 ${(d.factory_op_technicians || []).map((t: any) => `- Name: ${t.name || "N/A"} | Mobile: ${t.contact || "N/A"} | Email: ${t.email || "N/A"}`).join("\n") || "No technician records"}
 
 --- SHIFT TIMINGS ---
-${(d.factory_op_shifts || []).map((s: any) => `- ${s.name || "Shift"}: ${s.startTime || "N/A"} to ${s.endTime || "N/A"}`).join("\n") || "No shift records"}
+${(d.factory_op_shifts || []).map((s: any) => `- ${s.name || "Shift"}: ${formatTime24(s.startTime)} to ${formatTime24(s.endTime)} | Working Days: ${getShiftWorkingDays(s, d).join(", ") || "N/A"}`).join("\n") || "No shift records"}
 
 --- DOWNTIME REASONS ---
 Reasons: ${(d.factory_op_downtime_reasons || []).join(", ") || "None"}
@@ -1229,7 +1239,7 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                             className="py-0.5 px-2 text-[10px]"
                             onClick={() => {
                               const shifts = [...(editData.factory_op_shifts || [])];
-                              shifts.push({ name: "", startTime: "", endTime: "" });
+                              shifts.push({ name: "", startTime: "", endTime: "", workingDays: [] });
                               setEditData({ ...editData, factory_op_shifts: shifts });
                             }}
                           >
@@ -1239,44 +1249,86 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                         
                         <div className="space-y-3">
                           {(editData.factory_op_shifts || []).map((s: any, idx: number) => (
-                            <div key={idx} className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end border-b border-border/20 pb-3 last:border-0 last:pb-0">
-                              <div>
-                                <Label className="text-[10px]">Shift Name <span className="text-red-400">*</span></Label>
-                                <Input
-                                  value={s.name || ""}
-                                  onChange={(e) => handleShiftChange(idx, "name", e.target.value)}
-                                  className="h-8 text-xs bg-surface"
-                                />
-                              </div>
-                              <div>
-                                <Label className="text-[10px]">Start Time <span className="text-red-400">*</span></Label>
-                                <Input
-                                  type="time"
-                                  value={s.startTime || ""}
-                                  onChange={(e) => handleShiftChange(idx, "startTime", e.target.value)}
-                                  className="h-8 text-xs bg-surface"
-                                />
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <div className="flex-1">
-                                  <Label className="text-[10px]">End Time <span className="text-red-400">*</span></Label>
+                            <div key={idx} className="space-y-3 border-b border-border/20 pb-3 last:border-0 last:pb-0">
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end">
+                                <div>
+                                  <Label className="text-[10px]">Shift Name <span className="text-red-400">*</span></Label>
                                   <Input
-                                    type="time"
-                                    value={s.endTime || ""}
-                                    onChange={(e) => handleShiftChange(idx, "endTime", e.target.value)}
+                                    value={s.name || ""}
+                                    onChange={(e) => handleShiftChange(idx, "name", e.target.value)}
                                     className="h-8 text-xs bg-surface"
                                   />
                                 </div>
-                                <Button
-                                  variant="danger"
-                                  className="h-8 py-1 px-2.5 text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20"
-                                  onClick={() => {
-                                    const shifts = (editData.factory_op_shifts || []).filter((_: any, i: number) => i !== idx);
-                                    setEditData({ ...editData, factory_op_shifts: shifts });
-                                  }}
-                                >
-                                  Delete
-                                </Button>
+                                <div>
+                                  <Label className="text-[10px]">Start Time <span className="text-red-400">*</span></Label>
+                                  <Input
+                                    type="time"
+                                    value={s.startTime ? formatTime24(s.startTime) : ""}
+                                    onChange={(e) => handleShiftChange(idx, "startTime", e.target.value)}
+                                    className="h-8 text-xs bg-surface"
+                                  />
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <div className="flex-1">
+                                    <Label className="text-[10px]">End Time <span className="text-red-400">*</span></Label>
+                                    <Input
+                                      type="time"
+                                      value={s.endTime ? formatTime24(s.endTime) : ""}
+                                      onChange={(e) => handleShiftChange(idx, "endTime", e.target.value)}
+                                      className="h-8 text-xs bg-surface"
+                                    />
+                                  </div>
+                                  <Button
+                                    variant="danger"
+                                    className="h-8 py-1 px-2.5 text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20"
+                                    onClick={() => {
+                                      const shifts = (editData.factory_op_shifts || []).filter((_: any, i: number) => i !== idx);
+                                      setEditData({ ...editData, factory_op_shifts: shifts });
+                                    }}
+                                  >
+                                    Delete
+                                  </Button>
+                                </div>
+                              </div>
+
+                              <div>
+                                <Label className="text-[10px]">Working Days <span className="text-red-400">*</span></Label>
+                                <div className="flex flex-wrap gap-2 mt-2">
+                                  {WORKING_DAYS.map((day) => {
+                                    const selectedDays = s.workingDays || [];
+                                    const isChecked = selectedDays.includes(day);
+                                    return (
+                                      <label
+                                        key={day}
+                                        className={`flex items-center gap-2 cursor-pointer select-none py-2 px-3 rounded border text-[10px] font-mono font-bold transition-all ${
+                                          isChecked
+                                            ? "border-lime bg-lime/10 text-lime"
+                                            : "border-border text-text-secondary bg-surface/30 hover:border-border-bright"
+                                        }`}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={isChecked}
+                                          onChange={() => {
+                                            const shifts = [...(editData.factory_op_shifts || [])];
+                                            shifts[idx] = {
+                                              ...shifts[idx],
+                                              workingDays: isChecked
+                                                ? selectedDays.filter((item: string) => item !== day)
+                                                : [...selectedDays, day]
+                                            };
+                                            setEditData({ ...editData, factory_op_shifts: shifts });
+                                          }}
+                                          className="sr-only"
+                                        />
+                                        <span className={`inline-flex h-3.5 w-3.5 items-center justify-center rounded border ${isChecked ? "border-lime bg-lime text-bg" : "border-text-dim"}`}>
+                                          {isChecked && <Check size={10} />}
+                                        </span>
+                                        <span>{day}</span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
                               </div>
                             </div>
                           ))}
@@ -1284,7 +1336,7 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                             <p className="text-xs text-text-dim italic">No shift records added</p>
                           )}
                         </div>
-                        
+
                         <div className="pt-2">
                           <Label>Downtime Reasons (comma-separated)</Label>
                           <Input
@@ -1672,12 +1724,15 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                                     {s.name || `Shift ${idx + 1}`}
                                   </h4>
                                   <p className="text-[10px] text-text-secondary mt-0.5">
-                                    Shift Timing: <strong className="text-lime font-mono">{s.startTime || "—"} ➔ {s.endTime || "—"}</strong>
+                                    Shift Timing: <strong className="text-lime font-mono">{formatTime24(s.startTime)} to {formatTime24(s.endTime)}</strong>
+                                  </p>
+                                  <p className="text-[10px] text-text-secondary mt-1">
+                                    Working Days: <strong className="text-text-primary font-mono">{getShiftWorkingDays(s, selectedAssessment.data).join(", ") || "Not specified"}</strong>
                                   </p>
                                 </div>
                               </div>
                               <button
-                                onClick={() => copyToClipboard(`${s.name || `Shift ${idx + 1}`}: ${s.startTime || "—"} to ${s.endTime || "—"}`, "Shift Timings")}
+                                onClick={() => copyToClipboard(`${s.name || `Shift ${idx + 1}`}: ${formatTime24(s.startTime)} to ${formatTime24(s.endTime)} | Working Days: ${getShiftWorkingDays(s, selectedAssessment.data).join(", ") || "Not specified"}`, "Shift Timings")}
                                 className="text-text-dim hover:text-lime p-1.5 rounded hover:bg-surface-raised cursor-pointer shrink-0"
                                 title="Copy Shift Timing"
                               >

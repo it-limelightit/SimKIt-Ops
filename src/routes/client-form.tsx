@@ -16,6 +16,7 @@ import {
   Wrench,
   FileText,
   CheckCircle2,
+  Check,
   AlertCircle,
   ArrowRight,
   ArrowLeft,
@@ -47,6 +48,8 @@ const COMMON_DOWNTIME_REASONS = [
   "Vendor / External Delay",
   "Machine Warm-up"
 ];
+
+const WORKING_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 // Server Function to fetch Site details and Assessment data by Token
 export const getClientFormSiteByTokenFn = createServerFn({ method: "POST" })
@@ -390,29 +393,7 @@ function ClientFormPage() {
       });
     }
 
-    // 5. Technicians List (Mandatory: ALL fields for every technician)
-    const technicians = formData.factory_op_technicians || [];
-    if (technicians.length === 0) {
-      errs.technicians = "At least 1 Technical detail entry is required";
-      sections.add("technicians");
-    } else {
-      technicians.forEach((t: any, idx: number) => {
-        if (!t.name || !t.name.trim()) {
-          errs[`tech_${idx}_name`] = `Technician #${idx + 1} Name is required`;
-          sections.add("technicians");
-        }
-        if (!t.contact || !t.contact.trim()) {
-          errs[`tech_${idx}_contact`] = `Technician #${idx + 1} Mobile Contact is required`;
-          sections.add("technicians");
-        }
-        if (!t.email || !t.email.trim()) {
-          errs[`tech_${idx}_email`] = `Technician #${idx + 1} Email is required`;
-          sections.add("technicians");
-        }
-      });
-    }
-
-    // 6. Shift Panel (Mandatory: remaining fields name, startTime, endTime)
+    // 5. Shift Panel (Mandatory: remaining fields name, startTime, endTime)
     const shifts = formData.factory_op_shifts || [];
     if (shifts.length === 0) {
       errs.shifts = "At least 1 Shift timing entry is required";
@@ -431,6 +412,10 @@ function ClientFormPage() {
           errs[`shift_${idx}_end`] = `Shift #${idx + 1} End Time is required`;
           sections.add("shifts");
         }
+        if (!Array.isArray(s.workingDays) || s.workingDays.length === 0) {
+          errs[`shift_${idx}_days`] = `Shift #${idx + 1} Working Day is required`;
+          sections.add("shifts");
+        }
       });
       if (checkShiftOverlap(shifts)) {
         errs.shift_overlap = "Shift timings overlap. Please adjust start/end times.";
@@ -438,7 +423,7 @@ function ClientFormPage() {
       }
     }
 
-    // 7. Electricity Board
+    // 6. Electricity Board
     if (!formData.factory_op_electricity_board || !formData.factory_op_electricity_board.trim()) {
       errs.electricity_board = "Electricity Board selection is required";
       sections.add("electricity");
@@ -790,9 +775,8 @@ function ClientFormPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <h4 className="text-xs font-mono font-bold uppercase text-text-secondary flex items-center gap-1.5">
-                      Technicians & Engineers Details <span className="text-red-400">*</span>
+                      Technicians & Engineers Details
                     </h4>
-                    {errors.technicians && <p className="text-[10px] text-red-400 mt-0.5">{errors.technicians}</p>}
                   </div>
                   <Button
                     variant="secondary"
@@ -811,7 +795,7 @@ function ClientFormPage() {
                   {(formData.factory_op_technicians || []).map((o: any, idx: number) => (
                     <div key={idx} className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end border-b border-border/20 pb-3 last:border-0 last:pb-0">
                       <div>
-                        <Label className="text-[10px]">Technician Name <span className="text-red-400">*</span></Label>
+                        <Label className="text-[10px]">Technician Name</Label>
                         <Input
                           value={o.name || ""}
                           onChange={(e) => {
@@ -824,7 +808,7 @@ function ClientFormPage() {
                         />
                       </div>
                       <div>
-                        <Label className="text-[10px]">Contact Mobile <span className="text-red-400">*</span></Label>
+                        <Label className="text-[10px]">Contact Mobile</Label>
                         <Input
                           value={o.contact || ""}
                           onChange={(e) => {
@@ -838,7 +822,7 @@ function ClientFormPage() {
                       </div>
                       <div className="flex items-center gap-2">
                         <div className="flex-1">
-                          <Label className="text-[10px]">Email Address <span className="text-red-400">*</span></Label>
+                          <Label className="text-[10px]">Email Address</Label>
                           <Input
                             value={o.email || ""}
                             onChange={(e) => {
@@ -896,7 +880,7 @@ function ClientFormPage() {
                     className="py-1 px-2.5 text-[9px] uppercase tracking-wider"
                     onClick={() => {
                       const list = [...(formData.factory_op_shifts || [])];
-                      list.push({ name: "", startTime: "", endTime: "" });
+                      list.push({ name: "", startTime: "", endTime: "", workingDays: [] });
                       setFormData({ ...formData, factory_op_shifts: list });
                     }}
                   >
@@ -906,57 +890,100 @@ function ClientFormPage() {
 
                 <div className="space-y-3">
                   {(formData.factory_op_shifts || []).map((s: any, idx: number) => (
-                    <div key={idx} className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end border-b border-border/20 pb-3 last:border-0 last:pb-0">
-                      <div>
-                        <Label className="text-[10px]">Shift Name (e.g. Shift A / Morning) <span className="text-red-400">*</span></Label>
-                        <Input
-                          value={s.name || ""}
-                          onChange={(e) => {
-                            const list = [...formData.factory_op_shifts];
-                            list[idx] = { ...list[idx], name: e.target.value };
-                            setFormData({ ...formData, factory_op_shifts: list });
-                          }}
-                          placeholder="Shift Name"
-                          className={`h-8 text-xs bg-surface ${errors[`shift_${idx}_name`] ? "border-red-500 ring-1 ring-red-500" : ""}`}
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-[10px]">Start Time <span className="text-red-400">*</span></Label>
-                        <Input
-                          type="time"
-                          value={s.startTime || ""}
-                          onChange={(e) => {
-                            const list = [...formData.factory_op_shifts];
-                            list[idx] = { ...list[idx], startTime: e.target.value };
-                            setFormData({ ...formData, factory_op_shifts: list });
-                          }}
-                          className={`h-8 text-xs bg-surface ${errors[`shift_${idx}_start`] ? "border-red-500 ring-1 ring-red-500" : ""}`}
-                        />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1">
-                          <Label className="text-[10px]">End Time <span className="text-red-400">*</span></Label>
+                    <div key={idx} className="space-y-3 border-b border-border/20 pb-3 last:border-0 last:pb-0">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end">
+                        <div>
+                          <Label className="text-[10px]">Shift Name (e.g. Shift A / Morning) <span className="text-red-400">*</span></Label>
                           <Input
-                            type="time"
-                            value={s.endTime || ""}
+                            value={s.name || ""}
                             onChange={(e) => {
                               const list = [...formData.factory_op_shifts];
-                              list[idx] = { ...list[idx], endTime: e.target.value };
+                              list[idx] = { ...list[idx], name: e.target.value };
                               setFormData({ ...formData, factory_op_shifts: list });
                             }}
-                            className={`h-8 text-xs bg-surface ${errors[`shift_${idx}_end`] ? "border-red-500 ring-1 ring-red-500" : ""}`}
+                            placeholder="Shift Name"
+                            className={`h-8 text-xs bg-surface ${errors[`shift_${idx}_name`] ? "border-red-500 ring-1 ring-red-500" : ""}`}
                           />
                         </div>
-                        <Button
-                          variant="danger"
-                          className="h-8 py-1 px-2.5 text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20"
-                          onClick={() => {
-                            const list = (formData.factory_op_shifts || []).filter((_: any, i: number) => i !== idx);
-                            setFormData({ ...formData, factory_op_shifts: list });
-                          }}
-                        >
-                          Delete
-                        </Button>
+                        <div>
+                          <Label className="text-[10px]">Start Time <span className="text-red-400">*</span></Label>
+                          <Input
+                            type="time"
+                            value={s.startTime || ""}
+                            onChange={(e) => {
+                              const list = [...formData.factory_op_shifts];
+                              list[idx] = { ...list[idx], startTime: e.target.value };
+                              setFormData({ ...formData, factory_op_shifts: list });
+                            }}
+                            className={`h-8 text-xs bg-surface ${errors[`shift_${idx}_start`] ? "border-red-500 ring-1 ring-red-500" : ""}`}
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1">
+                            <Label className="text-[10px]">End Time <span className="text-red-400">*</span></Label>
+                            <Input
+                              type="time"
+                              value={s.endTime || ""}
+                              onChange={(e) => {
+                                const list = [...formData.factory_op_shifts];
+                                list[idx] = { ...list[idx], endTime: e.target.value };
+                                setFormData({ ...formData, factory_op_shifts: list });
+                              }}
+                              className={`h-8 text-xs bg-surface ${errors[`shift_${idx}_end`] ? "border-red-500 ring-1 ring-red-500" : ""}`}
+                            />
+                          </div>
+                          <Button
+                            variant="danger"
+                            className="h-8 py-1 px-2.5 text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20"
+                            onClick={() => {
+                              const list = (formData.factory_op_shifts || []).filter((_: any, i: number) => i !== idx);
+                              setFormData({ ...formData, factory_op_shifts: list });
+                            }}
+                          >
+                            Delete
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <Label className="text-[10px]">Working Days <span className="text-red-400">*</span></Label>
+                        {errors[`shift_${idx}_days`] && <p className="text-[10px] text-red-400 mt-0.5">{errors[`shift_${idx}_days`]}</p>}
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {WORKING_DAYS.map((day) => {
+                            const selectedDays = s.workingDays || [];
+                            const isChecked = selectedDays.includes(day);
+                            return (
+                              <label
+                                key={day}
+                                className={`flex items-center gap-2 cursor-pointer select-none py-2 px-3 rounded-[6px] border text-xs font-mono font-bold transition-all duration-150 ${
+                                  isChecked
+                                    ? "border-lime bg-lime-dim/40 text-lime"
+                                    : "border-border hover:border-border-bright text-text-secondary bg-surface-raised/20"
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={() => {
+                                    const list = [...formData.factory_op_shifts];
+                                    list[idx] = {
+                                      ...list[idx],
+                                      workingDays: isChecked
+                                        ? selectedDays.filter((item: string) => item !== day)
+                                        : [...selectedDays, day]
+                                    };
+                                    setFormData({ ...formData, factory_op_shifts: list });
+                                  }}
+                                  className="sr-only"
+                                />
+                                <span className={`inline-flex h-3.5 w-3.5 items-center justify-center rounded border transition-all ${isChecked ? "border-lime bg-lime text-bg" : "border-text-dim"}`}>
+                                  {isChecked && <Check size={10} />}
+                                </span>
+                                <span>{day}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -965,7 +992,6 @@ function ClientFormPage() {
                   )}
                 </div>
               </div>
-
               {/* Downtime Reasons selection */}
               <div className="space-y-3">
                 <Label>Downtime Reasons (Select all that apply)</Label>
@@ -1283,8 +1309,7 @@ function ClientFormPage() {
                       errs.machine ||
                       errs.factory_op_address ||
                       errs.owners ||
-                      errs.technicians ||
-                      Object.keys(errs).some(k => k.startsWith("owner_") || k.startsWith("tech_"))
+                      Object.keys(errs).some(k => k.startsWith("owner_"))
                     );
                     if (hasStep1Err) {
                       const firstErr = Object.values(errs)[0] || "Please fill all mandatory fields in Step 1 before proceeding.";
@@ -1292,8 +1317,8 @@ function ClientFormPage() {
                       return;
                     }
                   }
-                  if (step === 2 && errs.shifts) {
-                    toast.error("Please fill shift details before proceeding.");
+                  if (step === 2 && (errs.shifts || errs.shift_overlap || Object.keys(errs).some(k => k.startsWith("shift_")))) {
+                    toast.error(Object.values(errs).find((_, idx) => Object.keys(errs)[idx].startsWith("shift_")) || errs.shift_overlap || "Please fill shift details before proceeding.");
                     return;
                   }
                   if (step === 3 && (errs.machine || errs.electricity_board)) {

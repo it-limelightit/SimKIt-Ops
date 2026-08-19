@@ -722,7 +722,6 @@ function OrderCard({
   const [proxy2, setProxy2] = useState(false);
   const [encoder, setEncoder] = useState(false);
   const [vibration, setVibration] = useState(false);
-  const [vibrationModel, setVibrationModel] = useState(material.vibration_model || "");
   const [antenna, setAntenna] = useState(false);
   const [towerLight, setTowerLight] = useState(false);
   const [energyMeter, setEnergyMeter] = useState(false);
@@ -757,7 +756,6 @@ function OrderCard({
     setPackingDate(initialNotes.packing_date || "");
     setTransitDate(initialNotes.transit_date || "");
     setArrivedDate(initialNotes.arrived_date || "");
-    setVibrationModel(material.vibration_model || "");
     setVersion(material.version || "");
     setOtaKey(material.ota_key || "");
     setOtaAccount(material.ota_account || "");
@@ -844,7 +842,6 @@ function OrderCard({
         proxy2: proxy2 ? "TRUE" : "FALSE",
         encoder: encoder ? "TRUE" : "FALSE",
         vibration: vibration ? "TRUE" : "FALSE",
-        vibration_model: vibrationModel || null,
         antenna: antenna ? "TRUE" : "FALSE",
         tower_light: towerLight ? "TRUE" : "FALSE",
         energy_meter: energyMeter ? "TRUE" : "FALSE",
@@ -1290,15 +1287,6 @@ function OrderCard({
                           </Select>
                         </div>
                         <div>
-                          <Label>Vibration Model</Label>
-                          <Select value={vibrationModel} onChange={(e) => setVibrationModel(e.target.value)}>
-                            <option value="">Select vibration model...</option>
-                            <option value="renke">Renke</option>
-                            <option value="witmotion">WitMotion</option>
-                            <option value="vibe-q">Vibe Q</option>
-                          </Select>
-                        </div>
-                        <div>
                           <Label>ICCID (SIM Serial)</Label>
                           <Input value={iccid} onChange={(e) => setIccid(e.target.value)} placeholder="SIM Card ICCID" />
                         </div>
@@ -1355,7 +1343,6 @@ function OrderCard({
                       <div className="p-4 bg-surface-raised/40 border border-border/60 rounded-xl font-mono text-[11px] not-italic space-y-1.5">
                         <div>Version: <strong>{material.version || "N/A"}</strong></div>
                         <div>Uplink: <strong>{material.uplink || "N/A"}</strong></div>
-                        <div>Vib Model: <strong>{material.vibration_model || "N/A"}</strong></div>
                         <div>ICCID: <strong>{material.iccid || "N/A"}</strong></div>
                         <div>OTA Key: <strong>{material.ota_key || "N/A"}</strong></div>
                         <div>OTA Account: <strong>{material.ota_account || "N/A"}</strong></div>
