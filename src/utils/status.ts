@@ -148,8 +148,8 @@ export function getCanonicalStatus(
   }
 
   // 7. Panel Dispatched
-  const isMaterialDelivered = logisticsStatus === "Delivered";
-  if (isMaterialDelivered) {
+  const isPanelDispatched = ["Shipped", "Transit", "In transit", "Delivered"].includes(logisticsStatus);
+  if (isPanelDispatched) {
     return "Panel Dispatched";
   }
 

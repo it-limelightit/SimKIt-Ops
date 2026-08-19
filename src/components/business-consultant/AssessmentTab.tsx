@@ -21,7 +21,14 @@ import { useAuth } from "@/lib/auth-store";
 import { advanceSiteVisitStatus, parseSiteMetadata, serializeSiteMetadata } from "@/lib/site-metadata";
 import { Plus, Trash2, Users, Wrench, AlertTriangle, ChevronDown, ChevronUp, Building2, Check, Mail, Clock } from "lucide-react";
 
-type Props = { siteId: string; workerId: string; hiddenSections?: string[]; onSubmit?: () => void };
+type Props = {
+  siteId: string;
+  workerId: string;
+  hiddenSections?: string[];
+  onSubmit?: () => void;
+  requireDeviceOrderCompletion?: boolean;
+  children?: React.ReactNode;
+};
 
 type AData = Record<string, any>;
 
@@ -49,7 +56,7 @@ export function getAppointmentTimingStatus(scheduledDateStr: string | null, sche
   }
 }
 
-export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Props) {
+export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit, requireDeviceOrderCompletion = false, children }: Props) {
   const { data, patch, save, loaded, lastSaved, saving } = usePhaseData<AData>("assessment", siteId, workerId, {});
   const validateSectionLinks = async (sectionName: string, defaultSectionKeys: string[]) => {
     for (const key of defaultSectionKeys) {
@@ -338,6 +345,8 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
         </Card>
       )}
 
+      {children}
+
       <div className="mt-8 flex justify-end">
         <Button
           onClick={async () => {
@@ -372,13 +381,16 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit }: Pr
               return;
             }
 
+            if (onSubmit) onSubmit();
+            if (requireDeviceOrderCompletion) return;
+
             await save({
               ...data,
               assessment_phase_submitted: true,
+              assessment_details_submitted: true,
               factory_form_submitted_at: new Date().toISOString(),
             });
             toast.success("Assessment phase submitted.");
-            if (onSubmit) onSubmit();
           }}
           className="w-full sm:w-auto text-base py-3 px-8"
         >

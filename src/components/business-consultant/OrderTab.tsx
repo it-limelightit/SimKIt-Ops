@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, SectionTitle, Label, Input, Select, Button, Checkbox } from "@/components/ui-kit";
+import { Card, Label, Input, Select, Button, Checkbox } from "@/components/ui-kit";
 import { toast } from "sonner";
-import { Cpu, Layers, CheckCircle2, RefreshCw, Activity, ExternalLink } from "lucide-react";
+import { Cpu, Layers, CheckCircle2, RefreshCw, Activity, ExternalLink, ChevronDown, ChevronUp } from "lucide-react";
 
 interface OrderTabProps {
   site: {
@@ -13,9 +13,10 @@ interface OrderTabProps {
     address: string | null;
   };
   workerId: string;
+  onOrderReady?: () => void;
 }
 
-export function OrderTab({ site, workerId }: OrderTabProps) {
+export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
   const [ct1, setCt1] = useState(false);
   const [ct2, setCt2] = useState(false);
   const [ct3, setCt3] = useState(false);
@@ -34,6 +35,7 @@ export function OrderTab({ site, workerId }: OrderTabProps) {
   const [submittedOrder, setSubmittedOrder] = useState<any | null>(null);
   const [existingOrder, setExistingOrder] = useState<any | null>(null);
   const [loadingOrder, setLoadingOrder] = useState(true);
+  const [expanded, setExpanded] = useState(false);
 
   const companyName = site.company_name || site.name;
   const address = site.address?.trim() || site.city?.trim() || "Address not specified";
@@ -51,6 +53,7 @@ export function OrderTab({ site, workerId }: OrderTabProps) {
 
         if (!error && data) {
           setExistingOrder(data);
+          onOrderReady?.();
         } else if (!error) {
           setExistingOrder(null);
         }
@@ -136,6 +139,7 @@ export function OrderTab({ site, workerId }: OrderTabProps) {
 
       toast.success("Device order submitted successfully!");
       setSubmittedOrder(inserted);
+      onOrderReady?.();
       // Reset form
       setCt1(false);
       setCt2(false);
@@ -157,13 +161,46 @@ export function OrderTab({ site, workerId }: OrderTabProps) {
     }
   };
 
+  const sectionHeader = (
+    <div
+      className="flex items-center justify-between cursor-pointer select-none gap-4"
+      onClick={() => setExpanded(prev => !prev)}
+    >
+      <div className="mb-5 flex min-w-0 flex-1 items-baseline gap-3 border-b border-border pb-2">
+        <span className="font-mono text-[10px] font-bold text-lime/60 uppercase tracking-widest">
+          04
+        </span>
+        <h3 className="font-syne text-[17px] font-bold text-text-primary uppercase tracking-wide truncate">
+          Device & Sensor Order Form
+        </h3>
+      </div>
+      <span className="mb-5 inline-flex shrink-0 items-center gap-1 rounded-[4px] border border-lime/20 bg-lime-dim/50 px-2 py-0.5 font-mono text-[10px] font-bold text-lime">
+        {expanded ? (
+          <>
+            COLLAPSE <ChevronUp size={12} />
+          </>
+        ) : (
+          <>
+            EXPAND <ChevronDown size={12} />
+          </>
+        )}
+      </span>
+    </div>
+  );
+
   if (loadingOrder) {
     return (
-      <Card className="max-w-2xl mx-auto p-8 text-center space-y-4 border border-border">
-        <div className="flex justify-center">
-          <RefreshCw className="animate-spin text-lime" size={32} />
-        </div>
-        <p className="text-text-secondary text-sm font-mono">Checking order status...</p>
+      <Card className="border-l-[3px] border-lime relative">
+        <div className="section-number-ghost">04</div>
+        {sectionHeader}
+        {expanded && (
+          <div className="p-8 text-center space-y-4 border border-border rounded-[8px]">
+            <div className="flex justify-center">
+              <RefreshCw className="animate-spin text-lime" size={32} />
+            </div>
+            <p className="text-text-secondary text-sm font-mono">Checking order status...</p>
+          </div>
+        )}
       </Card>
     );
   }
@@ -181,65 +218,73 @@ export function OrderTab({ site, workerId }: OrderTabProps) {
     const logisticsStatus = orderNotes.logistics_status || "Pending";
     const trackingId = (orderToShow.tracking_number || orderNotes.courier_id || "").trim();
     return (
-      <Card className="max-w-2xl mx-auto border border-lime p-8 text-center space-y-6 animate-fade-in">
-        <div className="flex justify-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-lime/10 text-lime">
-            <CheckCircle2 size={36} />
-          </div>
-        </div>
-        <h2 className="text-2xl font-bold font-syne uppercase tracking-tight text-text-primary">
-          {existingOrder ? "Order Already Placed" : "Order Submitted Successfully"}
-        </h2>
-        <p className="text-sm text-text-secondary max-w-md mx-auto">
-          The order for <strong className="text-text-primary">{companyName}</strong> has been transmitted to Logistics. The manager will prepare the packing list shortly.
-        </p>
-        <div className="p-4 bg-surface rounded-[8px] border border-border text-left space-y-2 max-w-md mx-auto font-mono text-xs">
-          <div><span className="text-text-dim">Company:</span> {orderToShow.material_name}</div>
-          <div>
-            <span className="text-text-dim">Status:</span>{" "}
-            <span className="text-yellow font-bold">
-              {logisticsStatus}
-            </span>
-          </div>
-          {trackingId && (
-            <>
+      <Card className="border-l-[3px] border-lime relative">
+        <div className="section-number-ghost">04</div>
+        {sectionHeader}
+        {expanded && (
+          <div className="border border-lime p-6 sm:p-8 text-center space-y-6 animate-fade-in rounded-[8px]">
+            <div className="flex justify-center">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-lime/10 text-lime">
+                <CheckCircle2 size={36} />
+              </div>
+            </div>
+            <h2 className="text-2xl font-bold font-syne uppercase tracking-tight text-text-primary">
+              {existingOrder ? "Order Already Placed" : "Order Submitted Successfully"}
+            </h2>
+            <p className="text-sm text-text-secondary max-w-md mx-auto">
+              The order for <strong className="text-text-primary">{companyName}</strong> has been transmitted to Logistics. The manager will prepare the packing list shortly.
+            </p>
+            <div className="p-4 bg-surface rounded-[8px] border border-border text-left space-y-2 max-w-md mx-auto font-mono text-xs">
+              <div><span className="text-text-dim">Company:</span> {orderToShow.material_name}</div>
               <div>
-                <span className="text-text-dim">Tracking ID:</span>{" "}
-                <span className="text-text-primary font-bold">{trackingId}</span>
+                <span className="text-text-dim">Status:</span>{" "}
+                <span className="text-yellow font-bold">
+                  {logisticsStatus}
+                </span>
               </div>
-              <div className="pt-2 border-t border-border">
-                <form
-                  method="post"
-                  action="https://www.shreetirupaticourier.net/TopHeader.aspx"
-                  target="_blank"
-                  className="inline"
-                >
-                  <input type="hidden" name="__VIEWSTATE" value="/wEPDwUJMjM2OTI0MjUwD2QWAgIBD2QWBAIBDw9kFgIeCm9ua2V5cHJlc3MFHHJldHVybiBkaWdpdEZvckF3Yk5vKGV2ZW50KTtkAgMPD2QWAh4Hb25jbGljawUacmV0dXJuIFZhbGlkYXRlVHJhY2tpbmcoKTtkZDRSJIrZ+Og+mmhys2nVy5M+JSny" />
-                  <input type="hidden" name="__VIEWSTATEGENERATOR" value="AA404F49" />
-                  <input type="hidden" name="__EVENTVALIDATION" value="/wEWBQL60+WVCQKY2J7eAwLV5PDDBQKI9fuZCALGrczMAgthJfe1nRl4yKw9QN3vV/9yKST7" />
-                  <input type="hidden" name="trackingno" value={trackingId} />
-                  <input type="hidden" name="btnTrack" value="Go" />
-                  <button
-                    type="submit"
-                    className="inline-flex items-center gap-1.5 text-lime hover:underline font-bold bg-transparent border-0 p-0 cursor-pointer"
-                  >
-                    Track on Shree Tirupati Courier
-                    <ExternalLink size={12} />
-                  </button>
-                </form>
-              </div>
-            </>
-          )}
-        </div>
+              {trackingId && (
+                <>
+                  <div>
+                    <span className="text-text-dim">Tracking ID:</span>{" "}
+                    <span className="text-text-primary font-bold">{trackingId}</span>
+                  </div>
+                  <div className="pt-2 border-t border-border">
+                    <form
+                      method="post"
+                      action="https://www.shreetirupaticourier.net/TopHeader.aspx"
+                      target="_blank"
+                      className="inline"
+                    >
+                      <input type="hidden" name="__VIEWSTATE" value="/wEPDwUJMjM2OTI0MjUwD2QWAgIBD2QWBAIBDw9kFgIeCm9ua2V5cHJlc3MFHHJldHVybiBkaWdpdEZvckF3Yk5vKGV2ZW50KTtkAgMPD2QWAh4Hb25jbGljawUacmV0dXJuIFZhbGlkYXRlVHJhY2tpbmcoKTtkZDRSJIrZ+Og+mmhys2nVy5M+JSny" />
+                      <input type="hidden" name="__VIEWSTATEGENERATOR" value="AA404F49" />
+                      <input type="hidden" name="__EVENTVALIDATION" value="/wEWBQL60+WVCQKY2J7eAwLV5PDDBQKI9fuZCALGrczMAgthJfe1nRl4yKw9QN3vV/9yKST7" />
+                      <input type="hidden" name="trackingno" value={trackingId} />
+                      <input type="hidden" name="btnTrack" value="Go" />
+                      <button
+                        type="submit"
+                        className="inline-flex items-center gap-1.5 text-lime hover:underline font-bold bg-transparent border-0 p-0 cursor-pointer"
+                      >
+                        Track on Shree Tirupati Courier
+                        <ExternalLink size={12} />
+                      </button>
+                    </form>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
       </Card>
     );
   }
 
   return (
-    <Card className="max-w-4xl mx-auto border border-border">
-      <SectionTitle num={4}>Device & Sensor Order Form</SectionTitle>
-      
-      <form onSubmit={handleSubmit} className="space-y-6">
+    <Card className="border-l-[3px] border-lime relative">
+      <div className="section-number-ghost">04</div>
+      {sectionHeader}
+
+      {expanded && (
+      <form onSubmit={handleSubmit} className="space-y-6 animate-in fade-in duration-200">
         {/* A. Fixed Details */}
         <div className="grid gap-4 sm:grid-cols-2 bg-surface-raised/20 p-4 border border-border rounded-[8px]">
           <div>
@@ -262,14 +307,14 @@ export function OrderTab({ site, workerId }: OrderTabProps) {
             Sensors Section
           </div>
 
-          <div className="grid gap-6 md:grid-cols-3">
+          <div className="grid gap-4 lg:grid-cols-3">
             {/* CT Clamps */}
-            <div className="p-4 border border-border bg-surface-raised/10 rounded-[8px] space-y-3 flex flex-col justify-between">
+            <div className="p-4 border border-border bg-surface-raised/10 rounded-[8px] space-y-3 flex flex-col justify-between min-h-[160px]">
               <div>
                 <Label className="text-text-primary font-bold flex items-center gap-1.5"><Cpu size={14} /> CT Clamps</Label>
                 <p className="text-[10px] text-text-secondary mb-3">Check required CT channels.</p>
               </div>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <Checkbox
                   checked={ct1}
                   onCheckedChange={setCt1}
@@ -292,7 +337,7 @@ export function OrderTab({ site, workerId }: OrderTabProps) {
             </div>
 
             {/* Proximity Sensors */}
-            <div className="p-4 border border-border bg-surface-raised/10 rounded-[8px] space-y-3">
+            <div className="p-4 border border-border bg-surface-raised/10 rounded-[8px] space-y-3 min-h-[160px]">
               <Label className="text-text-primary font-bold flex items-center gap-1.5"><Layers size={14} /> Proximity Sensors</Label>
               <div className="space-y-2">
                 <div>
@@ -309,7 +354,7 @@ export function OrderTab({ site, workerId }: OrderTabProps) {
                     <option value="magnetic">Magnetic</option>
                   </Select>
                 </div>
-                <div className="flex gap-4 pt-1">
+                <div className="flex flex-wrap gap-4 pt-1">
                   <Checkbox
                     checked={proxy1}
                     onCheckedChange={setProxy1}
@@ -327,7 +372,7 @@ export function OrderTab({ site, workerId }: OrderTabProps) {
             </div>
 
             {/* Vibration Sensor Panel */}
-            <div className="p-4 border border-border bg-surface-raised/10 rounded-[8px] space-y-3">
+            <div className="p-4 border border-border bg-surface-raised/10 rounded-[8px] space-y-3 min-h-[160px]">
               <Label className="text-text-primary font-bold flex items-center gap-1.5"><Activity size={14} /> Vibration Sensors</Label>
               <div className="space-y-2">
                 <div>
@@ -358,7 +403,7 @@ export function OrderTab({ site, workerId }: OrderTabProps) {
           {/* Other Sensors Grid */}
           <div className="p-4 border border-border bg-surface-raised/10 rounded-[8px]">
             <Label className="text-text-primary font-bold mb-3 block">Additional Components</Label>
-            <div className="grid gap-4 grid-cols-2 sm:grid-cols-5">
+            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
               <Checkbox
                 checked={encoder}
                 onCheckedChange={setEncoder}
@@ -401,6 +446,7 @@ export function OrderTab({ site, workerId }: OrderTabProps) {
           </Button>
         </div>
       </form>
+      )}
     </Card>
   );
 }

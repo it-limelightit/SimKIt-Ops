@@ -24,7 +24,6 @@ const FACTORY_STATUS_OPTIONS = [
   "Submitted",
   "Unsubmitted",
   "Certification Pending",
-  "Panel Dispatched",
   "Installed",
   "Commissioned",
   "Assessed",
@@ -830,7 +829,7 @@ export function SitesPanel() {
   }));
 
   const cities = Array.from(new Set(sites.map((s) => s.city).filter(Boolean))).sort();
-  // These statuses are manually assignable. "Panel Dispatched" is auto from logistics;
+  // These statuses are manually assignable. Pending panel dispatch is auto from logistics;
   // "Total Assignment Pending on Portal" is auto = Assigned − Submitted. Neither appears here.
   const statuses = [
     "Submitted",
@@ -839,7 +838,6 @@ export function SitesPanel() {
     "Installed",
     "Commissioned",
     "Assessed",
-    "Panel Dispatched",
     "Dropped / Rejected",
   ];
   const assessors = Array.from(
@@ -1406,6 +1404,11 @@ export function SitesPanel() {
                             }`}
                           >
                             <option value="">— None —</option>
+                            {canonicalStatus === "Panel Dispatched" && (
+                              <option value="Panel Dispatched">
+                                Pending Panel Dispatched
+                              </option>
+                            )}
                             {FACTORY_STATUS_OPTIONS.map((status) => (
                               <option key={status} value={status}>
                                 {status}
