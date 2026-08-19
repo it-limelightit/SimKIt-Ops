@@ -121,7 +121,7 @@ export function getCanonicalStatus(
   if (meta.status === "Unsubmitted") return "Unsubmitted";
   if (meta.status === "Commissioned") return "Commissioned";
   if (meta.status === "Installed") return "Installed";
-  if (meta.status === "Panel Dispatched") return "Panel Dispatched";
+  if (meta.status === "Panel Dispatched" && ["Shipped", "Transit", "In transit", "Delivered"].includes(logisticsStatus)) return "Panel Dispatched";
   if (meta.status === "Assessed" || meta.status === "In Assessment") return "Assessed";
   if (meta.status === "Not Started Yet") return "Not Started Yet";
   if (meta.status === "Pending Assignment") return hasWorker ? "Not Started Yet" : "Pending Assignment";
@@ -147,15 +147,15 @@ export function getCanonicalStatus(
     return "Installed";
   }
 
-  // 7. Panel Dispatched
+  // 7. Assessed (A === 100 or A > 0)
+  if (realAP === 100 || realAP > 0) {
+    return "Assessed";
+  }
+
+  // 8. Panel Dispatched (logistics-derived only after assessment is complete)
   const isPanelDispatched = ["Shipped", "Transit", "In transit", "Delivered"].includes(logisticsStatus);
   if (isPanelDispatched) {
     return "Panel Dispatched";
-  }
-
-  // 8. Assessed (A === 100 or A > 0)
-  if (realAP === 100 || realAP > 0) {
-    return "Assessed";
   }
 
   // 9. Default: Not Started Yet / Pending Assignment
