@@ -812,13 +812,27 @@ const filteredForCounts = allProcessedRows.filter((row) => {
 });
 
 // Calculate counts based on current filters and canonical status partitioning
-const isPendingPanelDispatched = (r: SiteRow) => r.hasLogisticsOrder && ["Pending", "Packing"].includes(r.logisticsStatus);
-const activeAssignedRows = filteredForCounts.filter((r) => r.workerIds.length > 0 && r.status !== "Submitted" && r.status !== "Dropped / Rejected" && r.status !== "Unsubmitted" && r.status !== "Certification Pending");
+const isPendingPanelDispatched = (r: SiteRow) => ![
+  "Submitted",
+  "Unsubmitted",
+  "Certification Pending",
+  "Dropped / Rejected",
+  "Pending Assignment",
+  "Assessed",
+  "Installed",
+  "Commissioned",
+].includes(r.status) && (r.status === "Panel Dispatched" || (r.hasLogisticsOrder && ["Pending", "Packing", "Shipped", "Transit", "In transit", "Delivered"].includes(r.logisticsStatus)));
+const assignedWorkflowRows = filteredForCounts.filter((r) => ![
+  "Submitted",
+  "Unsubmitted",
+  "Certification Pending",
+  "Dropped / Rejected",
+  "Pending Assignment",
+].includes(r.status));
+const activeAssignedRows = assignedWorkflowRows;
 const countTotal = filteredForCounts.length; // First card represents total companies count
-const countPending = filteredForCounts.filter((r) => {
-  const status = r.status;
-  return r.workerIds.length === 0 && status !== "Submitted" && status !== "Dropped / Rejected";
-}).length;
+// Keep the top-level company buckets mutually exclusive for reconciliation.
+const countPending = filteredForCounts.filter((r) => r.status === "Pending Assignment").length;
 const countSubmitted = filteredForCounts.filter((r) => r.status === "Submitted").length;
 const countPendingPortal = filteredForCounts.filter((r) => {
   const status = r.status;
@@ -828,8 +842,8 @@ const countUnsubmitted = filteredForCounts.filter((r) => r.status === "Unsubmitt
 const countCertification = filteredForCounts.filter((r) => r.status === "Certification Pending").length;
 const countInstalled = activeAssignedRows.filter((r) => r.status === "Installed").length;
 const countCommissioned = activeAssignedRows.filter((r) => r.status === "Commissioned").length;
-const countPendingDispatched = activeAssignedRows.filter((r) => isPendingPanelDispatched(r) && r.status !== "Installed" && r.status !== "Commissioned").length;
-const countAssessment = activeAssignedRows.filter((r) => r.status === "Assessed" && !isPendingPanelDispatched(r)).length;
+const countPendingDispatched = activeAssignedRows.filter((r) => isPendingPanelDispatched(r)).length;
+const countAssessment = activeAssignedRows.filter((r) => r.status === "Assessed").length;
 const countDropped = filteredForCounts.filter((r) => r.status === "Dropped / Rejected").length;
 const countNotStarted = activeAssignedRows.filter((r) => r.status === "Not Started Yet" && !isPendingPanelDispatched(r)).length;
 const countAssignedBc = countNotStarted + countAssessment + countPendingDispatched + countInstalled + countCommissioned;
@@ -850,17 +864,17 @@ const filteredByKpi = filteredForCounts.filter((row) => {
     case "commissioned":
       return status === "Commissioned";
     case "pending":
-      return row.workerIds.length === 0 && status !== "Submitted" && status !== "Dropped / Rejected";
+      return status === "Pending Assignment";
     case "pending_portal":
       return status !== "Submitted" && status !== "Dropped / Rejected";
     case "assigned_bc":
-      return activeAssignedRows.some((r) => r.id === row.id);
+      return assignedWorkflowRows.some((r) => r.id === row.id);
     case "not_started":
       return row.workerIds.length > 0 && status === "Not Started Yet" && !isPendingPanelDispatched(row);
     case "assessment":
-      return row.workerIds.length > 0 && status === "Assessed" && !isPendingPanelDispatched(row);
+      return row.workerIds.length > 0 && status === "Assessed";
     case "dispatched":
-      return row.workerIds.length > 0 && isPendingPanelDispatched(row) && status !== "Installed" && status !== "Commissioned";
+      return isPendingPanelDispatched(row);
     case "dropped":
       return status === "Dropped / Rejected";
     default:
@@ -1271,7 +1285,7 @@ const kpis = [
     id: "dispatched",
     label: "Pending Panel Dispatched",
     value: countPendingDispatched,
-    desc: "Logistics pending or packing",
+    desc: "Logistics order in dispatch flow",
     icon: Truck,
     badgeStyle: "text-blue-600 bg-blue-50 border-blue-200",
     dotStyle: "bg-blue-500",
