@@ -80,6 +80,7 @@ type SiteRow = {
     c1_email: string;
   };
   logisticsStatus: string;
+  hasLogisticsOrder: boolean;
   status: string;
 };
 
@@ -87,7 +88,6 @@ const FACTORY_STATUS_OPTIONS = [
   "Pending Assignment",
   "Not Started Yet",
   "Assessed",
-  "Panel Dispatched",
   "Installed",
   "Commissioned",
   "Certification Pending",
@@ -134,7 +134,7 @@ export function Overview() {
 
   // Consultant Modal States
   const [consultantSiteId, setConsultantSiteId] = useState<string | null>(null);
-  const [modalTab, setModalTab] = useState<"assessment" | "installation" | "commissioning" | "order">("assessment");
+  const [modalTab, setModalTab] = useState<"assessment" | "installation" | "commissioning">("assessment");
   const [modalProgress, setModalProgress] = useState({ assessment: 0, installation: 0, commissioning: 0 });
   const [modalSubmittedPhases, setModalSubmittedPhases] = useState<Set<string>>(new Set());
   const [clientShareEmail, setClientShareEmail] = useState("");
@@ -282,6 +282,55 @@ export function Overview() {
       return;
     }
     toast.success(`Site moved to ${stage}`);
+    await loadData();
+  };
+
+  const completeAssessmentAfterDeviceOrder = async (site: any) => {
+    if (!site || !userId) return;
+    const companyName = site.company_name || site.name;
+    const { data: order, error: orderError } = await supabase
+      .from("inventory_materials")
+      .select("id")
+      .eq("submitted", true)
+      .eq("material_name", companyName)
+      .maybeSingle();
+
+    if (orderError || !order) {
+      toast.error("Please submit the device order before completing Assessment.");
+      return;
+    }
+
+    const { data: assessmentRow } = await supabase
+      .from("assessment")
+      .select("data")
+      .eq("site_id", site.id)
+      .maybeSingle();
+
+    const existingData = (assessmentRow?.data ?? {}) as Record<string, any>;
+    const { error } = await supabase
+      .from("assessment")
+      .upsert({
+        site_id: site.id,
+        worker_id: userId,
+        data: {
+          ...existingData,
+          assessment_phase_submitted: true,
+          assessment_details_submitted: true,
+          factory_form_submitted_at: existingData.factory_form_submitted_at || new Date().toISOString(),
+          device_order_completed: true,
+          device_order_completed_at: existingData.device_order_completed_at || new Date().toISOString(),
+        },
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "site_id" });
+
+    if (error) {
+      toast.error("Device order saved, but assessment status could not be completed.");
+      return;
+    }
+
+    setModalSubmittedPhases(prev => new Set([...prev, "assessment"]));
+    setModalTab("installation");
+    toast.success("Assessment phase submitted.");
     await loadData();
   };
 
@@ -603,6 +652,11 @@ export function Overview() {
         }}
         className={`rounded border px-2 py-0.5 text-[11px] font-semibold cursor-pointer outline-none transition-colors ${toneClass}`}
       >
+        {canonicalStatus === "Panel Dispatched" && (
+          <option value="Panel Dispatched" className="bg-surface text-text-primary">
+            Pending Panel Dispatched
+          </option>
+        )}
         {FACTORY_STATUS_OPTIONS.map((status) => (
           <option key={status} value={status} className="bg-surface text-text-primary">
             {status}
@@ -703,7 +757,8 @@ const allProcessedRows: SiteRow[] = rawSites.map((site) => {
       (normName && (normMat.includes(normName) || normName.includes(normMat)));
     return matched;
   });
-  const logisticsStatus = matchingMaterial ? getLogisticsStatus(matchingMaterial) : "Pending";
+  const hasLogisticsOrder = !!matchingMaterial;
+  const logisticsStatus = matchingMaterial ? getLogisticsStatus(matchingMaterial) : "";
   const canonicalStatus = getCanonicalStatus(site, aMap, iMap, cMap, rawMaterials);
 
   if (canonicalStatus === "Assessed") {
@@ -745,6 +800,7 @@ const allProcessedRows: SiteRow[] = rawSites.map((site) => {
     },
     status: canonicalStatus,
     logisticsStatus,
+    hasLogisticsOrder,
   };
 });
 
@@ -756,14 +812,12 @@ const filteredForCounts = allProcessedRows.filter((row) => {
 });
 
 // Calculate counts based on current filters and canonical status partitioning
+const isPendingPanelDispatched = (r: SiteRow) => r.hasLogisticsOrder && ["Pending", "Packing"].includes(r.logisticsStatus);
+const activeAssignedRows = filteredForCounts.filter((r) => r.workerIds.length > 0 && r.status !== "Submitted" && r.status !== "Dropped / Rejected" && r.status !== "Unsubmitted" && r.status !== "Certification Pending");
 const countTotal = filteredForCounts.length; // First card represents total companies count
 const countPending = filteredForCounts.filter((r) => {
   const status = r.status;
   return r.workerIds.length === 0 && status !== "Submitted" && status !== "Dropped / Rejected";
-}).length;
-const countAssignedBc = filteredForCounts.filter((r) => {
-  const status = r.status;
-  return r.workerIds.length > 0 && status !== "Submitted" && status !== "Dropped / Rejected";
 }).length;
 const countSubmitted = filteredForCounts.filter((r) => r.status === "Submitted").length;
 const countPendingPortal = filteredForCounts.filter((r) => {
@@ -772,12 +826,13 @@ const countPendingPortal = filteredForCounts.filter((r) => {
 }).length;
 const countUnsubmitted = filteredForCounts.filter((r) => r.status === "Unsubmitted").length;
 const countCertification = filteredForCounts.filter((r) => r.status === "Certification Pending").length;
-const countInstalled = filteredForCounts.filter((r) => r.status === "Installed").length;
-const countCommissioned = filteredForCounts.filter((r) => r.status === "Commissioned").length;
-const countAssessment = filteredForCounts.filter((r) => r.status === "Assessed").length;
-const countDispatched = filteredForCounts.filter((r) => r.status === "Panel Dispatched").length;
+const countInstalled = activeAssignedRows.filter((r) => r.status === "Installed").length;
+const countCommissioned = activeAssignedRows.filter((r) => r.status === "Commissioned").length;
+const countPendingDispatched = activeAssignedRows.filter((r) => isPendingPanelDispatched(r) && r.status !== "Installed" && r.status !== "Commissioned").length;
+const countAssessment = activeAssignedRows.filter((r) => r.status === "Assessed" && !isPendingPanelDispatched(r)).length;
 const countDropped = filteredForCounts.filter((r) => r.status === "Dropped / Rejected").length;
-const countNotStarted = filteredForCounts.filter((r) => r.status === "Not Started Yet").length;
+const countNotStarted = activeAssignedRows.filter((r) => r.status === "Not Started Yet" && !isPendingPanelDispatched(r)).length;
+const countAssignedBc = countNotStarted + countAssessment + countPendingDispatched + countInstalled + countCommissioned;
 
 // Apply selected KPI filter to table
 const filteredByKpi = filteredForCounts.filter((row) => {
@@ -799,13 +854,13 @@ const filteredByKpi = filteredForCounts.filter((row) => {
     case "pending_portal":
       return status !== "Submitted" && status !== "Dropped / Rejected";
     case "assigned_bc":
-      return row.workerIds.length > 0 && status !== "Submitted" && status !== "Dropped / Rejected";
+      return activeAssignedRows.some((r) => r.id === row.id);
     case "not_started":
-      return status === "Not Started Yet";
+      return row.workerIds.length > 0 && status === "Not Started Yet" && !isPendingPanelDispatched(row);
     case "assessment":
-      return status === "Assessed";
+      return row.workerIds.length > 0 && status === "Assessed" && !isPendingPanelDispatched(row);
     case "dispatched":
-      return status === "Panel Dispatched";
+      return row.workerIds.length > 0 && isPendingPanelDispatched(row) && status !== "Installed" && status !== "Commissioned";
     case "dropped":
       return status === "Dropped / Rejected";
     default:
@@ -1214,9 +1269,9 @@ const kpis = [
   },
   {
     id: "dispatched",
-    label: "Panel Dispatched",
-    value: countDispatched,
-    desc: "Panels delivered to site",
+    label: "Pending Panel Dispatched",
+    value: countPendingDispatched,
+    desc: "Logistics pending or packing",
     icon: Truck,
     badgeStyle: "text-blue-600 bg-blue-50 border-blue-200",
     dotStyle: "bg-blue-500",
@@ -1520,7 +1575,7 @@ return (
             {/* Column 3: Middle Container Box (Assessed, Dispatched, Installed, Commissioned) */}
             <div className="lg:col-span-6 border border-border bg-surface/30 rounded-2xl p-4 flex flex-col justify-between h-full">
               <div className="grid grid-cols-1 md:grid-cols-12 gap-4 flex-1">
-                {/* Assessed & Panel Dispatched Stack */}
+                {/* Assessed & Pending Panel Dispatched Stack */}
                 <div className="md:col-span-6 flex flex-col gap-3 justify-between h-full">
                   {[
                     kpis.find(x => x.id === "assessment")!,
@@ -1905,10 +1960,8 @@ return (
         const isInstallationDone = isAssessmentDone && (modalProgress.installation === 100 || modalSubmittedPhases.has("installation"));
         const modalStatus = modalEnrichedRow ? modalEnrichedRow.status : "Not Started Yet";
 
-        // New order: Assessment → Device Order → Installation → Commissioning
         const segments = [
           { k: "assessment", label: "ASSESSMENT", pct: modalProgress.assessment },
-          { k: "order", label: "DEVICE ORDER", pct: 100 },
           { k: "installation", label: "INSTALLATION", pct: modalProgress.installation },
           { k: "commissioning", label: "COMMISSIONING", pct: modalProgress.commissioning },
         ] as const;
@@ -2114,7 +2167,6 @@ return (
                     const isActive = modalTab === s.k;
                     // Submission-only lock — no progress % dependency
                     const isLocked = (() => {
-                      if (s.k === "order") return !modalSubmittedPhases.has("assessment");
                       if (s.k === "installation") return !modalSubmittedPhases.has("assessment");
                       if (s.k === "commissioning") return !modalSubmittedPhases.has("installation");
                       return false;
@@ -2127,10 +2179,6 @@ return (
                           if (isLocked) {
                             const needed = (s.k === "commissioning") ? "Installation" : "Assessment";
                             toast.error(`Please submit the ${needed} phase first to unlock this tab.`);
-                            return;
-                          }
-                          if (s.k === "order") {
-                            setModalTab("order");
                             return;
                           }
                           setModalTab(s.k);
@@ -2168,14 +2216,28 @@ return (
                 <div className="pt-4 border-t border-border">
                   <p className="font-mono text-[10px] uppercase tracking-widest text-text-secondary font-bold mb-2">Phase Name</p>
                   <h2 className="text-xl uppercase tracking-tight font-extrabold text-text-primary font-syne">
-                    {modalTab === "assessment" ? "Assessment Visit" : modalTab === "installation" ? "Installation Phase" : modalTab === "commissioning" ? "Commissioning Phase" : "Device & Sensor Order"}
+                    {modalTab === "assessment" ? "Assessment Visit" : modalTab === "installation" ? "Installation Phase" : "Commissioning Phase"}
                   </h2>
                 </div>
 
                 {/* Tab content inside modal */}
                 <div className="mt-6 space-y-4 pb-8">
                   {modalTab === "assessment" && (
-                    <AssessmentTab siteId={modalSite.id} workerId={userId!} onSubmit={() => { loadData(); }} />
+                    <>
+                      <AssessmentTab
+                        siteId={modalSite.id}
+                        workerId={userId!}
+                        requireDeviceOrderCompletion
+                        onSubmit={() => {
+                          void completeAssessmentAfterDeviceOrder(modalSite);
+                        }}
+                      >
+                        <OrderTab
+                          site={{ id: modalSite.id, name: modalSite.name, company_name: modalSite.company_name, city: modalSite.city, address: modalSite.address }}
+                          workerId={userId!}
+                        />
+                      </AssessmentTab>
+                    </>
                   )}
 
                   {modalTab === "installation" && (
@@ -2212,9 +2274,6 @@ return (
                     )
                   )}
 
-                  {modalTab === "order" && (
-                    <OrderTab site={{ id: modalSite.id, name: modalSite.name, company_name: modalSite.company_name, city: modalSite.city, address: modalSite.address }} workerId={userId!} />
-                  )}
                 </div>
 
               </div>

@@ -41,7 +41,7 @@ function BusinessConsultantPage() {
   const [site, setSite] = useState<Site | null | undefined>(undefined);
   
   const [queryError, setQueryError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"assessment" | "installation" | "commissioning" | "order">("assessment");
+  const [tab, setTab] = useState<"assessment" | "installation" | "commissioning">("assessment");
   const [progress, setProgress] = useState({ assessment: 0, installation: 0, commissioning: 0 });
   const [submittedPhases, setSubmittedPhases] = useState<Set<string>>(new Set());
   const [thankYou, setThankYou] = useState(false);
@@ -317,6 +317,17 @@ function BusinessConsultantPage() {
           void fetchSites();
         }
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "inventory_materials",
+        },
+        () => {
+          void fetchSites();
+        }
+      )
       .subscribe();
 
     return () => {
@@ -354,6 +365,55 @@ function BusinessConsultantPage() {
       return;
     }
     toast.success(`Site moved to ${stage}`);
+    await fetchSites();
+  };
+
+  const completeAssessmentAfterDeviceOrder = async () => {
+    if (!site || !userId) return;
+    const companyName = site.company_name || site.name;
+    const { data: order, error: orderError } = await supabase
+      .from("inventory_materials")
+      .select("id")
+      .eq("submitted", true)
+      .eq("material_name", companyName)
+      .maybeSingle();
+
+    if (orderError || !order) {
+      toast.error("Please submit the device order before completing Assessment.");
+      return;
+    }
+
+    const { data: assessmentRow } = await supabase
+      .from("assessment")
+      .select("data")
+      .eq("site_id", site.id)
+      .maybeSingle();
+
+    const existingData = (assessmentRow?.data ?? {}) as Record<string, any>;
+    const { error } = await supabase
+      .from("assessment")
+      .upsert({
+        site_id: site.id,
+        worker_id: userId,
+        data: {
+          ...existingData,
+          assessment_phase_submitted: true,
+          assessment_details_submitted: true,
+          factory_form_submitted_at: existingData.factory_form_submitted_at || new Date().toISOString(),
+          device_order_completed: true,
+          device_order_completed_at: existingData.device_order_completed_at || new Date().toISOString(),
+        },
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "site_id" });
+
+    if (error) {
+      toast.error("Device order saved, but assessment status could not be completed.");
+      return;
+    }
+
+    setSubmittedPhases(prev => new Set([...prev, "assessment"]));
+    setTab("installation");
+    toast.success("Assessment phase submitted.");
     await fetchSites();
   };
 
@@ -438,7 +498,6 @@ function BusinessConsultantPage() {
 
   const segments = [
     { k: "assessment", label: "ASSESSMENT", pct: progress.assessment },
-    { k: "order", label: "DEVICE ORDER", pct: 100 },
     { k: "installation", label: "INSTALLATION", pct: progress.installation },
     { k: "commissioning", label: "COMMISSIONING", pct: progress.commissioning },
   ] as const;
@@ -620,7 +679,6 @@ function BusinessConsultantPage() {
           {segments.map((s) => {
             const isActive = tab === s.k;
             const isLocked = (() => {
-              if (s.k === "order")         return !submittedPhases.has("assessment");
               if (s.k === "installation")  return !submittedPhases.has("assessment");
               if (s.k === "commissioning") return !submittedPhases.has("installation");
               return false;
@@ -671,22 +729,25 @@ function BusinessConsultantPage() {
         <div className="pt-4 border-t border-border">
           <p className="font-mono text-[10px] uppercase tracking-widest text-text-secondary font-bold mb-2">Phase Name</p>
           <h2 className="text-2xl uppercase tracking-tight font-extrabold text-text-primary font-syne">
-            {tab === "assessment" ? "Assessment Visit" : tab === "installation" ? "Installation Phase" : tab === "commissioning" ? "Commissioning Phase" : "Device & Sensor Order"}
+            {tab === "assessment" ? "Assessment Visit" : tab === "installation" ? "Installation Phase" : "Commissioning Phase"}
           </h2>
         </div>
       </div>
 
       <main className="mt-8 space-y-4 pb-24">
         {tab === "assessment" && (
-          <AssessmentTab
-            siteId={site.id}
-            workerId={userId!}
-            onSubmit={() => {
-              setSubmittedPhases(prev => new Set([...prev, "assessment"]));
-              setTab("order");
-              void fetchSites();
-            }}
-          />
+          <>
+            <AssessmentTab
+              siteId={site.id}
+              workerId={userId!}
+              requireDeviceOrderCompletion
+              onSubmit={() => {
+                void completeAssessmentAfterDeviceOrder();
+              }}
+            >
+              <OrderTab site={site} workerId={userId!} />
+            </AssessmentTab>
+          </>
         )}
         {tab === "installation" && (
           !isAssessmentDone ? (
@@ -725,9 +786,6 @@ function BusinessConsultantPage() {
               }}
             />
           )
-        )}
-        {tab === "order" && (
-          <OrderTab site={site} workerId={userId!} />
         )}
       </main>
 
