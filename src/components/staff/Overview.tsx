@@ -49,6 +49,7 @@ import {
   Check,
 } from "lucide-react";
 
+
 type Appt = {
   status: "early" | "late" | "ontime" | "scheduled" | "none";
   scheduled: string | null;
@@ -60,6 +61,7 @@ type SiteRow = {
   name: string;
   company_name: string | null;
   city: string | null;
+  address: string | null;
   assigned_worker_id: string | null;
   assigned_at: string | null;
   appt_date: string | null;
@@ -350,7 +352,7 @@ export function Overview() {
       const [sitesRes, assessmentsRes, installationsRes, commissioningsRes, profilesRes, materialsRes, rolesRes] = await Promise.all([
         supabase
           .from("sites")
-          .select("id,name,company_name,city,assigned_worker_id,assigned_at,appt_date,appt_time,created_at,task_notes,consultant_stage")
+          .select("id,name,company_name,city,address,assigned_worker_id,assigned_at,appt_date,appt_time,created_at,task_notes,consultant_stage")
           .order("created_at", { ascending: false }),
         supabase.from("assessment").select("data,updated_at,site_id"),
         supabase.from("installation").select("data,updated_at,site_id"),
@@ -801,6 +803,7 @@ const allProcessedRows: SiteRow[] = rawSites.map((site) => {
     id: site.id,
     name: site.name,
     city: site.city,
+    address: site.address ?? null,
     assigned_worker_id: site.assigned_worker_id,
     assigned_at: site.assigned_at,
     appt_date: site.appt_date,
@@ -1416,7 +1419,7 @@ const exportPdf = async () => {
       import("jspdf"),
       import("jspdf-autotable"),
     ]);
-    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
 
@@ -1435,6 +1438,53 @@ const exportPdf = async () => {
     const clean = (value: string | null | undefined) => {
       const text = (value || "").trim();
       return text || "N/A";
+    };
+    const getCityNameOnly = (cityStr: string | null | undefined): string => {
+      if (!cityStr) return "N/A";
+      const str = cityStr.trim();
+      if (!str) return "N/A";
+      if (!str.includes(",") && str.length <= 15) {
+        return str;
+      }
+      const parts = str.split(",").map(p => p.trim()).filter(Boolean);
+      if (parts.length === 0) return "N/A";
+      const knownCities = [
+        "ahmedabad", "gandhinagar", "vadodara", "surat", "rajkot", "morbi", "jamnagar", "vapi", "bharuch", "ankleshwar",
+        "mumbai", "pune", "nagpur", "nashik", "thane", "navi mumbai",
+        "indore", "bhopal", "gwalior", "jabalpur",
+        "kolkata", "howrah",
+        "delhi", "gurgaon", "gurugram", "noida", "ghaziabad", "faridabad",
+        "bangalore", "bengaluru", "mysore", "hubli",
+        "chennai", "coimbatore", "madurai",
+        "hyderabad", "secunderabad",
+        "jaipur", "jodhpur", "udaipur",
+        "moradabad", "aligarh"
+      ];
+      for (let i = parts.length - 1; i >= 0; i--) {
+        const part = parts[i].toLowerCase();
+        const cleanPart = part.replace(/\d+/g, "").replace(/\b(gujarat|maharashtra|madhya pradesh|west bengal|delhi ncr|karnataka|tamil nadu|telangana|rajasthan|uttar pradesh|up|mp|wb|mh|gj)\b/g, "").trim();
+        if (!cleanPart) continue;
+        if (knownCities.some(kc => cleanPart.includes(kc) || kc.includes(cleanPart))) {
+          return parts[i].replace(/\d+/g, "").trim();
+        }
+      }
+      const ignoreKeywords = ["plot", "street", "road", "phase", "gidc", "industrial", "floor", "building", "zone", "sector", "lane", "behind", "near", "opp", "opposite"];
+      for (let i = parts.length - 1; i >= 0; i--) {
+        const partLower = parts[i].toLowerCase();
+        if (!ignoreKeywords.some(kw => partLower.includes(kw))) {
+          const cleaned = parts[i].replace(/\d+/g, "").replace(/\b(gujarat|maharashtra|madhya pradesh|west bengal|delhi ncr|karnataka|tamil nadu|telangana|rajasthan|uttar pradesh)\b/gi, "").trim();
+          if (cleaned.length > 0 && cleaned.length <= 15) {
+            return cleaned;
+          }
+        }
+      }
+      for (let i = parts.length - 1; i >= 0; i--) {
+        const cleaned = parts[i].replace(/\d+/g, "").trim();
+        if (cleaned.length > 0) {
+          return cleaned;
+        }
+      }
+      return parts[0];
     };
     const progressText = (r: SiteRow) => [
       `Assessment: ${r.progress.a || 0}%`,
@@ -1484,23 +1534,23 @@ const exportPdf = async () => {
     };
 
     const pageMarginX = 9;
-    const headerHeight = 34;
-    const cardHeight = 38;
-    const cardGap = 9;
+    const headerHeight = 31;
+    const cardHeight = 26;
+    const cardGap = 5;
     const cardWidth = pageWidth - pageMarginX * 2;
 
     const drawProgress = (label: string, value: number, x: number, y: number) => {
-      const width = 18;
-      const barX = x + 24;
+      const width = 14;
+      const barX = x + 18;
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(7);
+      doc.setFontSize(6.5);
       doc.setTextColor(...ink);
       doc.text(label, x, y);
       doc.setFillColor(229, 232, 238);
-      doc.roundedRect(barX, y - 2.4, width, 2.2, 1.1, 1.1, "F");
+      doc.roundedRect(barX, y - 2.0, width, 1.8, 0.9, 0.9, "F");
       if (value > 0) {
         doc.setFillColor(...teal);
-        doc.roundedRect(barX, y - 2.4, Math.max(1.2, (width * value) / 100), 2.2, 1.1, 1.1, "F");
+        doc.roundedRect(barX, y - 2.0, Math.max(0.8, (width * value) / 100), 1.8, 0.9, 0.9, "F");
       }
     };
 
@@ -1559,72 +1609,85 @@ const exportPdf = async () => {
       doc.setFillColor(...teal);
       doc.roundedRect(x, y, 1.8, h, 1.4, 1.4, "F");
 
+      // Column 1: Index and City
       doc.setFillColor(...navy);
-      doc.roundedRect(x + 12, y + 7, 13, 13, 1.8, 1.8, "F");
+      doc.roundedRect(x + 4, y + 3.5, 12, 11, 1.5, 1.5, "F");
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(11);
+      doc.setFontSize(9.5);
       doc.setTextColor(255, 255, 255);
-      doc.text(String(displayIndex), x + 18.5, y + 15.5, { align: "center" });
+      doc.text(String(displayIndex), x + 10, y + 11.5, { align: "center" });
+
+      const cityName = getCityNameOnly(r.city);
       doc.setFillColor(232, 247, 250);
-      doc.roundedRect(x + 6, y + 27, 31, 7, 1.5, 1.5, "F");
-      doc.setFontSize(7.2);
+      doc.roundedRect(x + 2, y + 17.5, 16, 5, 1.2, 1.2, "F");
+      doc.setFontSize(6.2);
       doc.setTextColor(...teal);
-      doc.text(clean(r.city).toUpperCase(), x + 21.5, y + 31.7, { align: "center" });
+      doc.text(cityName.toUpperCase(), x + 10, y + 21.2, { align: "center" });
 
-      const dividers = [40, 126, 188, 229];
+      const dividers = [20, 85, 125, 150];
       doc.setDrawColor(...border);
-      dividers.forEach((dx) => doc.line(x + dx, y + 4, x + dx, y + h - 4));
+      dividers.forEach((dx) => doc.line(x + dx, y + 3, x + dx, y + h - 3));
 
+      // Column 2: Company details
       doc.setFillColor(232, 247, 250);
-      doc.circle(x + 50.5, y + 18.5, 4.6, "F");
+      doc.circle(x + 25.5, y + 13, 3.5, "F");
       doc.setDrawColor(...teal);
-      doc.rect(x + 48.8, y + 17.1, 3.4, 4.5, "S");
-      doc.rect(x + 47.7, y + 18.8, 5.7, 2.8, "S");
+      doc.rect(x + 24.2, y + 11.9, 2.6, 3.4, "S");
+      doc.rect(x + 23.4, y + 13.2, 4.3, 2.1, "S");
       doc.setTextColor(...navy);
-      drawTextFit(clean(r.company_name || r.name).toUpperCase(), x + 61, y + 13, 58, 8.4, true, 3);
+      drawTextFit(clean(r.company_name || r.name).toUpperCase(), x + 31, y + 9.5, 50, 7.8, true, 2);
 
+      const fullAddress = r.address || (r.city && r.city.includes(",") ? r.city : "");
+      if (fullAddress) {
+        doc.setTextColor(...muted);
+        drawTextFit(fullAddress, x + 31, y + 18.5, 50, 6.2, false, 1);
+      }
+
+      // Column 3: Field Associate
       doc.setTextColor(...ink);
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(7.4);
-      doc.text("Field Associate", x + 134, y + 13.5);
+      doc.setFontSize(6.8);
+      doc.text("Field Associate", x + 88, y + 8);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...teal);
-      drawTextFit(clean(bcNames), x + 134, y + 20.5, 48, 8, true, 2);
+      drawTextFit(clean(bcNames), x + 88, y + 13.5, 34, 7.2, true, 2);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(...ink);
-      doc.setFontSize(7.6);
-      doc.text(`Submission: ${r.status === "Submitted" ? "Submitted" : "Pending"}`, x + 134, y + 32.5);
+      doc.setFontSize(7);
+      doc.text(`Sub.: ${r.status === "Submitted" ? "Submitted" : "Pending"}`, x + 88, y + 23);
 
+      // Column 4: Status
       doc.setFillColor(...tone.bg);
       doc.setDrawColor(...tone.fg);
-      const statusBadgeY = y + 14.2;
-      doc.roundedRect(x + 196, statusBadgeY, 27, 9.8, 2.4, 2.4, "FD");
+      const statusBadgeY = y + 8;
+      doc.roundedRect(x + 127, statusBadgeY, 20, 8, 2, 2, "FD");
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(6.3);
+      doc.setFontSize(5.5);
       doc.setTextColor(...tone.fg);
-      doc.text(tone.label, x + 209.5, statusBadgeY + 6.3, { align: "center", maxWidth: 23 });
+      doc.text(tone.label, x + 137, statusBadgeY + 5.6, { align: "center", maxWidth: 18 });
       doc.setFont("helvetica", "normal");
       doc.setTextColor(...ink);
 
+      // Column 5: Progress
       doc.setDrawColor(...border);
-      doc.line(x + 235, y + 8, x + 276, y + 8);
+      doc.line(x + 152, y + 5.5, x + 188, y + 5.5);
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(7.6);
+      doc.setFontSize(6.8);
       doc.setTextColor(...navy);
-      doc.text("PROGRESS", x + 255.5, y + 8.3, { align: "center" });
-      drawProgress("Assessment", r.progress.a || 0, x + 235, y + 16.5);
-      drawProgress("Installation", r.progress.i || 0, x + 235, y + 25.8);
-      drawProgress("Commissioning", r.progress.c || 0, x + 235, y + 35.1);
+      doc.text("PROGRESS", x + 170, y + 5, { align: "center" });
+      drawProgress("Ass.", r.progress.a || 0, x + 152, y + 11.2);
+      drawProgress("Inst.", r.progress.i || 0, x + 152, y + 17.2);
+      drawProgress("Comm.", r.progress.c || 0, x + 152, y + 23.2);
     };
 
     let page = 0;
-    const rowsPerReportPage = 3;
+    const rowsPerReportPage = 8;
     for (let offset = 0; offset < sortedRows.length; offset += rowsPerReportPage) {
       if (page > 0) doc.addPage();
       page += 1;
       drawPageHeader();
       sortedRows.slice(offset, offset + rowsPerReportPage).forEach((row, index) => {
-        drawCompanyCard(row, offset + index + 1, headerHeight + 7 + index * (cardHeight + cardGap));
+        drawCompanyCard(row, offset + index + 1, headerHeight + 5 + index * (cardHeight + cardGap));
       });
       doc.setFontSize(7);
       doc.setTextColor(...muted);
