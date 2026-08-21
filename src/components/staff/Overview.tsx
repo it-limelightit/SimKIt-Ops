@@ -19,6 +19,7 @@ import { InstallationTab } from "@/components/business-consultant/InstallationTa
 import { CommissioningTab } from "@/components/business-consultant/CommissioningTab";
 import { OrderTab } from "@/components/business-consultant/OrderTab";
 import { parseTaskNotes } from "./TasksPanel";
+import logoUrl from "../../../image copy.png";
 import {
   Building,
   CheckCircle2,
@@ -1051,12 +1052,326 @@ const formatDate = (dateStr: string | null) => {
   });
 };
 
-const exportCsv = () => {
+const exportCsv = async () => {
   if (sortedRows.length === 0) {
     toast.error("No data available to export.");
     return;
   }
   const kpiLabel = kpis.find((k) => k.id === selectedKpi)?.label || "Data";
+  {
+    const ExcelJS = await import("exceljs");
+    const workbook = new ExcelJS.Workbook();
+    const generatedDate = new Date();
+    const fileDate = generatedDate.toISOString().slice(0, 10);
+    const filterAssociate = executiveFilter ? profileNameMap.get(executiveFilter) || "N/A" : "All Field Associates";
+    const safeKpi = kpiLabel.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "assigned";
+    const reportRows = sortedRows.map((r, index) => {
+      const bcNames = r.workerIds.map((id) => profileNameMap.get(id) || "N/A").join(", ");
+      return {
+        srNo: index + 1,
+        company: r.company_name || r.name || "N/A",
+        city: r.city || "N/A",
+        fieldAssociate: bcNames || "Unassigned",
+        status: r.status || "N/A",
+        assessment: (r.progress.a || 0) / 100,
+        installation: (r.progress.i || 0) / 100,
+        commissioning: (r.progress.c || 0) / 100,
+      };
+    });
+    const average = (key: "assessment" | "installation" | "commissioning") =>
+      reportRows.length ? reportRows.reduce((sum, row) => sum + row[key], 0) / reportRows.length : 0;
+    const submittedCount = reportRows.filter((row) => row.status === "Submitted").length;
+    const completedStatuses = new Set(["Submitted", "Commissioned", "Assessed", "Installed"]);
+    const completedCount = reportRows.filter((row) => completedStatuses.has(row.status)).length;
+    const pendingCount = reportRows.length - completedCount;
+    const progressMetrics = [
+      { label: "Assessment", value: average("assessment") },
+      { label: "Installation", value: average("installation") },
+      { label: "Commissioning", value: average("commissioning") },
+    ];
+    const colors = {
+      navy: "121C30",
+      teal: "0D869A",
+      tealLight: "E8F7FA",
+      green: "1F9D45",
+      greenLight: "EAF8EF",
+      amber: "F59E0B",
+      amberLight: "FFF7E6",
+      red: "C62828",
+      redLight: "FDECEC",
+      border: "D6DCE8",
+      muted: "667085",
+      white: "FFFFFF",
+      soft: "F7F9FC",
+    };
+
+    workbook.creator = "SimKit Ops";
+    workbook.created = generatedDate;
+    workbook.modified = generatedDate;
+
+    const dashboard = workbook.addWorksheet("Summary Dashboard", {
+      views: [{ state: "frozen", ySplit: 5 }],
+      pageSetup: { paperSize: 9, orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 1 },
+      pageMargins: { left: 0.25, right: 0.25, top: 0.35, bottom: 0.35, header: 0.2, footer: 0.2 },
+    });
+    dashboard.columns = Array.from({ length: 10 }, (_, index) => ({
+      key: `c${index + 1}`,
+      width: index < 2 ? 18 : 14,
+    }));
+    dashboard.mergeCells("A1:J1");
+    dashboard.getCell("A1").value = `${kpiLabel} Status & Progress`;
+    dashboard.getCell("A1").font = { bold: true, size: 20, color: { argb: colors.navy } };
+    dashboard.getCell("A1").alignment = { horizontal: "center" };
+    dashboard.mergeCells("A2:J2");
+    dashboard.getCell("A2").value = "LimelightIT Research Pvt. Ltd. - Field Assignment Overview";
+    dashboard.getCell("A2").font = { size: 12, color: { argb: colors.teal } };
+    dashboard.getCell("A2").alignment = { horizontal: "center" };
+    dashboard.addRow([]);
+    dashboard.addRow(["Report Date", generatedDate, "City Filter", cityFilter || "All Cities", "Field Associate", filterAssociate, "Search", searchQuery || "None"]);
+    dashboard.getRow(4).eachCell((cell, colNumber) => {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: colNumber % 2 ? colors.soft : colors.white } };
+      cell.border = { top: { style: "thin", color: { argb: colors.border } }, bottom: { style: "thin", color: { argb: colors.border } } };
+      cell.alignment = { vertical: "middle", wrapText: true };
+      if (colNumber % 2) cell.font = { bold: true, color: { argb: colors.muted } };
+    });
+    dashboard.getCell("B4").numFmt = "mmm dd, yyyy";
+
+    const kpiRows = [
+      ["Total Records", reportRows.length, "Submitted", submittedCount, "Completed Status", completedCount, "Pending Status", pendingCount],
+      ["Avg Assessment", average("assessment"), "Avg Installation", average("installation"), "Avg Commissioning", average("commissioning"), "Completion Rate", reportRows.length ? completedCount / reportRows.length : 0],
+    ];
+    dashboard.addRows(kpiRows);
+    [6, 7].forEach((rowNumber) => {
+      dashboard.getRow(rowNumber).height = 24;
+      dashboard.getRow(rowNumber).eachCell((cell, colNumber) => {
+        cell.border = {
+          top: { style: "thin", color: { argb: colors.border } },
+          left: { style: "thin", color: { argb: colors.border } },
+          bottom: { style: "thin", color: { argb: colors.border } },
+          right: { style: "thin", color: { argb: colors.border } },
+        };
+        cell.alignment = { vertical: "middle", horizontal: colNumber % 2 ? "left" : "center", wrapText: true };
+        if (colNumber % 2) {
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: colors.navy } };
+          cell.font = { bold: true, color: { argb: colors.white } };
+        } else {
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: colors.tealLight } };
+          cell.font = { bold: true, color: { argb: colors.navy } };
+        }
+      });
+    });
+    ["B7", "D7", "F7", "H7"].forEach((cellRef) => {
+      dashboard.getCell(cellRef).numFmt = "0%";
+    });
+
+    dashboard.addRow([]);
+    dashboard.addRow(["Progress Overview"]);
+    dashboard.getCell("A9").font = { bold: true, size: 13, color: { argb: colors.navy } };
+    progressMetrics.forEach((metric, metricIndex) => {
+      const rowNumber = 10 + metricIndex;
+      const row = dashboard.getRow(rowNumber);
+      row.getCell(1).value = metric.label;
+      row.getCell(2).value = metric.value;
+      row.getCell(2).numFmt = "0%";
+      row.getCell(1).font = { bold: true, color: { argb: colors.navy } };
+      row.getCell(2).font = { bold: true, color: { argb: colors.teal } };
+      row.height = 20;
+      const filledCells = Math.round(metric.value * 8);
+      for (let col = 3; col <= 10; col += 1) {
+        const cell = row.getCell(col);
+        cell.value = "";
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: col - 2 <= filledCells ? colors.teal : "EEF2F7" } };
+        cell.border = { top: { style: "thin", color: { argb: colors.white } }, bottom: { style: "thin", color: { argb: colors.white } } };
+      }
+    });
+
+    const detail = workbook.addWorksheet("Detailed Report", {
+      views: [{ state: "frozen", ySplit: 1 }],
+      pageSetup: { paperSize: 9, orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
+      pageMargins: { left: 0.2, right: 0.2, top: 0.35, bottom: 0.35, header: 0.2, footer: 0.2 },
+    });
+    detail.columns = [
+      { header: "Sr. No.", key: "srNo", width: 9 },
+      { header: "Company", key: "company", width: 38 },
+      { header: "City", key: "city", width: 18 },
+      { header: "Field Associate", key: "fieldAssociate", width: 24 },
+      { header: "Assessment", key: "assessment", width: 14, style: { numFmt: "0%" } },
+      { header: "Installation", key: "installation", width: 14, style: { numFmt: "0%" } },
+      { header: "Commissioning", key: "commissioning", width: 16, style: { numFmt: "0%" } },
+      { header: "Status", key: "status", width: 18 },
+    ];
+    detail.addRows(reportRows);
+    detail.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: 1, column: detail.columns.length },
+    };
+    detail.getRow(1).height = 24;
+    detail.getRow(1).eachCell((cell) => {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: colors.navy } };
+      cell.font = { bold: true, color: { argb: colors.white } };
+      cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+      cell.border = {
+        top: { style: "thin", color: { argb: colors.border } },
+        left: { style: "thin", color: { argb: colors.border } },
+        bottom: { style: "thin", color: { argb: colors.border } },
+        right: { style: "thin", color: { argb: colors.border } },
+      };
+    });
+    detail.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return;
+      const rowData = reportRows[rowNumber - 2];
+      row.height = 28;
+      row.eachCell((cell, colNumber) => {
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: rowNumber % 2 === 0 ? colors.white : colors.soft } };
+        cell.alignment = {
+          vertical: "middle",
+          horizontal: colNumber === 2 || colNumber === 4 ? "left" : "center",
+          wrapText: true,
+        };
+        cell.border = {
+          top: { style: "thin", color: { argb: colors.border } },
+          left: { style: "thin", color: { argb: colors.border } },
+          bottom: { style: "thin", color: { argb: colors.border } },
+          right: { style: "thin", color: { argb: colors.border } },
+        };
+      });
+      const statusColor = completedStatuses.has(rowData.status)
+        ? { fill: colors.greenLight, font: colors.green }
+        : rowData.status === "Dropped / Rejected"
+          ? { fill: colors.redLight, font: colors.red }
+          : { fill: colors.amberLight, font: colors.amber };
+      const statusCell = row.getCell(8);
+      statusCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: statusColor.fill } };
+      statusCell.font = { bold: true, color: { argb: statusColor.font } };
+      [5, 6, 7].forEach((columnNumber) => {
+        const value = Number(row.getCell(columnNumber).value || 0);
+        row.getCell(columnNumber).numFmt = "0%";
+        row.getCell(columnNumber).fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: value >= 1 ? colors.greenLight : value > 0 ? colors.tealLight : "F2F4F7" },
+        };
+        row.getCell(columnNumber).font = { bold: true, color: { argb: value >= 1 ? colors.green : value > 0 ? colors.teal : colors.muted } };
+      });
+    });
+    const detailSheet = detail as unknown as { addConditionalFormatting?: (rule: unknown) => void };
+    detailSheet.addConditionalFormatting?.({
+      ref: "E2:G1048576",
+      rules: [
+        {
+          type: "dataBar",
+          priority: 1,
+          cfvo: [{ type: "num", value: 0 }, { type: "num", value: 1 }],
+          color: colors.teal,
+          showValue: true,
+        },
+      ],
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const url = URL.createObjectURL(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${safeKpi}-status-progress-${fileDate}.xlsx`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    toast.success("Excel report exported successfully.");
+    return;
+  }
+  {
+    const escapeHtml = (value: unknown) =>
+      String(value ?? "N/A")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    const generatedAt = new Intl.DateTimeFormat("en-IN", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(new Date());
+    const reportRows = sortedRows.map((r) => {
+      const bcNames = r.workerIds.map((id) => profileNameMap.get(id) || "N/A").join(", ");
+      return {
+        company: r.company_name || r.name,
+        city: r.city || "N/A",
+        associate: bcNames || "Unassigned",
+        status: r.status,
+        submission: r.status === "Submitted" ? "Submitted" : "Pending",
+        assessment: `${r.progress.a}%`,
+        installation: `${r.progress.i}%`,
+        commissioning: `${r.progress.c}%`,
+      };
+    });
+    const workbook = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body { font-family: Arial, sans-serif; color: #101828; }
+    table { border-collapse: collapse; width: 100%; }
+    .title { font-size: 22px; font-weight: 700; color: #101828; }
+    .subtitle { color: #0d869a; font-size: 13px; }
+    .summary td { background: #f7f9fc; border: 1px solid #d6dce8; font-weight: 600; }
+    th { background: #121c30; color: #ffffff; font-weight: 700; border: 1px solid #d6dce8; padding: 8px; }
+    td { border: 1px solid #d6dce8; padding: 8px; vertical-align: top; }
+    .status { font-weight: 700; text-align: center; }
+    .submitted { background: #ebf9ef; color: #158c37; }
+    .pending { background: #fff8e8; color: #f59219; }
+    .progress { text-align: center; font-weight: 700; color: #0d869a; }
+  </style>
+</head>
+<body>
+  <table>
+    <tr><td colspan="8" class="title">${escapeHtml(kpiLabel)} Status & Progress</td></tr>
+    <tr><td colspan="8" class="subtitle">LimelightIT Research Pvt. Ltd. - Field Assignment Overview</td></tr>
+    <tr><td colspan="8">Generated: ${escapeHtml(generatedAt)}</td></tr>
+    <tr class="summary">
+      <td colspan="2">Total Records</td><td colspan="2">${sortedRows.length}</td>
+      <td colspan="2">City Filter</td><td colspan="2">${escapeHtml(cityFilter || "All Cities")}</td>
+    </tr>
+    <tr class="summary">
+      <td colspan="2">Field Associate</td><td colspan="2">${escapeHtml(executiveFilter ? profileNameMap.get(executiveFilter) || "N/A" : "All Field Associates")}</td>
+      <td colspan="2">Search</td><td colspan="2">${escapeHtml(searchQuery || "None")}</td>
+    </tr>
+    <tr>
+      <th>Sr. No.</th>
+      <th>Company</th>
+      <th>City</th>
+      <th>Field Associate</th>
+      <th>Status</th>
+      <th>Submission</th>
+      <th>Assessment</th>
+      <th>Installation / Commissioning</th>
+    </tr>
+    ${reportRows.map((row, index) => {
+      const statusClass = row.status === "Submitted" || row.status === "Commissioned" || row.status === "Assessed" || row.status === "Installed"
+        ? "submitted"
+        : "pending";
+      const submissionClass = row.submission === "Submitted" ? "submitted" : "pending";
+      return `<tr>
+        <td>${index + 1}</td>
+        <td>${escapeHtml(row.company)}</td>
+        <td>${escapeHtml(row.city)}</td>
+        <td>${escapeHtml(row.associate)}</td>
+        <td class="status ${statusClass}">${escapeHtml(row.status)}</td>
+        <td class="status ${submissionClass}">${escapeHtml(row.submission)}</td>
+        <td class="progress">${escapeHtml(row.assessment)}</td>
+        <td class="progress">Installation: ${escapeHtml(row.installation)}<br/>Commissioning: ${escapeHtml(row.commissioning)}</td>
+      </tr>`;
+    }).join("")}
+  </table>
+</body>
+</html>`;
+
+    const url = URL.createObjectURL(new Blob([workbook], { type: "application/vnd.ms-excel;charset=utf-8;" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${kpiLabel.toLowerCase().replace(/\s+/g, "-")}-report-${new Date().toISOString().slice(0, 10)}.xls`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    toast.success("Excel report exported successfully.");
+    return;
+  }
   const headers = ["Company", "Contact Person", "Contact Mobile", "City", "Assigned Field Associate", "Appt Progress", "Assessment Progress", "Installation Progress", "Commissioned Progress", "Status", "Last Updated"];
   const rows = sortedRows.map((r) => {
     const bcNames = r.workerIds.map((id) => profileNameMap.get(id) || "—").join(", ");
@@ -1105,84 +1420,331 @@ const exportPdf = async () => {
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
 
-    const lime: [number, number, number] = [200, 255, 74];
-    const ink: [number, number, number] = [18, 18, 29];
-    const muted: [number, number, number] = [104, 101, 119];
-    const soft: [number, number, number] = [244, 245, 239];
+    const navy: [number, number, number] = [18, 28, 48];
+    const blue: [number, number, number] = [37, 99, 235];
+    const ink: [number, number, number] = [20, 24, 38];
+    const muted: [number, number, number] = [85, 96, 115];
+    const border: [number, number, number] = [214, 220, 232];
+    const soft: [number, number, number] = [247, 249, 252];
 
     const kpiLabel = kpis.find((k) => k.id === selectedKpi)?.label || "Data";
-
-    const addHeader = () => {
-      doc.setFillColor(...ink);
-      doc.rect(0, 0, pageWidth, 16, "F");
-      doc.setFillColor(...lime);
-      doc.roundedRect(12, 5, 6, 6, 1.2, 1.2, "F");
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10);
-      doc.setTextColor(240, 236, 227);
-      doc.text("SIM-KIT DASHBOARD EXPORT", 22, 10);
-
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(175, 172, 184);
-      doc.text(kpiLabel.toUpperCase(), pageWidth - 12, 10, { align: "right" });
-    };
-
-    addHeader();
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
-    doc.setTextColor(...ink);
-    doc.text(`${kpiLabel} - Details Report`, 12, 28);
-
     const generatedAt = new Intl.DateTimeFormat("en-IN", {
-      dateStyle: "long",
+      dateStyle: "medium",
       timeStyle: "short",
     }).format(new Date());
+    const clean = (value: string | null | undefined) => {
+      const text = (value || "").trim();
+      return text || "N/A";
+    };
+    const progressText = (r: SiteRow) => [
+      `Assessment: ${r.progress.a || 0}%`,
+      `Installation: ${r.progress.i || 0}%`,
+      `Commissioning: ${r.progress.c || 0}%`,
+      `Submission: ${r.status === "Submitted" ? "Submitted" : "Pending"}`,
+    ].join("\n");
 
+    const logoDataUrl = await fetch(logoUrl)
+      .then((response) => response.blob())
+      .then(
+        (blob) =>
+          new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result));
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          }),
+      );
+
+    const teal: [number, number, number] = [13, 134, 154];
+    const orange: [number, number, number] = [245, 146, 25];
+    const green: [number, number, number] = [21, 140, 55];
+    const greenBg: [number, number, number] = [235, 249, 239];
+    const orangeBg: [number, number, number] = [255, 248, 232];
+    const cardShadow: [number, number, number] = [231, 235, 242];
+
+    const statusTone = (status: string): { fg: [number, number, number]; bg: [number, number, number]; label: string } => {
+      const normalized = status.toLowerCase();
+      if (normalized.includes("commissioned") || normalized.includes("submitted")) {
+        return { fg: green, bg: greenBg, label: status.toUpperCase() };
+      }
+      if (normalized.includes("assessed") || normalized.includes("installed")) {
+        return { fg: green, bg: greenBg, label: status.toUpperCase() };
+      }
+      if (normalized.includes("pending") || normalized.includes("not started")) {
+        return { fg: orange, bg: orangeBg, label: status.toUpperCase() };
+      }
+      return { fg: teal, bg: [232, 247, 250], label: status.toUpperCase() };
+    };
+
+    const drawTextFit = (text: string, x: number, y: number, maxWidth: number, size = 8, bold = false, maxLines = 2) => {
+      doc.setFont("helvetica", bold ? "bold" : "normal");
+      doc.setFontSize(size);
+      const lines = doc.splitTextToSize(clean(text), maxWidth).slice(0, maxLines);
+      lines.forEach((line: string, i: number) => doc.text(line, x, y + i * (size * 0.42 + 2.3)));
+    };
+
+    const pageMarginX = 9;
+    const headerHeight = 34;
+    const cardHeight = 38;
+    const cardGap = 9;
+    const cardWidth = pageWidth - pageMarginX * 2;
+
+    const drawProgress = (label: string, value: number, x: number, y: number) => {
+      const width = 18;
+      const barX = x + 24;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.setTextColor(...ink);
+      doc.text(label, x, y);
+      doc.setFillColor(229, 232, 238);
+      doc.roundedRect(barX, y - 2.4, width, 2.2, 1.1, 1.1, "F");
+      if (value > 0) {
+        doc.setFillColor(...teal);
+        doc.roundedRect(barX, y - 2.4, Math.max(1.2, (width * value) / 100), 2.2, 1.1, 1.1, "F");
+      }
+    };
+
+    const drawPageHeader = () => {
+      doc.setFillColor(...navy);
+      doc.roundedRect(0, 0, 58, 28, 0, 0, "F");
+      doc.setFillColor(...teal);
+      doc.triangle(56, 0, 68, 0, 58, 28, "F");
+      doc.setFillColor(255, 255, 255);
+      doc.triangle(62, 0, 67, 0, 58, 25, "F");
+      doc.addImage(logoDataUrl, "PNG", 5, 5, 12, 12);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.setTextColor(255, 255, 255);
+      doc.text("LimelightIT", 19, 11);
+      doc.setFontSize(7.2);
+      doc.text("Research Pvt. Ltd.", 19, 17);
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(18);
+      doc.setTextColor(...navy);
+      doc.text(`${kpiLabel} Status & Progress`, pageWidth / 2, 14.5, { align: "center" });
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(...muted);
+      doc.text("LimelightIT Research Pvt. Ltd.", pageWidth / 2, 22.5, { align: "center" });
+      doc.setFontSize(7.8);
+      doc.setTextColor(...teal);
+      doc.text("Field Assignment Overview", pageWidth / 2, 29, { align: "center" });
+
+      doc.setDrawColor(...border);
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(pageWidth - 47, 5.5, 38, 16, 2, 2, "FD");
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.2);
+      doc.setTextColor(...muted);
+      doc.text("Report Date", pageWidth - 28, 12, { align: "center" });
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.3);
+      doc.setTextColor(...navy);
+      doc.text(new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }), pageWidth - 28, 18, { align: "center" });
+    };
+
+    const drawCompanyCard = (r: SiteRow, displayIndex: number, y: number) => {
+      const x = pageMarginX;
+      const h = cardHeight;
+      const w = cardWidth;
+      const tone = statusTone(r.status);
+      const bcNames = r.workerIds.map((id) => profileNameMap.get(id) || "N/A").join(", ") || "Unassigned";
+
+      doc.setFillColor(...cardShadow);
+      doc.roundedRect(x + 0.6, y + 0.7, w, h, 2, 2, "F");
+      doc.setFillColor(255, 255, 255);
+      doc.setDrawColor(...border);
+      doc.roundedRect(x, y, w, h, 2, 2, "FD");
+      doc.setFillColor(...teal);
+      doc.roundedRect(x, y, 1.8, h, 1.4, 1.4, "F");
+
+      doc.setFillColor(...navy);
+      doc.roundedRect(x + 12, y + 7, 13, 13, 1.8, 1.8, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.setTextColor(255, 255, 255);
+      doc.text(String(displayIndex), x + 18.5, y + 15.5, { align: "center" });
+      doc.setFillColor(232, 247, 250);
+      doc.roundedRect(x + 6, y + 27, 31, 7, 1.5, 1.5, "F");
+      doc.setFontSize(7.2);
+      doc.setTextColor(...teal);
+      doc.text(clean(r.city).toUpperCase(), x + 21.5, y + 31.7, { align: "center" });
+
+      const dividers = [40, 126, 188, 229];
+      doc.setDrawColor(...border);
+      dividers.forEach((dx) => doc.line(x + dx, y + 4, x + dx, y + h - 4));
+
+      doc.setFillColor(232, 247, 250);
+      doc.circle(x + 50.5, y + 18.5, 4.6, "F");
+      doc.setDrawColor(...teal);
+      doc.rect(x + 48.8, y + 17.1, 3.4, 4.5, "S");
+      doc.rect(x + 47.7, y + 18.8, 5.7, 2.8, "S");
+      doc.setTextColor(...navy);
+      drawTextFit(clean(r.company_name || r.name).toUpperCase(), x + 61, y + 13, 58, 8.4, true, 3);
+
+      doc.setTextColor(...ink);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.4);
+      doc.text("Field Associate", x + 134, y + 13.5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...teal);
+      drawTextFit(clean(bcNames), x + 134, y + 20.5, 48, 8, true, 2);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...ink);
+      doc.setFontSize(7.6);
+      doc.text(`Submission: ${r.status === "Submitted" ? "Submitted" : "Pending"}`, x + 134, y + 32.5);
+
+      doc.setFillColor(...tone.bg);
+      doc.setDrawColor(...tone.fg);
+      const statusBadgeY = y + 14.2;
+      doc.roundedRect(x + 196, statusBadgeY, 27, 9.8, 2.4, 2.4, "FD");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(6.3);
+      doc.setTextColor(...tone.fg);
+      doc.text(tone.label, x + 209.5, statusBadgeY + 6.3, { align: "center", maxWidth: 23 });
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...ink);
+
+      doc.setDrawColor(...border);
+      doc.line(x + 235, y + 8, x + 276, y + 8);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7.6);
+      doc.setTextColor(...navy);
+      doc.text("PROGRESS", x + 255.5, y + 8.3, { align: "center" });
+      drawProgress("Assessment", r.progress.a || 0, x + 235, y + 16.5);
+      drawProgress("Installation", r.progress.i || 0, x + 235, y + 25.8);
+      drawProgress("Commissioning", r.progress.c || 0, x + 235, y + 35.1);
+    };
+
+    let page = 0;
+    const rowsPerReportPage = 3;
+    for (let offset = 0; offset < sortedRows.length; offset += rowsPerReportPage) {
+      if (page > 0) doc.addPage();
+      page += 1;
+      drawPageHeader();
+      sortedRows.slice(offset, offset + rowsPerReportPage).forEach((row, index) => {
+        drawCompanyCard(row, offset + index + 1, headerHeight + 7 + index * (cardHeight + cardGap));
+      });
+      doc.setFontSize(7);
+      doc.setTextColor(...muted);
+      doc.setFont("helvetica", "normal");
+      doc.text(`Page ${page}`, pageWidth - pageMarginX, pageHeight - 6, { align: "right" });
+    }
+
+    doc.save(`${kpiLabel.toLowerCase().replace(/\s+/g, "-")}-report-${new Date().toISOString().slice(0, 10)}.pdf`);
+    toast.success("PDF report downloaded.");
+    return;
+
+    const addChrome = () => {
+      const pageNumber = doc.getNumberOfPages();
+      doc.setFillColor(...navy);
+      doc.rect(0, 0, pageWidth, 24, "F");
+      doc.setFillColor(...blue);
+      doc.rect(0, 24, pageWidth, 1.4, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      doc.setTextColor(255, 255, 255);
+      doc.text("SIMKIT OPS", 14, 11);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(204, 213, 226);
+      doc.text("Management Report", 14, 17);
+      doc.text(kpiLabel.toUpperCase(), pageWidth - 14, 11, { align: "right" });
+      doc.text(generatedAt, pageWidth - 14, 17, { align: "right" });
+      doc.setDrawColor(...border);
+      doc.setLineWidth(0.2);
+      doc.line(14, pageHeight - 12, pageWidth - 14, pageHeight - 12);
+      doc.setFontSize(7);
+      doc.setTextColor(...muted);
+      doc.text("Generated from SimKit Ops Overview", 14, pageHeight - 7);
+      doc.text(`Page ${pageNumber}`, pageWidth - 14, pageHeight - 7, { align: "right" });
+    };
+
+    addChrome();
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(18);
+    doc.setTextColor(...ink);
+    doc.text(`${kpiLabel} Report`, 14, 38);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(...muted);
+    doc.text("Particular data export with company, assignment, status, and progress details.", 14, 44);
+    doc.setFillColor(...soft);
+    doc.setDrawColor(...border);
+    doc.roundedRect(14, 51, pageWidth - 28, 22, 2, 2, "FD");
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
-    doc.setTextColor(...muted);
-    doc.text(`Generated at: ${generatedAt} | Total Records: ${sortedRows.length}`, 12, 33);
+    doc.setTextColor(...ink);
+    doc.text(`Total Records: ${sortedRows.length}`, 19, 59);
+    doc.text(`City Filter: ${cityFilter || "All Cities"}`, 19, 66);
+    doc.text(`Field Associate: ${executiveFilter ? clean(profileNameMap.get(executiveFilter)) : "All Field Associates"}`, 86, 59);
+    doc.text(`Search: ${searchQuery || "None"}`, 86, 66);
 
     autoTable(doc, {
-      startY: 38,
-      margin: { left: 12, right: 12, top: 24, bottom: 14 },
-      head: [["Company", "City", "Assigned Field Associate", "Appt / A / I / C Progress", "Status", "Updated"]],
-      body: sortedRows.map((r) => {
+      startY: 82,
+      margin: { left: 14, right: 14, top: 31, bottom: 18 },
+      head: [["#", "City", "Company Details", "Assignment", "Status & Progress"]],
+      body: sortedRows.map((r, index) => {
         const bcNames = r.workerIds.map((id) => profileNameMap.get(id) || "—").join(", ");
         const canonicalStatus = r.status;
         const progressStr = `Appt: ${r.progress.appt.status !== "none" ? r.progress.appt.status : "—"}\nAssmt: ${r.progress.a || 0}%\nInst: ${r.progress.i || 0}%\nComm: ${r.progress.c || 0}%`;
         const lastUpdated = formatDate(r.progress.updated || r.assigned_at || r.appt_date);
+        const company = clean(r.company_name || r.name);
+        const siteName = clean(r.name);
+        const contactLines = [
+          `Company: ${company}`,
+          company !== siteName ? `Site: ${siteName}` : "",
+          `Contact: ${clean(r.meta.c1_name)}`,
+          `Mobile: ${clean(r.meta.c1_mobile)}`,
+          r.meta.c1_email ? `Email: ${r.meta.c1_email}` : "",
+        ].filter(Boolean).join("\n");
+        const assignmentLines = [
+          `Field Associate: ${bcNames || "Unassigned"}`,
+          `Assigned: ${formatDate(r.assigned_at)}`,
+          `Last Updated: ${lastUpdated}`,
+        ].join("\n");
+        const statusLines = [
+          `Status: ${canonicalStatus}`,
+          r.logisticsStatus ? `Logistics: ${r.logisticsStatus}` : "",
+          progressText(r),
+        ].filter(Boolean).join("\n");
         return [
-          r.name,
+          String(index + 1),
           r.city || "—",
-          bcNames || "Unassigned",
-          progressStr,
-          canonicalStatus,
-          lastUpdated
+          contactLines,
+          assignmentLines,
+          statusLines
         ];
       }),
       theme: "grid",
       styles: {
         font: "helvetica",
-        fontSize: 8,
-        cellPadding: 2.5,
-        lineColor: [225, 226, 220],
+        fontSize: 8.2,
+        cellPadding: 3,
+        lineColor: border,
         lineWidth: 0.2,
         textColor: ink,
         overflow: "linebreak",
+        valign: "top",
       },
-      headStyles: { fillColor: ink, textColor: [240, 236, 227], fontStyle: "bold" },
+      headStyles: {
+        fillColor: navy,
+        textColor: [255, 255, 255],
+        fontStyle: "bold",
+        fontSize: 8.6,
+        cellPadding: 3,
+      },
       alternateRowStyles: { fillColor: soft },
       columnStyles: {
-        0: { cellWidth: 70 },
-        1: { cellWidth: 35 },
-        2: { cellWidth: 50 },
-        3: { cellWidth: 50 },
-        4: { cellWidth: 40 },
-        5: { cellWidth: 28 },
+        0: { cellWidth: 10, halign: "center" },
+        1: { cellWidth: 22 },
+        2: { cellWidth: 62 },
+        3: { cellWidth: 43 },
+        4: { cellWidth: 45 },
       },
-      didDrawPage: () => addHeader(),
+      didDrawPage: () => addChrome(),
     });
 
     doc.save(`${kpiLabel.toLowerCase().replace(/\s+/g, "-")}-report-${new Date().toISOString().slice(0, 10)}.pdf`);
