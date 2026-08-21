@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouterState } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
-import { Button, Card, Input, Label, Select, Badge } from "@/components/ui-kit";
+import { Button, Card, Input, Label, Select, Badge, Textarea } from "@/components/ui-kit";
 import { toast } from "sonner";
 import {
   Plus,
@@ -14,11 +14,28 @@ import {
   ExternalLink,
   ChevronDown,
   Check,
+  FileText,
 } from "lucide-react";
 import { parseSiteMetadata, serializeSiteMetadata } from "@/lib/site-metadata";
 import { getCanonicalStatus, ASSESSMENT_KEYS, INSTALLATION_KEYS, COMMISSIONING_KEYS, pctKeys, getSiteWorkerIds, isSiteDropped } from "@/utils/status";
 
 export { parseSiteMetadata, serializeSiteMetadata };
+
+const DEFAULT_SENDER = {
+  name: "LimelightIT",
+  address: "A/448, Money Plant High Street,\nGota, Ahmedabad, Gujarat - 382470",
+  mobile: "+91 93130 48188",
+};
+
+type PdfAddressDraft = {
+  site?: any;
+  toName: string;
+  toAddress: string;
+  toMobile: string;
+  fromName: string;
+  fromAddress: string;
+  fromMobile: string;
+};
 
 const FACTORY_STATUS_OPTIONS = [
   "Submitted",
@@ -145,6 +162,10 @@ export function SitesPanel() {
   const [commissionings, setCommissionings] = useState<any[]>([]);
   const [creating, setCreating] = useState(false);
   const [editingSite, setEditingSite] = useState<any | null>(null);
+  const [pdfDraft, setPdfDraft] = useState<PdfAddressDraft | null>(null);
+  const [pdfSaving, setPdfSaving] = useState(false);
+  const [customLabelDraft, setCustomLabelDraft] = useState<PdfAddressDraft | null>(null);
+  const [customLabelDownloading, setCustomLabelDownloading] = useState(false);
 
   const routerState = useRouterState();
   const searchParam = (routerState.location.search as any)?.q || "";
@@ -571,6 +592,319 @@ export function SitesPanel() {
       assessor_email: "",
       assessor_address: "",
     });
+  };
+
+  const openPdfAddressWindow = async (site: any) => {
+    const meta = parseSiteMetadata(site.task_notes);
+    const normalizeMobileForPdf = (mobile?: string | null) => {
+      const value = (mobile || "").trim();
+      if (!value) return "";
+      return value.startsWith("+") ? value : `+91 ${value}`;
+    };
+
+    let address = (site.address || "").trim();
+    let mobile = normalizeMobileForPdf(meta.pdf_to_mobile || meta.c1_mobile || meta.c2_mobile);
+
+    try {
+      const [{ data: assessment }, { data: contact }] = await Promise.all([
+        supabase.from("assessment").select("data").eq("site_id", site.id).limit(1).maybeSingle(),
+        supabase.from("contacts").select("mobile").eq("site_id", site.id).limit(1).maybeSingle(),
+      ]);
+
+      const aData: any = assessment?.data || {};
+      if (!address) {
+        const assessmentAddress =
+          typeof aData.factory_op_address === "string" && aData.factory_op_address.trim()
+            ? aData.factory_op_address
+            : typeof aData.registered_address === "string" && aData.registered_address.trim()
+              ? aData.registered_address
+              : "";
+        address = assessmentAddress.trim();
+      }
+
+      mobile =
+        normalizeMobileForPdf(contact?.mobile) ||
+        mobile ||
+        normalizeMobileForPdf(Array.isArray(aData.factory_op_owners) ? aData.factory_op_owners[0]?.contact : "") ||
+        normalizeMobileForPdf(Array.isArray(aData.factory_op_technicians) ? aData.factory_op_technicians[0]?.contact : "");
+    } catch (err) {
+      console.error("Failed to prefill PDF address details:", err);
+    }
+
+    setPdfDraft({
+      site,
+      toName: meta.pdf_to_name || site.company_name || site.name || "",
+      toAddress: address || site.city || "",
+      toMobile: mobile || "N/A",
+      fromName: meta.pdf_from_name || DEFAULT_SENDER.name,
+      fromAddress: meta.pdf_from_address || DEFAULT_SENDER.address,
+      fromMobile: meta.pdf_from_mobile || DEFAULT_SENDER.mobile,
+    });
+  };
+
+  const savePdfAddress = async (draft: PdfAddressDraft) => {
+    if (!draft.site) {
+      toast.error("No site selected.");
+      return false;
+    }
+
+    const nextAddress = draft.toAddress.trim();
+    const nextToName = draft.toName.trim();
+    const nextToMobile = draft.toMobile.trim();
+    const nextFromName = draft.fromName.trim();
+    const nextFromAddress = draft.fromAddress.trim();
+    const nextFromMobile = draft.fromMobile.trim();
+
+    if (!nextToName) {
+      toast.error("Company name is required.");
+      return false;
+    }
+
+    if (!nextAddress) {
+      toast.error("Recipient address is required.");
+      return false;
+    }
+
+    const companyName = (draft.site.company_name || draft.site.name || "").trim();
+    const siteName = (draft.site.name || "").trim();
+    const materialNames = Array.from(new Set([companyName, siteName].filter(Boolean)));
+    const currentMeta = parseSiteMetadata(draft.site.task_notes);
+    const taskNotes = serializeSiteMetadata(draft.site.task_notes, {
+      ...currentMeta,
+      c1_mobile: nextToMobile && nextToMobile !== "N/A" ? nextToMobile : currentMeta.c1_mobile,
+      pdf_to_name: nextToName,
+      pdf_to_mobile: nextToMobile,
+      pdf_from_name: nextFromName,
+      pdf_from_address: nextFromAddress,
+      pdf_from_mobile: nextFromMobile,
+    });
+
+    const { error } = await supabase
+      .from("sites")
+      .update({
+        company_name: nextToName,
+        address: nextAddress,
+        task_notes: taskNotes,
+      } as never)
+      .eq("id", draft.site.id);
+
+    if (error) {
+      toast.error("Failed to update site address: " + error.message);
+      return false;
+    }
+
+    if (nextToMobile && nextToMobile !== "N/A") {
+      const { data: contact } = await supabase
+        .from("contacts")
+        .select("id")
+        .eq("site_id", draft.site.id)
+        .limit(1)
+        .maybeSingle();
+
+      if (contact?.id) {
+        const { error: contactError } = await supabase
+          .from("contacts")
+          .update({ mobile: nextToMobile } as never)
+          .eq("id", contact.id);
+
+        if (contactError) {
+          toast.error("Site details saved, but contact mobile was not updated: " + contactError.message);
+          return false;
+        }
+      } else {
+        const { error: contactError } = await supabase
+          .from("contacts")
+          .insert({ site_id: draft.site.id, name: nextToName, mobile: nextToMobile } as never);
+
+        if (contactError) {
+          toast.error("Site details saved, but contact mobile was not created: " + contactError.message);
+          return false;
+        }
+      }
+    }
+
+    if (materialNames.length > 0) {
+      const { error: materialError } = await supabase
+        .from("inventory_materials")
+        .update({ material_name: nextToName, location: nextAddress } as never)
+        .in("material_name", materialNames);
+
+      if (materialError) {
+        toast.error("Site address saved, but logistics address was not updated: " + materialError.message);
+        return false;
+      }
+    }
+
+    setClientUpdateTimes((prev) => ({ ...prev, [draft.site.id]: Date.now() }));
+    await load();
+    return true;
+  };
+
+  const downloadSiteAddressPdf = async (draft: PdfAddressDraft) => {
+    const [{ jsPDF }] = await Promise.all([import("jspdf")]);
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const wrapWidth = 160;
+    const toAddress = draft.toAddress.trim();
+    const fromAddress = draft.fromAddress.trim();
+    const toAddressLines = doc.splitTextToSize(toAddress, wrapWidth);
+    const fromAddressLines = doc.splitTextToSize(fromAddress, wrapWidth);
+    const maxAddressLines = Math.max(toAddressLines.length, fromAddressLines.length);
+
+    let fontSizeTitle = 20;
+    let fontSizeHeader = 15;
+    let fontSizeContent = 11;
+    let lineSpacing = 7;
+    let sectionSpacing = 8;
+
+    if (maxAddressLines <= 2) {
+      fontSizeTitle = 22;
+      fontSizeHeader = 17;
+      fontSizeContent = 12;
+      lineSpacing = 9;
+      sectionSpacing = 11;
+    } else if (maxAddressLines > 5) {
+      fontSizeTitle = 18;
+      fontSizeHeader = 14;
+      fontSizeContent = 10;
+      lineSpacing = 6;
+      sectionSpacing = 7;
+    }
+
+    doc.setFont("Helvetica", "normal");
+    doc.setFontSize(fontSizeContent);
+    const finalToAddressLines = doc.splitTextToSize(toAddress, wrapWidth);
+    const finalFromAddressLines = doc.splitTextToSize(fromAddress, wrapWidth);
+
+    const titleOffset = 10;
+    const headerDividerOffset = 16;
+    const toHeaderOffset = headerDividerOffset + sectionSpacing;
+    const toCompanyOffset = toHeaderOffset + lineSpacing;
+    const toAddressStartOffset = toCompanyOffset + lineSpacing;
+    const toMobileOffset = toAddressStartOffset + finalToAddressLines.length * lineSpacing;
+    const fromToDividerOffset = toMobileOffset + sectionSpacing;
+    const fromHeaderOffset = fromToDividerOffset + sectionSpacing;
+    const fromCompanyOffset = fromHeaderOffset + lineSpacing;
+    const fromAddressStartOffset = fromCompanyOffset + lineSpacing;
+    const fromMobileOffset = fromAddressStartOffset + finalFromAddressLines.length * lineSpacing;
+    const totalBoxHeight = fromMobileOffset + sectionSpacing;
+    const startX = 15;
+    const width = 180;
+
+    const renderLabel = (startY: number) => {
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(0.8);
+      doc.roundedRect(startX, startY, width, totalBoxHeight, 5, 5, "D");
+
+      doc.setLineWidth(0.5);
+      doc.line(startX, startY + headerDividerOffset, startX + width, startY + headerDividerOffset);
+      doc.line(startX, startY + fromToDividerOffset, startX + width, startY + fromToDividerOffset);
+
+      doc.setFont("Helvetica", "bold");
+      doc.setFontSize(fontSizeTitle);
+      doc.text("COURIER ADDRESS LABEL", startX + width / 2, startY + titleOffset, { align: "center" });
+
+      doc.setFontSize(fontSizeHeader);
+      doc.text("TO", startX + 7, startY + toHeaderOffset);
+      doc.setFontSize(fontSizeContent);
+      doc.text((draft.toName || "N/A").toUpperCase(), startX + 7, startY + toCompanyOffset);
+
+      doc.setFont("Helvetica", "normal");
+      finalToAddressLines.forEach((line: string, index: number) => {
+        doc.text(line, startX + 7, startY + toAddressStartOffset + index * lineSpacing);
+      });
+      doc.text(`Mobile: ${draft.toMobile || "N/A"}`, startX + 7, startY + toMobileOffset);
+
+      doc.setFont("Helvetica", "bold");
+      doc.setFontSize(fontSizeHeader);
+      doc.text("FROM", startX + 7, startY + fromHeaderOffset);
+      doc.setFontSize(fontSizeContent);
+      doc.text((draft.fromName || DEFAULT_SENDER.name).toUpperCase(), startX + 7, startY + fromCompanyOffset);
+
+      doc.setFont("Helvetica", "normal");
+      finalFromAddressLines.forEach((line: string, index: number) => {
+        doc.text(line, startX + 7, startY + fromAddressStartOffset + index * lineSpacing);
+      });
+      doc.text(`Mobile: ${draft.fromMobile || "N/A"}`, startX + 7, startY + fromMobileOffset);
+    };
+
+    const halfPageHeight = 297 / 2;
+    const topStartY = Math.max(10, (halfPageHeight - totalBoxHeight) / 2);
+    const bottomStartY = halfPageHeight + Math.max(10, (halfPageHeight - totalBoxHeight) / 2);
+
+    renderLabel(topStartY);
+    doc.setDrawColor(180, 180, 180);
+    doc.setLineWidth(0.3);
+    doc.setLineDashPattern([2, 2], 0);
+    doc.line(10, 148.5, 200, 148.5);
+    doc.setLineDashPattern([], 0);
+    renderLabel(bottomStartY);
+
+    const safeName = (draft.toName || "company").toLowerCase().replace(/[^a-z0-9]/g, "_");
+    const timestamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "");
+    doc.save(`courier_label_${safeName}_${timestamp}.pdf`);
+  };
+
+  const openCustomLabel = () => {
+    setCustomLabelDraft({
+      toName: "",
+      toAddress: "",
+      toMobile: "",
+      fromName: DEFAULT_SENDER.name,
+      fromAddress: DEFAULT_SENDER.address,
+      fromMobile: DEFAULT_SENDER.mobile,
+    });
+  };
+
+  const handleCustomLabelDownload = async () => {
+    if (!customLabelDraft) return;
+
+    if (!customLabelDraft.toName.trim()) {
+      toast.error("Company name is required.");
+      return;
+    }
+
+    if (!customLabelDraft.toAddress.trim()) {
+      toast.error("Recipient address is required.");
+      return;
+    }
+
+    if (!customLabelDraft.toMobile.trim()) {
+      toast.error("Recipient mobile number is required.");
+      return;
+    }
+
+    setCustomLabelDownloading(true);
+    try {
+      await downloadSiteAddressPdf(customLabelDraft);
+      toast.success("Custom courier label downloaded.");
+      setCustomLabelDraft(null);
+    } catch (err: any) {
+      toast.error("Failed to generate custom PDF label: " + (err.message || err));
+    } finally {
+      setCustomLabelDownloading(false);
+    }
+  };
+
+  const handlePdfSave = async (download = false) => {
+    if (!pdfDraft) return;
+
+    setPdfSaving(true);
+    try {
+      const saved = await savePdfAddress(pdfDraft);
+      if (!saved) return;
+
+      if (download) {
+        await downloadSiteAddressPdf(pdfDraft);
+        toast.success("Address saved and courier label downloaded.");
+      } else {
+        toast.success("Address saved.");
+      }
+      setPdfDraft(null);
+    } catch (err: any) {
+      toast.error("Failed to process address PDF: " + (err.message || err));
+    } finally {
+      setPdfSaving(false);
+    }
   };
 
   const assignMultiple = async (
@@ -1204,6 +1538,222 @@ export function SitesPanel() {
         </div>
       )}
 
+      {pdfDraft && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-6">
+          <div className="w-full max-w-2xl rounded-[10px] border border-border bg-surface shadow-2xl">
+            <div className="flex items-center justify-between border-b border-border px-5 py-4">
+              <div>
+                <h2 className="font-syne text-lg font-bold uppercase text-text-primary">
+                  Courier Address PDF
+                </h2>
+                <p className="mt-1 text-xs text-text-secondary">
+                  Review the TO and FROM details before saving or downloading.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPdfDraft(null)}
+                className="rounded-[6px] p-2 text-text-secondary hover:bg-surface-raised hover:text-text-primary"
+                disabled={pdfSaving}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="grid gap-5 p-5 md:grid-cols-2">
+              <div className="space-y-3">
+                <div className="font-mono text-[10px] font-bold uppercase tracking-widest text-lime">
+                  To
+                </div>
+                <div>
+                  <Label>Company Name</Label>
+                  <Input
+                    value={pdfDraft.toName}
+                    onChange={(e) => setPdfDraft({ ...pdfDraft, toName: e.target.value })}
+                    disabled={pdfSaving}
+                  />
+                </div>
+                <div>
+                  <Label>Address</Label>
+                  <Textarea
+                    value={pdfDraft.toAddress}
+                    onChange={(e) => setPdfDraft({ ...pdfDraft, toAddress: e.target.value })}
+                    rows={6}
+                    disabled={pdfSaving}
+                  />
+                </div>
+                <div>
+                  <Label>Mobile</Label>
+                  <Input
+                    value={pdfDraft.toMobile}
+                    onChange={(e) => setPdfDraft({ ...pdfDraft, toMobile: e.target.value })}
+                    disabled={pdfSaving}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="font-mono text-[10px] font-bold uppercase tracking-widest text-violet">
+                  From
+                </div>
+                <div>
+                  <Label>Sender Name</Label>
+                  <Input
+                    value={pdfDraft.fromName}
+                    onChange={(e) => setPdfDraft({ ...pdfDraft, fromName: e.target.value })}
+                    disabled={pdfSaving}
+                  />
+                </div>
+                <div>
+                  <Label>Address</Label>
+                  <Textarea
+                    value={pdfDraft.fromAddress}
+                    onChange={(e) => setPdfDraft({ ...pdfDraft, fromAddress: e.target.value })}
+                    rows={6}
+                    disabled={pdfSaving}
+                  />
+                </div>
+                <div>
+                  <Label>Mobile</Label>
+                  <Input
+                    value={pdfDraft.fromMobile}
+                    onChange={(e) => setPdfDraft({ ...pdfDraft, fromMobile: e.target.value })}
+                    disabled={pdfSaving}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap justify-end gap-3 border-t border-border px-5 py-4">
+              <Button
+                variant="secondary"
+                onClick={() => setPdfDraft(null)}
+                disabled={pdfSaving}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => void handlePdfSave(false)}
+                disabled={pdfSaving}
+              >
+                Save
+              </Button>
+              <Button onClick={() => void handlePdfSave(true)} disabled={pdfSaving}>
+                <FileText size={15} />
+                Download PDF
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {customLabelDraft && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-6">
+          <div className="w-full max-w-2xl rounded-[10px] border border-border bg-surface shadow-2xl">
+            <div className="flex items-center justify-between border-b border-border px-5 py-4">
+              <div>
+                <h2 className="font-syne text-lg font-bold uppercase text-text-primary">
+                  Custom Courier Label
+                </h2>
+                <p className="mt-1 text-xs text-text-secondary">
+                  Create a one-time label without saving these details.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCustomLabelDraft(null)}
+                className="rounded-[6px] p-2 text-text-secondary hover:bg-surface-raised hover:text-text-primary"
+                disabled={customLabelDownloading}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="grid gap-5 p-5 md:grid-cols-2">
+              <div className="space-y-3">
+                <div className="font-mono text-[10px] font-bold uppercase tracking-widest text-lime">
+                  To
+                </div>
+                <div>
+                  <Label>Company Name</Label>
+                  <Input
+                    value={customLabelDraft.toName}
+                    onChange={(e) => setCustomLabelDraft({ ...customLabelDraft, toName: e.target.value })}
+                    placeholder="Enter company name"
+                    disabled={customLabelDownloading}
+                  />
+                </div>
+                <div>
+                  <Label>Address</Label>
+                  <Textarea
+                    value={customLabelDraft.toAddress}
+                    onChange={(e) => setCustomLabelDraft({ ...customLabelDraft, toAddress: e.target.value })}
+                    placeholder="Enter delivery address"
+                    rows={6}
+                    disabled={customLabelDownloading}
+                  />
+                </div>
+                <div>
+                  <Label>Number</Label>
+                  <Input
+                    value={customLabelDraft.toMobile}
+                    onChange={(e) => setCustomLabelDraft({ ...customLabelDraft, toMobile: e.target.value })}
+                    placeholder="Enter mobile number"
+                    disabled={customLabelDownloading}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="font-mono text-[10px] font-bold uppercase tracking-widest text-violet">
+                  From
+                </div>
+                <div>
+                  <Label>Sender Name</Label>
+                  <Input
+                    value={customLabelDraft.fromName}
+                    onChange={(e) => setCustomLabelDraft({ ...customLabelDraft, fromName: e.target.value })}
+                    disabled={customLabelDownloading}
+                  />
+                </div>
+                <div>
+                  <Label>Address</Label>
+                  <Textarea
+                    value={customLabelDraft.fromAddress}
+                    onChange={(e) => setCustomLabelDraft({ ...customLabelDraft, fromAddress: e.target.value })}
+                    rows={6}
+                    disabled={customLabelDownloading}
+                  />
+                </div>
+                <div>
+                  <Label>Number</Label>
+                  <Input
+                    value={customLabelDraft.fromMobile}
+                    onChange={(e) => setCustomLabelDraft({ ...customLabelDraft, fromMobile: e.target.value })}
+                    disabled={customLabelDownloading}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap justify-end gap-3 border-t border-border px-5 py-4">
+              <Button
+                variant="secondary"
+                onClick={() => setCustomLabelDraft(null)}
+                disabled={customLabelDownloading}
+              >
+                Cancel
+              </Button>
+              <Button onClick={() => void handleCustomLabelDownload()} disabled={customLabelDownloading}>
+                <FileText size={15} />
+                Download PDF
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Search & Filters ── */}
       <div className="space-y-3">
         <div className="flex flex-wrap gap-2 items-center">
@@ -1238,6 +1788,14 @@ export function SitesPanel() {
               <X size={12} /> Clear all
             </button>
           )}
+          <Button
+            variant="secondary"
+            className="text-xs"
+            onClick={openCustomLabel}
+          >
+            <FileText size={14} />
+            Custom Label
+          </Button>
         </div>
         <div className="flex flex-wrap gap-2">
           {[
@@ -1444,6 +2002,15 @@ export function SitesPanel() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-2">
+                          <Button
+                            variant="secondary"
+                            className="h-8 w-8 p-0"
+                            onClick={() => void openPdfAddressWindow(s)}
+                            title="Courier address PDF"
+                            aria-label="Courier address PDF"
+                          >
+                            <FileText size={14} />
+                          </Button>
                           <Button
                             variant="secondary"
                             className="p-1 px-2.5 text-xs"
