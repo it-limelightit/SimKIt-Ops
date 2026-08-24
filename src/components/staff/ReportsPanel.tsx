@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button, Input, Label, Select } from "@/components/ui-kit";
 import { parseSiteMetadata } from "@/lib/site-metadata";
 import { getCanonicalStatus } from "@/utils/status";
+import logoUrl from "../../../image copy.png";
 import {
   Building2,
   CheckCircle2,
@@ -15,12 +16,14 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-type ViewMode = "company" | "consultant";
+type ViewMode = "company" | "consultant" | "activity";
 
 type Consultant = {
   id: string;
   name: string | null;
   mobile: string | null;
+  email?: string | null;
+  last_login?: string | null;
 };
 
 type SiteRecord = {
@@ -43,6 +46,35 @@ type FactoryRow = {
   consultantNames: string[];
   status: string;
   createdAt: string;
+};
+
+type ActivityRow = {
+  id: string;
+  activityType: "status_change" | "login" | "create" | "update" | "delete" | "logistics_update";
+  siteId: string;
+  companyName: string;
+  factoryName: string;
+  city: string;
+  userName: string;
+  fromStatus: string;
+  toStatus: string;
+  changedAt: string;
+};
+
+type AuditRecord = {
+  id: string;
+  created_at: string;
+  actor_name: string | null;
+  action: ActivityRow["activityType"];
+  entity_type: string;
+  entity_id: string | null;
+  entity_name: string | null;
+  site_id: string | null;
+  company_name: string | null;
+  factory_name: string | null;
+  from_value: string | null;
+  to_value: string | null;
+  details: Record<string, any> | null;
 };
 
 const STATUS_OPTIONS = [
@@ -72,6 +104,13 @@ function statusStyle(status: string) {
   if (status === "Assigned" || status === "Not Started Yet") return "border-indigo-200 bg-indigo-50 text-indigo-700";
   if (status === "Pending Assignment") return "border-amber-200 bg-amber-50 text-amber-700";
   return "border-stone-200 bg-stone-50 text-stone-600";
+}
+
+function actionLabel(action: ActivityRow["activityType"]) {
+  if (action === "login") return "Last Login";
+  if (action === "status_change") return "Status Changed";
+  if (action === "logistics_update") return "Logistics Updated";
+  return action.charAt(0).toUpperCase() + action.slice(1);
 }
 
 function groupReportRows(rows: FactoryRow[], key: (row: FactoryRow) => string) {
@@ -111,9 +150,14 @@ const getSiteWorkerIds = (site: any): string[] => {
 };
 
 export function ReportsPanel() {
-  const [view, setView] = useState<ViewMode>("company");
+  const [view, setView] = useState<ViewMode>(() => {
+    if (typeof window === "undefined") return "company";
+    const saved = window.localStorage.getItem("managerReportsView");
+    return saved === "activity" || saved === "consultant" || saved === "company" ? saved : "company";
+  });
   const [sites, setSites] = useState<SiteRecord[]>([]);
   const [consultants, setConsultants] = useState<Consultant[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [assessments, setAssessments] = useState<any[]>([]);
@@ -129,6 +173,40 @@ export function ReportsPanel() {
     status: "",
   });
 
+  const getLogoImages = async () => {
+    const logoDataUrl = await fetch(logoUrl)
+      .then((response) => response.blob())
+      .then(
+        (blob) =>
+          new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result));
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          }),
+      );
+    const watermarkDataUrl = await new Promise<string>((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 700;
+        canvas.height = 700;
+        const context = canvas.getContext("2d");
+        if (!context) {
+          reject(new Error("Could not prepare watermark."));
+          return;
+        }
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.globalAlpha = 0.14;
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/png"));
+      };
+      image.onerror = () => reject(new Error("Could not load company watermark."));
+      image.src = logoDataUrl;
+    });
+    return { logoDataUrl, watermarkDataUrl };
+  };
+
   useEffect(() => {
     const load = async () => {
       setLoading(true);
@@ -141,6 +219,7 @@ export function ReportsPanel() {
           commissioningsRes,
           materialsRes,
           rolesRes,
+          auditLogsRes,
         ] = await Promise.all([
           supabase
             .from("sites")
@@ -148,15 +227,20 @@ export function ReportsPanel() {
               "id,name,company_name,city,assigned_worker_id,task_notes,consultant_stage,created_at",
             )
             .order("created_at", { ascending: false }),
-          supabase.from("profiles").select("id,name,mobile").order("name"),
-          supabase.from("assessment").select("data,updated_at,site_id"),
-          supabase.from("installation").select("data,updated_at,site_id"),
-          supabase.from("commissioning").select("data,updated_at,site_id"),
+          supabase.from("profiles").select("id,name,mobile,email,last_login").order("name"),
+          supabase.from("assessment").select("data,updated_at,site_id,worker_id"),
+          supabase.from("installation").select("data,updated_at,site_id,worker_id"),
+          supabase.from("commissioning").select("data,updated_at,site_id,worker_id"),
           supabase
             .from("inventory_materials")
             .select("state,notes,submitted,material_name,created_at")
             .order("created_at", { ascending: false }),
           supabase.from("user_roles").select("user_id").eq("role", "worker"),
+          supabase
+            .from("activity_logs" as any)
+            .select("*")
+            .gte("created_at", new Date(new Date().setHours(0, 0, 0, 0)).toISOString())
+            .order("created_at", { ascending: false }),
         ]);
 
         if (siteResult.error)
@@ -166,7 +250,9 @@ export function ReportsPanel() {
 
         setSites(siteResult.data ?? []);
         const workerIds = new Set((rolesRes.data ?? []).map((r: any) => r.user_id));
-        setConsultants((consultantResult.data ?? []).filter((c: any) => workerIds.has(c.id)));
+        const profiles = consultantResult.data ?? [];
+        setConsultants(profiles.filter((c: any) => workerIds.has(c.id)));
+        setAuditLogs(auditLogsRes.error ? [] : ((auditLogsRes.data ?? []) as unknown as AuditRecord[]));
         setAssessments(assessmentsRes.data ?? []);
         setInstallations(installationsRes.data ?? []);
         setCommissionings(commissioningsRes.data ?? []);
@@ -182,6 +268,21 @@ export function ReportsPanel() {
     const channel = supabase
       .channel("management-report-sites")
       .on("postgres_changes", { event: "*", schema: "public", table: "sites" }, () => {
+        void load();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => {
+        void load();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "activity_logs" }, () => {
+        void load();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "assessment" }, () => {
+        void load();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "installation" }, () => {
+        void load();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "commissioning" }, () => {
         void load();
       })
       .subscribe();
@@ -248,6 +349,115 @@ export function ReportsPanel() {
     });
   }, [rows, filters]);
 
+  const activityRows = useMemo<ActivityRow[]>(() => {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const isTodayOrNewer = (value: string | null | undefined) => {
+      if (!value) return false;
+      const date = new Date(value);
+      return !Number.isNaN(date.getTime()) && date >= todayStart;
+    };
+    const siteById = new Map(sites.map((site) => [site.id, site]));
+    const profileName = (workerId: string | null | undefined) => {
+      if (!workerId) return "Unknown User";
+      const profile = consultantMap.get(workerId);
+      return profile?.name || profile?.mobile || profile?.email || "Unknown User";
+    };
+    const statusRows = sites
+      .flatMap((site) => {
+        const meta = parseSiteMetadata(site.task_notes);
+        const logs = Array.isArray(meta.activity_logs) ? meta.activity_logs : [];
+        return logs
+          .filter((log: any) => log?.type === "status_change")
+          .filter((log: any) => isTodayOrNewer(String(log.at || site.created_at)))
+          .map((log: any) => ({
+            id: String(log.id || `${site.id}-${log.at}`),
+            activityType: "status_change" as const,
+            siteId: site.id,
+            companyName: site.company_name?.trim() || site.name,
+            factoryName: site.name,
+            city: site.city || "—",
+            userName: String(log.user_name || "Unknown User"),
+            fromStatus: String(log.from_status || "—"),
+            toStatus: String(log.to_status || "—"),
+            changedAt: String(log.at || site.created_at),
+          }));
+      });
+    const auditRows = auditLogs.map((log) => ({
+      id: log.id,
+      activityType: log.action,
+      siteId: log.site_id || "",
+      companyName: log.company_name || log.entity_name || log.entity_type,
+      factoryName: log.factory_name || log.entity_name || log.entity_type,
+      city: "—",
+      userName: log.actor_name || "Unknown User",
+      fromStatus: log.from_value || actionLabel(log.action),
+      toStatus: log.to_value || actionLabel(log.action),
+      changedAt: log.created_at,
+    }));
+    const auditKeys = new Set(
+      auditRows.map((row) => `${row.activityType}:${row.siteId}:${row.fromStatus}:${row.toStatus}`),
+    );
+    const hasLoggedStatus = (siteId: string, toStatus: string, changedAt: string) => {
+      const targetTime = new Date(changedAt).getTime();
+      return statusRows.some((row) => {
+        if (row.siteId !== siteId || row.toStatus !== toStatus) return false;
+        const rowTime = new Date(row.changedAt).getTime();
+        if (Number.isNaN(targetTime) || Number.isNaN(rowTime)) return false;
+        return Math.abs(rowTime - targetTime) < 5 * 60 * 1000;
+      });
+    };
+    const makePhaseRow = (
+      phase: "assessment" | "installation" | "commissioning",
+      row: any,
+      fromStatus: string,
+      toStatus: string,
+    ): ActivityRow | null => {
+      const site = siteById.get(row.site_id);
+      if (!site) return null;
+      const changedAt =
+        (phase === "assessment" && row.data?.factory_form_submitted_at) ||
+        (phase === "installation" && row.data?.installation_phase_submitted_at) ||
+        (phase === "commissioning" && row.data?.commissioning_phase_submitted_at) ||
+        row.updated_at ||
+        site.created_at;
+      if (!isTodayOrNewer(changedAt)) return null;
+      if (hasLoggedStatus(site.id, toStatus, changedAt)) return null;
+      return {
+        id: `${phase}-${site.id}-${changedAt}`,
+        activityType: "status_change",
+        siteId: site.id,
+        companyName: site.company_name?.trim() || site.name,
+        factoryName: site.name,
+        city: site.city || "—",
+        userName: profileName(row.worker_id),
+        fromStatus,
+        toStatus,
+        changedAt,
+      };
+    };
+    const phaseRows = [
+      ...assessments
+        .filter((row) => row.data?.assessment_phase_submitted)
+        .map((row) => makePhaseRow("assessment", row, "Not Started Yet", "Assessed")),
+      ...installations
+        .filter((row) => row.data?.installation_phase_submitted)
+        .map((row) => makePhaseRow("installation", row, "Assessed", "Installed")),
+      ...commissionings
+        .filter((row) => row.data?.commissioning_phase_submitted)
+        .map((row) => makePhaseRow("commissioning", row, "Installed", "Submitted")),
+    ]
+      .filter((row): row is ActivityRow => !!row)
+      .filter((row) => !auditKeys.has(`${row.activityType}:${row.siteId}:${row.fromStatus}:${row.toStatus}`));
+    const fallbackStatusRows = statusRows.filter(
+      (row) => !auditKeys.has(`${row.activityType}:${row.siteId}:${row.fromStatus}:${row.toStatus}`),
+    );
+    return [...auditRows, ...fallbackStatusRows, ...phaseRows]
+      .sort((a, b) => new Date(b.changedAt).getTime() - new Date(a.changedAt).getTime());
+  }, [sites, assessments, installations, commissionings, auditLogs, consultantMap]);
+
+  const filteredActivityRows = activityRows;
+
   const cities = useMemo(
     () => Array.from(new Set(rows.map((row) => row.city).filter((city) => city !== "—"))).sort(),
     [rows],
@@ -296,6 +506,13 @@ export function ReportsPanel() {
   const clearFilters = () =>
     setFilters({ search: "", from: "", to: "", city: "", consultant: "", status: "" });
 
+  const changeView = (nextView: ViewMode) => {
+    setView(nextView);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("managerReportsView", nextView);
+    }
+  };
+
   const exportCsv = () => {
     const lines = [
       ["Company", "Factory", "City", "Field Associate", "Status", "Created"],
@@ -329,7 +546,138 @@ export function ReportsPanel() {
     URL.revokeObjectURL(url);
   };
 
+  const exportActivityPdf = async () => {
+    if (filteredActivityRows.length === 0) {
+      toast.error("There are no activity log rows to export.");
+      return;
+    }
+    setExportingPdf(true);
+    try {
+      const [{ jsPDF }] = await Promise.all([import("jspdf")]);
+      const { logoDataUrl, watermarkDataUrl } = await getLogoImages();
+      const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const navy: [number, number, number] = [23, 58, 91];
+      const ink: [number, number, number] = [31, 51, 71];
+      const muted: [number, number, number] = [102, 120, 138];
+      const border: [number, number, number] = [215, 224, 232];
+      const marginX = 36;
+      const tableWidth = pageWidth - marginX * 2;
+      const cols = {
+        no: marginX,
+        date: marginX + 30,
+        user: marginX + 118,
+        company: marginX + 225,
+        change: marginX + 395,
+      };
+      const rowHeight = 54;
+      const firstRowY = 145;
+      const headerRowY = 117;
+      const headerRowHeight = 28;
+
+      const addHeader = () => {
+        doc.addImage(watermarkDataUrl, "PNG", pageWidth / 2 - 145, pageHeight / 2 - 145, 290, 290);
+        doc.addImage(logoDataUrl, "PNG", marginX, 26, 42, 42);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(14);
+        doc.setTextColor(...navy);
+        doc.text("LimelightIT Research Pvt. Ltd.", marginX + 52, 43);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        doc.setTextColor(...muted);
+        doc.text("Status change activity log", marginX + 52, 57);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(15);
+        doc.setTextColor(...navy);
+        doc.text("ACTIVITY LOG REPORT", pageWidth / 2, 85, { align: "center" });
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8.5);
+        doc.setTextColor(...muted);
+        doc.text(`Total Activities: ${filteredActivityRows.length}`, pageWidth / 2, 100, { align: "center" });
+        doc.text(new Date().toLocaleDateString("en-IN"), pageWidth - marginX, 55, { align: "right" });
+
+        doc.setFillColor(...navy);
+        doc.roundedRect(marginX, headerRowY, tableWidth, headerRowHeight, 3, 3, "F");
+        doc.setDrawColor(...border);
+        doc.line(cols.date, headerRowY, cols.date, headerRowY + headerRowHeight);
+        doc.line(cols.user, headerRowY, cols.user, headerRowY + headerRowHeight);
+        doc.line(cols.company, headerRowY, cols.company, headerRowY + headerRowHeight);
+        doc.line(cols.change, headerRowY, cols.change, headerRowY + headerRowHeight);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8);
+        doc.setTextColor(255, 255, 255);
+        doc.text("NO.", cols.no + 15, headerRowY + 18, { align: "center" });
+        doc.text("DATE / TIME", cols.date + 8, headerRowY + 18);
+        doc.text("USER", cols.user + 8, headerRowY + 18);
+        doc.text("COMPANY / SITE", cols.company + 8, headerRowY + 18);
+        doc.text("ACTIVITY", cols.change + 8, headerRowY + 18);
+      };
+
+      addHeader();
+      let y = firstRowY;
+      filteredActivityRows.forEach((row, index) => {
+        if (y + rowHeight > pageHeight - 36) {
+          doc.addPage();
+          addHeader();
+          y = firstRowY;
+        }
+        const changedAt = new Date(row.changedAt);
+        const dateText = Number.isNaN(changedAt.getTime())
+          ? row.changedAt
+          : changedAt.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+
+        doc.setDrawColor(...border);
+        doc.setLineWidth(0.55);
+        doc.line(marginX, y + rowHeight, marginX + tableWidth, y + rowHeight);
+        doc.line(cols.date, y, cols.date, y + rowHeight);
+        doc.line(cols.user, y, cols.user, y + rowHeight);
+        doc.line(cols.company, y, cols.company, y + rowHeight);
+        doc.line(cols.change, y, cols.change, y + rowHeight);
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8.2);
+        doc.setTextColor(...ink);
+        doc.text(String(index + 1), cols.no + 15, y + 30, { align: "center" });
+        doc.text(doc.splitTextToSize(dateText, 76).slice(0, 2), cols.date + 8, y + 22);
+        doc.text(doc.splitTextToSize(row.userName, 92).slice(0, 2), cols.user + 8, y + 22);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...navy);
+        doc.text(doc.splitTextToSize(row.companyName, 154).slice(0, 2), cols.company + 8, y + 20);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...muted);
+        doc.text(doc.splitTextToSize(row.factoryName, 154).slice(0, 1), cols.company + 8, y + 42);
+        doc.setTextColor(...ink);
+        const activityText =
+          row.activityType === "login" ? row.toStatus : `${row.fromStatus} -> ${row.toStatus}`;
+        doc.text(doc.splitTextToSize(activityText, 120).slice(0, 2), cols.change + 8, y + 24);
+        y += rowHeight;
+      });
+
+      const totalPages = doc.getNumberOfPages();
+      for (let page = 1; page <= totalPages; page += 1) {
+        doc.setPage(page);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7);
+        doc.setTextColor(...muted);
+        doc.text(`Page ${page} / ${totalPages}`, pageWidth - marginX, pageHeight - 22, { align: "right" });
+      }
+
+      doc.save(`activity-log-report-${new Date().toISOString().slice(0, 10)}.pdf`);
+      toast.success("Activity log PDF exported successfully.");
+    } catch (error) {
+      console.error(error);
+      toast.error("Could not create the activity log PDF.");
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
   const exportPdf = async () => {
+    if (view === "activity") {
+      await exportActivityPdf();
+      return;
+    }
     if (filteredRows.length === 0) {
       toast.error("There are no report rows to export.");
       return;
@@ -557,19 +905,30 @@ export function ReportsPanel() {
           <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-lime/80">
             Management Dashboard
           </p>
-          <h1 className="mt-2 text-4xl uppercase tracking-tight font-extrabold">Factory Reports</h1>
+          <h1 className="mt-2 text-4xl uppercase tracking-tight font-extrabold">Report and Logs</h1>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button onClick={() => changeView("company")} variant={view !== "activity" ? "primary" : "secondary"}>
+            <Building2 size={16} strokeWidth={1.5} />
+            Factory Report
+          </Button>
+          <Button onClick={() => changeView("activity")} variant={view === "activity" ? "primary" : "secondary"}>
+            <Clock3 size={16} strokeWidth={1.5} />
+            Activity Log
+          </Button>
           <Button onClick={() => void exportPdf()} disabled={exportingPdf}>
             <FileText size={16} strokeWidth={1.5} />
-            {exportingPdf ? "Building PDF…" : "Export PDF"}
+            {exportingPdf ? "Building PDF..." : view === "activity" ? "Print Activity PDF" : "Export PDF"}
           </Button>
-          <Button onClick={exportCsv} variant="secondary">
-            <Download size={16} strokeWidth={1.5} /> Export CSV
-          </Button>
+          {view !== "activity" && (
+            <Button onClick={exportCsv} variant="secondary">
+              <Download size={16} strokeWidth={1.5} /> Export CSV
+            </Button>
+          )}
         </div>
       </header>
 
+      {view !== "activity" && (
       <section className="rounded-[10px] border border-border bg-surface p-5 space-y-4">
         <div className="relative">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" />
@@ -636,26 +995,31 @@ export function ReportsPanel() {
           </div>
         )}
       </section>
+      )}
 
-      <div className="flex w-full max-w-xl rounded-[8px] border border-border bg-surface p-1">
-        <ViewButton
-          active={view === "company"}
-          icon={Building2}
-          label="Company-wise"
-          onClick={() => setView("company")}
-        />
-        <ViewButton
-          active={view === "consultant"}
-          icon={UserRound}
-          label="Field Associate-wise"
-          onClick={() => setView("consultant")}
-        />
-      </div>
+      {view !== "activity" && (
+        <div className="flex w-full max-w-xl rounded-[8px] border border-border bg-surface p-1">
+          <ViewButton
+            active={view === "company"}
+            icon={Building2}
+            label="Company-wise"
+            onClick={() => changeView("company")}
+          />
+          <ViewButton
+            active={view === "consultant"}
+            icon={UserRound}
+            label="Field Associate-wise"
+            onClick={() => changeView("consultant")}
+          />
+        </div>
+      )}
 
       {loading ? (
         <div className="rounded-[10px] border border-border bg-surface px-6 py-16 text-center text-text-dim">
           Loading factory data…
         </div>
+      ) : view === "activity" ? (
+        <ActivityLogView rows={filteredActivityRows} />
       ) : view === "company" ? (
         <GroupedView
           groups={companyGroups.map(([name, groupRows]) => ({ name, rows: groupRows }))}
@@ -670,6 +1034,81 @@ export function ReportsPanel() {
         />
       )}
     </div>
+  );
+}
+
+function ActivityLogView({ rows }: { rows: ActivityRow[] }) {
+  if (rows.length === 0) {
+    return (
+      <div className="rounded-[10px] border border-border bg-surface px-6 py-16 text-center text-text-dim">
+        No manual status-change activity has been recorded yet.
+      </div>
+    );
+  }
+
+  return (
+    <section className="overflow-hidden rounded-[12px] border border-border bg-surface shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface-raised/60 px-5 py-4">
+        <div>
+          <h2 className="text-[15px] font-extrabold text-text-primary tracking-tight">
+            Activity Log
+          </h2>
+          <p className="mt-0.5 font-mono text-[9px] uppercase tracking-wider text-text-secondary">
+            {rows.length} manual status {rows.length === 1 ? "change" : "changes"}
+          </p>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="border-b border-border">
+            <tr className="bg-surface-raised/30 text-left font-mono text-[9px] uppercase tracking-widest text-text-secondary">
+              <th className="px-5 py-3">Date / Time</th>
+              <th className="px-5 py-3">User</th>
+              <th className="px-5 py-3">Company / Site</th>
+              <th className="px-5 py-3">Activity</th>
+              <th className="px-5 py-3">Result</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => {
+              const changedAt = new Date(row.changedAt);
+              const displayDate = Number.isNaN(changedAt.getTime())
+                ? row.changedAt
+                : changedAt.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+              return (
+                <tr
+                  key={row.id}
+                  className={`border-b border-border/60 last:border-0 transition-colors hover:bg-surface-raised/30 ${
+                    index % 2 === 0 ? "" : "bg-surface-raised/10"
+                  }`}
+                >
+                  <td className="px-5 py-3 font-mono text-[11px] text-text-secondary">
+                    {displayDate}
+                  </td>
+                  <td className="px-5 py-3 font-semibold text-text-primary">{row.userName}</td>
+                  <td className="px-5 py-3">
+                    <div className="font-bold text-text-primary text-[13px] leading-tight">
+                      {row.companyName}
+                    </div>
+                    <div className="mt-0.5 font-mono text-[10px] text-text-dim">
+                      {row.factoryName} - {row.city}
+                    </div>
+                  </td>
+                  <td className="px-5 py-3 font-mono text-[11px] font-bold uppercase tracking-wider text-text-secondary">
+                    {row.activityType === "login" ? "Login" : row.fromStatus}
+                  </td>
+                  <td className="px-5 py-3">
+                    <span className={`inline-flex rounded-[5px] border px-2.5 py-1 font-mono text-[9px] font-bold uppercase tracking-wider ${statusStyle(row.toStatus)}`}>
+                      {row.toStatus}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 

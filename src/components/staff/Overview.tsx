@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
-import { parseSiteMetadata, serializeSiteMetadata } from "@/lib/site-metadata";
+import { parseSiteMetadata, recordStatusActivityLog, serializeSiteMetadata } from "@/lib/site-metadata";
 import {
   getCanonicalStatus,
   ASSESSMENT_KEYS,
@@ -101,7 +101,7 @@ const FACTORY_STATUS_OPTIONS = [
 
 export function Overview() {
   const navigate = useNavigate();
-  const { userId, ready: authReady, roles } = useAuth();
+  const { userId, email, profile, ready: authReady, roles } = useAuth();
   const isDualRole = roles.includes("supervisor") && roles.includes("worker");
   const [rawSites, setRawSites] = useState<any[]>([]);
   const [rawAssessments, setRawAssessments] = useState<any[]>([]);
@@ -384,6 +384,7 @@ export function Overview() {
     siteId: string,
     newStatus: string,
     currentTaskNotes: string | null,
+    currentStatus?: string,
   ) => {
     try {
       const meta = parseSiteMetadata(currentTaskNotes);
@@ -426,6 +427,7 @@ export function Overview() {
         metaStatus = "Not Started Yet";
       }
 
+      const fromStatus = currentStatus || meta.status || "Not Started Yet";
       const newNotes = serializeSiteMetadata(currentTaskNotes, {
         ...meta,
         status: metaStatus,
@@ -575,6 +577,13 @@ export function Overview() {
           ]);
         }
 
+        await recordStatusActivityLog(siteId, {
+          user_id: userId,
+          user_name: profile?.name || profile?.mobile || email || userId || "Unknown User",
+          from_status: fromStatus,
+          to_status: metaStatus,
+        });
+
         toast.success("Site status updated successfully");
         await loadData();
       }
@@ -668,7 +677,7 @@ export function Overview() {
         onClick={(e) => e.stopPropagation()} // Prevent row click navigation
         onChange={(e) => {
           e.stopPropagation(); // Prevent row click navigation
-          updateSiteStatus(row.id, e.target.value, row.task_notes);
+          updateSiteStatus(row.id, e.target.value, row.task_notes, canonicalStatus);
         }}
         className={`rounded border px-2 py-0.5 text-[11px] font-semibold cursor-pointer outline-none transition-colors ${toneClass}`}
       >

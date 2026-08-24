@@ -8,7 +8,7 @@ import { InstallationTab } from "@/components/business-consultant/InstallationTa
 import { CommissioningTab } from "@/components/business-consultant/CommissioningTab";
 import { LogOut, Check, CheckCircle2, MapPin, Calendar, Clock, BookOpen, Boxes, Sun, Moon, User, Phone, Mail, Lock, Wrench, Building2, Layers, BarChart3, Activity, TrendingUp } from "lucide-react";
 import { parseTaskNotes } from "@/components/staff/TasksPanel";
-import { parseSiteMetadata, serializeSiteMetadata } from "@/lib/site-metadata";
+import { parseSiteMetadata, recordStatusActivityLog, serializeSiteMetadata } from "@/lib/site-metadata";
 import { toast } from "sonner";
 import { InventoryPanel } from "@/components/inventory/InventoryPanel";
 import { OrderTab } from "@/components/business-consultant/OrderTab";
@@ -357,6 +357,7 @@ function BusinessConsultantPage() {
 
   const updateConsultantStage = async (stage: "Billing" | "Completion") => {
     if (!site) return;
+    const fromStatus = displayedStatus;
     const { error } = await supabase.rpc("set_consultant_site_stage", {
       _site_id: site.id,
       _stage: stage,
@@ -365,6 +366,12 @@ function BusinessConsultantPage() {
       toast.error("Could not update the site stage: " + error.message);
       return;
     }
+    await recordStatusActivityLog(site.id, {
+      user_id: userId,
+      user_name: profile?.name || profile?.mobile || email || userId || "Unknown User",
+      from_status: fromStatus,
+      to_status: "Submitted",
+    });
     toast.success(`Site moved to ${stage}`);
     await fetchSites();
   };
@@ -412,6 +419,12 @@ function BusinessConsultantPage() {
       return;
     }
 
+    await recordStatusActivityLog(site.id, {
+      user_id: userId,
+      user_name: profile?.name || profile?.mobile || email || userId || "Unknown User",
+      from_status: displayedStatus,
+      to_status: "Assessed",
+    });
     setSubmittedPhases(prev => new Set([...prev, "assessment"]));
     setTab("installation");
     toast.success("Assessment phase submitted.");
@@ -780,6 +793,12 @@ function BusinessConsultantPage() {
               siteId={site.id}
               workerId={userId!}
               onSubmit={() => {
+                void recordStatusActivityLog(site.id, {
+                  user_id: userId,
+                  user_name: profile?.name || profile?.mobile || email || userId || "Unknown User",
+                  from_status: displayedStatus,
+                  to_status: "Installed",
+                });
                 setSubmittedPhases(prev => new Set([...prev, "installation"]));
                 setProgress(prev => ({ ...prev, installation: 100 }));
                 setTab("commissioning");

@@ -3,6 +3,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, Label, Input, Select, Button, Checkbox } from "@/components/ui-kit";
 import { toast } from "sonner";
 import { Cpu, Layers, CheckCircle2, RefreshCw, Activity, ExternalLink, ChevronDown, ChevronUp } from "lucide-react";
+import { useAuth } from "@/lib/auth-store";
+import { actorName, recordActivityLog } from "@/lib/activity-log";
 
 interface OrderTabProps {
   site: {
@@ -17,6 +19,7 @@ interface OrderTabProps {
 }
 
 export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
+  const { userId, email, profile } = useAuth();
   const [ct1, setCt1] = useState(false);
   const [ct2, setCt2] = useState(false);
   const [ct3, setCt3] = useState(false);
@@ -137,6 +140,18 @@ export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
 
       if (error) throw error;
 
+      await recordActivityLog({
+        actor_id: userId || workerId,
+        actor_name: actorName(profile, email, userId || workerId),
+        action: "create",
+        entity_type: "logistics_order",
+        entity_id: inserted.id,
+        entity_name: companyName,
+        site_id: site.id,
+        company_name: companyName,
+        factory_name: site.name,
+        to_value: "Pending",
+      });
       toast.success("Device order submitted successfully!");
       setSubmittedOrder(inserted);
       onOrderReady?.();

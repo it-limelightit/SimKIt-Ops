@@ -7,6 +7,7 @@ import { Button, Card, Input, Label } from "@/components/ui-kit";
 import { HardHat, Shield } from "lucide-react";
 import { createServerFn } from "@tanstack/react-start";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { recordActivityLog } from "@/lib/activity-log";
 
 // Server Function: Request password reset link (sent via Resend/SMTP)
 export const requestCustomPasswordResetFn = createServerFn({ method: "POST" })
@@ -278,7 +279,7 @@ function LoginForm({ onDone }: { onDone: () => void }) {
       const uid = userData.user?.id;
       if (uid) {
         const [{ data: prof }, { data: rolesData }] = await Promise.all([
-          supabase.from("profiles").select("is_active").eq("id", uid).maybeSingle(),
+          supabase.from("profiles").select("name,mobile,email,is_active").eq("id", uid).maybeSingle(),
           supabase.from("user_roles").select("role").eq("user_id", uid),
         ]);
         const roleList = (rolesData ?? []).map((r: any) => r.role);
@@ -287,6 +288,23 @@ function LoginForm({ onDone }: { onDone: () => void }) {
           await supabase.auth.signOut();
           throw new Error("Your account is pending manager approval.");
         }
+        const { error: loginUpdateError } = await supabase
+          .from("profiles")
+          .update({ last_login: new Date().toISOString() } as never)
+          .eq("id", uid);
+        if (loginUpdateError) {
+          console.error("Could not update last login:", loginUpdateError);
+          toast.error("Signed in, but last login time could not be saved.");
+        }
+        await recordActivityLog({
+          actor_id: uid,
+          actor_name: prof?.name || prof?.mobile || prof?.email || email || uid,
+          action: "login",
+          entity_type: "account",
+          entity_id: uid,
+          entity_name: prof?.name || prof?.mobile || prof?.email || email || "Account",
+          details: { role: userRole },
+        });
       }
       toast.success("Signed in");
       onDone();

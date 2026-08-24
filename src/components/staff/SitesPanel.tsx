@@ -4,6 +4,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button, Card, Input, Label, Select, Badge, Textarea } from "@/components/ui-kit";
 import { toast } from "sonner";
 import logoUrl from "../../../image copy.png";
+import { useAuth } from "@/lib/auth-store";
+import { actorName, recordActivityLog } from "@/lib/activity-log";
 import {
   Plus,
   X,
@@ -17,7 +19,7 @@ import {
   Check,
   FileText,
 } from "lucide-react";
-import { parseSiteMetadata, serializeSiteMetadata } from "@/lib/site-metadata";
+import { parseSiteMetadata, recordStatusActivityLog, serializeSiteMetadata } from "@/lib/site-metadata";
 import { getCanonicalStatus, ASSESSMENT_KEYS, INSTALLATION_KEYS, COMMISSIONING_KEYS, pctKeys, getSiteWorkerIds, isSiteDropped } from "@/utils/status";
 
 export { parseSiteMetadata, serializeSiteMetadata };
@@ -155,6 +157,7 @@ function BCMultiSelect({
 // ── Main panel ────────────────────────────────────────────────────────────────
 export function SitesPanel() {
   const formRevealRef = useRef<HTMLDivElement>(null);
+  const { userId, email, profile } = useAuth();
   const [sites, setSites] = useState<any[]>([]);
   const [materials, setMaterials] = useState<any[]>([]);
   const [businessConsultants, setBusinessConsultants] = useState<any[]>([]);
@@ -408,7 +411,7 @@ export function SitesPanel() {
     };
     const taskNotes = serializeSiteMetadata("", meta);
 
-    const { error } = await supabase.from("sites").insert({
+    const { data: createdSite, error } = await supabase.from("sites").insert({
       name: form.name,
       company_name: form.company_name || form.name,
       city: form.city || null,
@@ -418,10 +421,22 @@ export function SitesPanel() {
       consultant_stage: consultantStage,
       appt_date: form.appt_date || null,
       appt_time: form.appt_time || null,
-    } as never);
+    } as never).select("id").single();
 
     if (error) toast.error(error.message);
     else {
+      await recordActivityLog({
+        actor_id: userId,
+        actor_name: actorName(profile, email, userId),
+        action: "create",
+        entity_type: "site",
+        entity_id: createdSite?.id,
+        entity_name: form.company_name || form.name,
+        site_id: createdSite?.id,
+        company_name: form.company_name || form.name,
+        factory_name: form.name,
+        to_value: metaStatus || "Created",
+      });
       toast.success("Site created");
       setCreating(false);
       resetForm();
@@ -557,6 +572,19 @@ export function SitesPanel() {
 
     if (error) toast.error(error.message);
     else {
+      await recordActivityLog({
+        actor_id: userId,
+        actor_name: actorName(profile, email, userId),
+        action: "update",
+        entity_type: "site",
+        entity_id: editingSite.id,
+        entity_name: form.company_name || form.name,
+        site_id: editingSite.id,
+        company_name: form.company_name || form.name,
+        factory_name: form.name,
+        from_value: getCanonicalStatus(editingSite, aMap, iMap, cMap, materials),
+        to_value: metaStatus || form.status || "Updated",
+      });
       if (form.address && form.address.trim()) {
         const targetComp = (form.company_name || form.name).trim();
         await supabase
@@ -1110,7 +1138,19 @@ export function SitesPanel() {
     workerIds: string[],
     currentTaskNotes: string | null,
   ) => {
+    const siteObj = sites.find((s: any) => s.id === siteId);
     const meta = parseSiteMetadata(currentTaskNotes);
+    const fromStatus = siteObj
+      ? getCanonicalStatus(siteObj, aMap, iMap, cMap, materials)
+      : workerIds.length > 0
+        ? "Pending Assignment"
+        : "Not Started Yet";
+    const nextSite = {
+      ...(siteObj || {}),
+      assigned_worker_id: workerIds[0] || null,
+      task_notes: serializeSiteMetadata(currentTaskNotes, { ...meta, worker_ids: workerIds }),
+    };
+    const toStatus = getCanonicalStatus(nextSite, aMap, iMap, cMap, materials);
     const newNotes = serializeSiteMetadata(currentTaskNotes, { ...meta, worker_ids: workerIds });
     await supabase
       .from("sites")
@@ -1120,6 +1160,12 @@ export function SitesPanel() {
         task_notes: newNotes,
       } as never)
       .eq("id", siteId);
+    await recordStatusActivityLog(siteId, {
+      user_id: userId,
+      user_name: profile?.name || profile?.mobile || email || userId || "Unknown User",
+      from_status: fromStatus,
+      to_status: toStatus,
+    });
     toast.success("Assignment updated");
     setClientUpdateTimes(prev => ({ ...prev, [siteId]: Date.now() }));
     await load();
@@ -1129,6 +1175,7 @@ export function SitesPanel() {
     siteId: string,
     newStatus: string,
     currentTaskNotes: string | null,
+    currentStatus?: string,
   ) => {
     try {
       const meta = parseSiteMetadata(currentTaskNotes);
@@ -1170,6 +1217,8 @@ export function SitesPanel() {
         metaStatus = "Pending Assignment";
         updatedWorkers = [];
       }
+
+      const fromStatus = currentStatus || meta.status || "Not Started Yet";
 
       const newNotes = serializeSiteMetadata(currentTaskNotes, { 
         ...meta, 
@@ -1319,6 +1368,13 @@ export function SitesPanel() {
           ]);
         }
 
+        await recordStatusActivityLog(siteId, {
+          user_id: userId,
+          user_name: profile?.name || profile?.mobile || email || userId || "Unknown User",
+          from_status: fromStatus,
+          to_status: metaStatus,
+        });
+
         toast.success("Site status updated successfully");
         setClientUpdateTimes(prev => ({ ...prev, [siteId]: Date.now() }));
         await load();
@@ -1329,6 +1385,7 @@ export function SitesPanel() {
   };
 
   const deleteSite = async (siteId: string) => {
+    const siteToDelete = sites.find((site: any) => site.id === siteId);
     if (
       !window.confirm(
         "Are you sure you want to delete this site? All associated forms, appointments, and progress data will be permanently removed.",
@@ -1348,6 +1405,18 @@ export function SitesPanel() {
       const { error } = await supabase.from("sites").delete().eq("id", siteId);
       if (error) throw error;
 
+      await recordActivityLog({
+        actor_id: userId,
+        actor_name: actorName(profile, email, userId),
+        action: "delete",
+        entity_type: "site",
+        entity_id: siteId,
+        entity_name: siteToDelete?.company_name || siteToDelete?.name || "Site",
+        company_name: siteToDelete?.company_name || siteToDelete?.name || null,
+        factory_name: siteToDelete?.name || null,
+        from_value: siteToDelete ? getCanonicalStatus(siteToDelete, aMap, iMap, cMap, materials) : "Existing",
+        to_value: "Deleted",
+      });
       toast.success("Site deleted successfully");
       await load();
     } catch (err) {
@@ -2287,7 +2356,7 @@ export function SitesPanel() {
                         <div className="flex flex-col gap-1">
                           <select
                             value={canonicalStatus || ""}
-                            onChange={(e) => updateSiteStatus(s.id, e.target.value, s.task_notes)}
+                            onChange={(e) => updateSiteStatus(s.id, e.target.value, s.task_notes, canonicalStatus)}
                             className={`appearance-none rounded-[4px] px-2 py-1 font-mono text-[10px] uppercase tracking-wider font-bold border outline-none cursor-pointer transition-all ${
                               canonicalStatus === "Submitted"
                                 ? "bg-mint-dim text-mint border-mint/20"
