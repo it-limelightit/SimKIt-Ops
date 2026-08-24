@@ -1513,6 +1513,25 @@ const exportPdf = async () => {
             reader.readAsDataURL(blob);
           }),
       );
+    const watermarkDataUrl = await new Promise<string>((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 700;
+        canvas.height = 700;
+        const context = canvas.getContext("2d");
+        if (!context) {
+          reject(new Error("Could not prepare watermark."));
+          return;
+        }
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.globalAlpha = 0.07;
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/png"));
+      };
+      image.onerror = () => reject(new Error("Could not load company watermark."));
+      image.src = logoDataUrl;
+    });
 
     const teal: [number, number, number] = [13, 134, 154];
     const orange: [number, number, number] = [245, 146, 25];
@@ -1542,6 +1561,25 @@ const exportPdf = async () => {
       lines.forEach((line: string, i: number) => doc.text(line, x, y + i * (size * 0.42 + 2.3)));
     };
 
+    const drawCenteredWrappedText = (
+      text: string,
+      x: number,
+      y: number,
+      maxWidth: number,
+      size: number,
+      lineHeight: number,
+      color: [number, number, number],
+    ) => {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(size);
+      doc.setTextColor(...color);
+      const lines = doc.splitTextToSize(clean(text), maxWidth).slice(0, 2);
+      lines.forEach((line: string, index: number) => {
+        doc.text(line, x, y + index * lineHeight, { align: "center" });
+      });
+      return lines.length;
+    };
+
     const pageMarginX = 9;
     const headerHeight = 31;
     const cardHeight = 26;
@@ -1564,6 +1602,7 @@ const exportPdf = async () => {
     };
 
     const drawPageHeader = () => {
+      doc.addImage(watermarkDataUrl, "PNG", pageWidth / 2 - 48, pageHeight / 2 - 48, 96, 96);
       doc.setFillColor(...navy);
       doc.roundedRect(0, 0, 58, 28, 0, 0, "F");
       doc.setFillColor(...teal);
@@ -1579,16 +1618,16 @@ const exportPdf = async () => {
       doc.text("Research Pvt. Ltd.", 19, 17);
 
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(18);
       doc.setTextColor(...navy);
-      doc.text(`${kpiLabel} Status & Progress`, pageWidth / 2, 14.5, { align: "center" });
+      const titleCenterX = 116;
+      const titleLines = drawCenteredWrappedText(`${kpiLabel} Status & Progress`, titleCenterX, 12, 88, 14.5, 6.5, navy);
       doc.setFont("helvetica", "normal");
       doc.setFontSize(9);
       doc.setTextColor(...muted);
-      doc.text("LimelightIT Research Pvt. Ltd.", pageWidth / 2, 22.5, { align: "center" });
+      doc.text("LimelightIT Research Pvt. Ltd.", titleCenterX, titleLines > 1 ? 26 : 21.5, { align: "center" });
       doc.setFontSize(7.8);
       doc.setTextColor(...teal);
-      doc.text("Field Assignment Overview", pageWidth / 2, 29, { align: "center" });
+      doc.text("Field Assignment Overview", titleCenterX, titleLines > 1 ? 32 : 28, { align: "center" });
 
       doc.setDrawColor(...border);
       doc.setFillColor(255, 255, 255);
@@ -1664,12 +1703,20 @@ const exportPdf = async () => {
       // Column 4: Status
       doc.setFillColor(...tone.bg);
       doc.setDrawColor(...tone.fg);
-      const statusBadgeY = y + 8;
-      doc.roundedRect(x + 127, statusBadgeY, 20, 8, 2, 2, "FD");
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(5.5);
+      doc.setFontSize(5);
+      const statusLines = doc.splitTextToSize(tone.label, 18).slice(0, 2);
+      const badgeHeight = statusLines.length > 1 ? 11.5 : 10.5;
+      const statusBadgeY = y + (h - badgeHeight) / 2;
+      doc.roundedRect(x + 127, statusBadgeY, 22, badgeHeight, 2, 2, "FD");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(5);
       doc.setTextColor(...tone.fg);
-      doc.text(tone.label, x + 137, statusBadgeY + 5.6, { align: "center", maxWidth: 18 });
+      const statusTextStartY =
+        statusBadgeY + badgeHeight / 2 - ((statusLines.length - 1) * 3.2) / 2 + 1.7;
+      statusLines.forEach((line: string, lineIndex: number) => {
+        doc.text(line, x + 138, statusTextStartY + lineIndex * 3.2, { align: "center" });
+      });
       doc.setFont("helvetica", "normal");
       doc.setTextColor(...ink);
 
