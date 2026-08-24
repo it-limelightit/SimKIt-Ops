@@ -51,6 +51,18 @@ const FACTORY_STATUS_OPTIONS = [
   "Not Started Yet",
 ] as const;
 
+const CUSTOM_LIST_COLUMNS = [
+  { key: "no", label: "NO.", weight: 0.45 },
+  { key: "company", label: "COMPANY DETAILS", weight: 2.7 },
+  { key: "contact", label: "CONTACT PERSON", weight: 1.15 },
+  { key: "mobile", label: "MOBILE", weight: 1.1 },
+] as const;
+
+type CustomListColumnKey = (typeof CUSTOM_LIST_COLUMNS)[number]["key"];
+
+const getDefaultCustomListColumns = (): CustomListColumnKey[] =>
+  CUSTOM_LIST_COLUMNS.map((column) => column.key);
+
 function BCMultiSelect({
   allBCs,
   selectedIds,
@@ -173,6 +185,8 @@ export function SitesPanel() {
   const [customListOpen, setCustomListOpen] = useState(false);
   const [customListSearch, setCustomListSearch] = useState("");
   const [customListSelectedIds, setCustomListSelectedIds] = useState<string[]>([]);
+  const [customListTitle, setCustomListTitle] = useState("");
+  const [customListColumns, setCustomListColumns] = useState<CustomListColumnKey[]>(getDefaultCustomListColumns);
   const [customListGenerating, setCustomListGenerating] = useState(false);
 
   const routerState = useRouterState();
@@ -943,6 +957,8 @@ export function SitesPanel() {
   const openCustomList = () => {
     setCustomListSearch("");
     setCustomListSelectedIds([]);
+    setCustomListTitle("");
+    setCustomListColumns(getDefaultCustomListColumns());
     setCustomListOpen(true);
   };
 
@@ -956,8 +972,15 @@ export function SitesPanel() {
       return;
     }
 
+    const selectedColumnDefs = CUSTOM_LIST_COLUMNS.filter((column) => customListColumns.includes(column.key));
+    if (selectedColumnDefs.length === 0) {
+      toast.error("Select at least one column.");
+      return;
+    }
+
     setCustomListGenerating(true);
     try {
+      const reportTitle = customListTitle.trim() || "SIM KIT FEEDBACK COMPANIES LIST";
       const [{ jsPDF }] = await Promise.all([import("jspdf")]);
       const logoDataUrl = await fetch(logoUrl)
         .then((response) => response.blob())
@@ -999,13 +1022,18 @@ export function SitesPanel() {
 
       const marginX = 45;
       const tableWidth = pageWidth - marginX * 2;
-      const colNoX = marginX + 30;
-      const colContactX = marginX + 306;
-      const colMobileX = marginX + 410;
       const rowHeight = 111;
       const firstRowY = 145;
       const headerRowY = 117;
       const headerRowHeight = 28;
+      const totalColumnWeight = selectedColumnDefs.reduce((sum, column) => sum + column.weight, 0);
+      let columnStart = marginX;
+      const pdfColumns = selectedColumnDefs.map((column) => {
+        const width = (tableWidth * column.weight) / totalColumnWeight;
+        const definition = { ...column, x: columnStart, width };
+        columnStart += width;
+        return definition;
+      });
 
       const addHeader = () => {
         doc.addImage(watermarkDataUrl, "PNG", pageWidth / 2 - 145, pageHeight / 2 - 145, 290, 290);
@@ -1024,28 +1052,35 @@ export function SitesPanel() {
         doc.setFont("helvetica", "bold");
         doc.setFontSize(15);
         doc.setTextColor(...navy);
-        doc.text("SIM KIT FEEDBACK COMPANIES LIST", pageWidth / 2, 85, { align: "center" });
+        const titleLines = doc.splitTextToSize(reportTitle.toUpperCase(), pageWidth - marginX * 2).slice(0, 2);
+        const titleStartY = titleLines.length > 1 ? 80 : 85;
+        titleLines.forEach((line: string, index: number) => {
+          doc.text(line, pageWidth / 2, titleStartY + index * 16, { align: "center" });
+        });
         doc.setFont("helvetica", "normal");
         doc.setFontSize(8.5);
         doc.setTextColor(...muted);
-        doc.text(`Selected Companies: ${selectedSites.length}`, pageWidth / 2, 100, { align: "center" });
+        doc.text(`Selected Companies: ${selectedSites.length}`, pageWidth / 2, titleLines.length > 1 ? 112 : 100, { align: "center" });
         doc.text(new Date().toLocaleDateString("en-IN"), pageWidth - marginX, 55, { align: "right" });
 
         doc.setFillColor(...navy);
         doc.roundedRect(marginX, headerRowY, tableWidth, headerRowHeight, 3, 3, "F");
         doc.setDrawColor(...border);
         doc.setLineWidth(0.55);
-        doc.line(colNoX, headerRowY, colNoX, headerRowY + headerRowHeight);
-        doc.line(colContactX, headerRowY, colContactX, headerRowY + headerRowHeight);
-        doc.line(colMobileX, headerRowY, colMobileX, headerRowY + headerRowHeight);
+        pdfColumns.slice(1).forEach((column) => {
+          doc.line(column.x, headerRowY, column.x, headerRowY + headerRowHeight);
+        });
 
         doc.setFont("helvetica", "bold");
         doc.setFontSize(8);
         doc.setTextColor(255, 255, 255);
-        doc.text("NO.", marginX + 15, headerRowY + 18, { align: "center" });
-        doc.text("COMPANY DETAILS", colNoX + 10, headerRowY + 18);
-        doc.text("CONTACT PERSON", colContactX + 7, headerRowY + 18);
-        doc.text("MOBILE", colMobileX + 7, headerRowY + 18);
+        pdfColumns.forEach((column) => {
+          if (column.key === "no") {
+            doc.text(column.label, column.x + column.width / 2, headerRowY + 18, { align: "center" });
+            return;
+          }
+          doc.text(column.label, column.x + 8, headerRowY + 18);
+        });
       };
 
       addHeader();
@@ -1060,34 +1095,45 @@ export function SitesPanel() {
 
         const contact = getCustomListContact(site);
         const company = getCustomListCompanyName(site).toUpperCase();
-        const detailLines = doc.splitTextToSize(getCustomListDetails(site), colContactX - colNoX - 22).slice(0, 5);
 
         doc.setDrawColor(...border);
         doc.setLineWidth(0.55);
         doc.line(marginX, y + rowHeight, marginX + tableWidth, y + rowHeight);
-        doc.line(colNoX, y, colNoX, y + rowHeight);
-        doc.line(colContactX, y, colContactX, y + rowHeight);
-        doc.line(colMobileX, y, colMobileX, y + rowHeight);
+        pdfColumns.slice(1).forEach((column) => {
+          doc.line(column.x, y, column.x, y + rowHeight);
+        });
 
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(9.2);
-        doc.setTextColor(...ink);
-        doc.text(String(index + 1), marginX + 15, y + 55, { align: "center" });
+        pdfColumns.forEach((column) => {
+          const left = column.x + 8;
+          const usableWidth = Math.max(column.width - 16, 24);
 
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(9.2);
-        doc.setTextColor(...navy);
-        doc.text(doc.splitTextToSize(company, colContactX - colNoX - 22).slice(0, 2), colNoX + 10, y + 28);
+          if (column.key === "no") {
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(9.2);
+            doc.setTextColor(...ink);
+            doc.text(String(index + 1), column.x + column.width / 2, y + 55, { align: "center" });
+            return;
+          }
 
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(7.35);
-        doc.setTextColor(...muted);
-        doc.text(detailLines, colNoX + 10, y + 48);
+          if (column.key === "company") {
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(9.2);
+            doc.setTextColor(...navy);
+            doc.text(doc.splitTextToSize(company, usableWidth).slice(0, 2), left, y + 28);
 
-        doc.setFontSize(8.5);
-        doc.setTextColor(...ink);
-        doc.text(doc.splitTextToSize(contact.name, colMobileX - colContactX - 14).slice(0, 3), colContactX + 7, y + 50);
-        doc.text(doc.splitTextToSize(contact.mobile, marginX + tableWidth - colMobileX - 14).slice(0, 3), colMobileX + 7, y + 50);
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(7.35);
+            doc.setTextColor(...muted);
+            doc.text(doc.splitTextToSize(getCustomListDetails(site), usableWidth).slice(0, 5), left, y + 48);
+            return;
+          }
+
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(8.5);
+          doc.setTextColor(...ink);
+          const value = column.key === "contact" ? contact.name : contact.mobile;
+          doc.text(doc.splitTextToSize(value, usableWidth).slice(0, 3), left, y + 50);
+        });
 
         y += rowHeight;
       });
@@ -1104,6 +1150,8 @@ export function SitesPanel() {
       doc.save("SIM_Kit_Feedback_Companies_List.pdf");
       toast.success("Custom company list PDF downloaded.");
       setCustomListOpen(false);
+      setCustomListTitle("");
+      setCustomListColumns(getDefaultCustomListColumns());
     } catch (err: any) {
       toast.error("Failed to generate custom list PDF: " + (err.message || err));
     } finally {
@@ -2051,7 +2099,11 @@ export function SitesPanel() {
               </div>
               <button
                 type="button"
-                onClick={() => setCustomListOpen(false)}
+                onClick={() => {
+                  setCustomListOpen(false);
+                  setCustomListTitle("");
+                  setCustomListColumns(getDefaultCustomListColumns());
+                }}
                 className="rounded-[6px] p-2 text-text-secondary hover:bg-surface-raised hover:text-text-primary"
                 disabled={customListGenerating}
               >
@@ -2060,6 +2112,59 @@ export function SitesPanel() {
             </div>
 
             <div className="space-y-4 p-5">
+              <div>
+                <Label>PDF Title</Label>
+                <Input
+                  value={customListTitle}
+                  onChange={(e) => setCustomListTitle(e.target.value)}
+                  placeholder="SIM KIT FEEDBACK COMPANIES LIST"
+                  disabled={customListGenerating}
+                />
+              </div>
+              <div>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <Label>PDF Columns</Label>
+                  <Button
+                    variant="secondary"
+                    className="h-7 px-2 text-[11px]"
+                    onClick={() => setCustomListColumns(getDefaultCustomListColumns())}
+                    disabled={customListGenerating}
+                  >
+                    Select All
+                  </Button>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  {CUSTOM_LIST_COLUMNS.map((column) => {
+                    const checked = customListColumns.includes(column.key);
+                    return (
+                      <label
+                        key={column.key}
+                        className="flex cursor-pointer items-center gap-2 rounded-[6px] border border-border bg-background/30 px-3 py-2 text-xs font-semibold text-text-primary hover:bg-surface-raised/60"
+                      >
+                        <span
+                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] border ${checked ? "border-lime bg-lime" : "border-border bg-surface"}`}
+                        >
+                          {checked && <Check size={11} strokeWidth={3} className="text-background" />}
+                        </span>
+                        <input
+                          type="checkbox"
+                          className="sr-only"
+                          checked={checked}
+                          onChange={() => {
+                            setCustomListColumns((prev) =>
+                              prev.includes(column.key)
+                                ? prev.filter((key) => key !== column.key)
+                                : [...prev, column.key],
+                            );
+                          }}
+                          disabled={customListGenerating}
+                        />
+                        <span className="truncate">{column.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
               <div className="flex flex-wrap items-center gap-2">
                 <div className="relative min-w-[220px] flex-1">
                   <Input
@@ -2155,14 +2260,18 @@ export function SitesPanel() {
               <div className="flex flex-wrap justify-end gap-3">
                 <Button
                   variant="secondary"
-                  onClick={() => setCustomListOpen(false)}
+                  onClick={() => {
+                    setCustomListOpen(false);
+                    setCustomListTitle("");
+                    setCustomListColumns(getDefaultCustomListColumns());
+                  }}
                   disabled={customListGenerating}
                 >
                   Cancel
                 </Button>
                 <Button
                   onClick={() => void downloadCustomListPdf()}
-                  disabled={customListGenerating || customListSelectedIds.length === 0}
+                  disabled={customListGenerating || customListSelectedIds.length === 0 || customListColumns.length === 0}
                 >
                   <FileText size={15} />
                   Print PDF
