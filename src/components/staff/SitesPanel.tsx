@@ -1044,11 +1044,6 @@ export function SitesPanel() {
         doc.setTextColor(...navy);
         doc.text("LimelightIT Research Pvt. Ltd.", marginX + 52, 43);
 
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(8);
-        doc.setTextColor(...muted);
-        doc.text("SIM Kit feedback operations", marginX + 52, 57);
-
         doc.setFont("helvetica", "bold");
         doc.setFontSize(15);
         doc.setTextColor(...navy);
