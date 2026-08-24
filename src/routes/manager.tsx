@@ -6,7 +6,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/manager")({
-  ssr: false,
   head: () => ({ meta: [{ title: "Manager — SIM-Kit Ops" }] }),
   component: ManagerLayout,
 });

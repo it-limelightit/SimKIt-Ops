@@ -1573,12 +1573,16 @@ export function SitesPanel() {
                 {editingSite ? "Edit Site Details" : "New Site Details"}
               </h2>
               <button
+                type="button"
+                aria-label="Close site form"
+                title="Close"
                 onClick={() => {
                   setCreating(false);
                   setEditingSite(null);
                 }}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[6px] border border-border-bright bg-surface-raised text-text-primary transition-colors hover:border-coral/60 hover:bg-coral-dim hover:text-coral focus:outline-none focus:ring-3 focus:ring-coral/20"
               >
-                <X size={18} strokeWidth={1.5} />
+                <X size={18} strokeWidth={2.25} />
               </button>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
@@ -2086,10 +2090,10 @@ export function SitesPanel() {
 
       {/* ── Search & Filters ── */}
       {customListOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-6">
-          <div className="w-full max-w-3xl rounded-[10px] border border-border bg-surface shadow-2xl">
-            <div className="flex items-center justify-between border-b border-border px-5 py-4">
-              <div>
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 px-4 py-4 sm:items-center sm:py-6">
+          <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-3xl flex-col overflow-hidden rounded-[10px] border border-border bg-surface shadow-2xl sm:max-h-[calc(100vh-3rem)]">
+            <div className="flex shrink-0 items-start justify-between gap-4 border-b border-border px-5 py-4">
+              <div className="min-w-0 pt-1">
                 <h2 className="font-syne text-lg font-bold uppercase text-text-primary">
                   Custom List
                 </h2>
@@ -2099,19 +2103,21 @@ export function SitesPanel() {
               </div>
               <button
                 type="button"
+                aria-label="Close custom list"
+                title="Close"
                 onClick={() => {
                   setCustomListOpen(false);
                   setCustomListTitle("");
                   setCustomListColumns(getDefaultCustomListColumns());
                 }}
-                className="rounded-[6px] p-2 text-text-secondary hover:bg-surface-raised hover:text-text-primary"
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[6px] border border-border-bright bg-surface-raised text-text-primary transition-colors hover:border-coral/60 hover:bg-coral-dim hover:text-coral focus:outline-none focus:ring-3 focus:ring-coral/20"
                 disabled={customListGenerating}
               >
-                <X size={18} />
+                <X size={20} strokeWidth={2.5} />
               </button>
             </div>
 
-            <div className="space-y-4 p-5">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
               <div>
                 <Label>PDF Title</Label>
                 <Input
