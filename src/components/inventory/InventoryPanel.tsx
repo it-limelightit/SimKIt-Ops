@@ -33,6 +33,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { parseSiteMetadata } from "@/lib/site-metadata";
+import { useAuth } from "@/lib/auth-store";
+import { actorName, recordActivityLog } from "@/lib/activity-log";
 
 type Material = {
   id: string;
@@ -417,6 +419,8 @@ function OrderCard({
   const [expanded, setExpanded] = useState(false);
   const [step, setStep] = useState<1 | 2>(1);
   const [saving, setSaving] = useState(false);
+  const { userId, email, profile } = useAuth();
+  const currentActorName = actorName(profile, email, userId);
 
   // Date parsing for Notes JSON
   const initialNotes: CourierNotes = useMemo(() => {
@@ -456,6 +460,17 @@ function OrderCard({
 
       if (error) throw error;
 
+      await recordActivityLog({
+        actor_id: userId,
+        actor_name: currentActorName,
+        action: "delete",
+        entity_type: "logistics_order",
+        entity_id: material.id,
+        entity_name: material.material_name,
+        company_name: material.material_name,
+        from_value: initialNotes.logistics_status || material.state || "Existing",
+        to_value: "Deleted",
+      });
       toast.success("Order deleted successfully.");
       setExpanded(false);
       onReload();
@@ -816,6 +831,18 @@ function OrderCard({
     if (error) {
       toast.error("Failed to save quick updates: " + error.message);
     } else {
+      await recordActivityLog({
+        actor_id: userId,
+        actor_name: currentActorName,
+        action: "logistics_update",
+        entity_type: "logistics_order",
+        entity_id: material.id,
+        entity_name: material.material_name,
+        company_name: material.material_name,
+        from_value: initialNotes.logistics_status || material.state || "Pending",
+        to_value: quickStatus,
+        details: { field: "quick_courier", tracking_number: quickCourierId || null },
+      });
       toast.success("Courier info updated!");
       onReload();
     }
@@ -858,6 +885,17 @@ function OrderCard({
     if (error) {
       toast.error("Failed to save hardware configuration: " + error.message);
     } else {
+      await recordActivityLog({
+        actor_id: userId,
+        actor_name: currentActorName,
+        action: "update",
+        entity_type: "logistics_order",
+        entity_id: material.id,
+        entity_name: material.material_name,
+        company_name: material.material_name,
+        from_value: "Hardware Configuration",
+        to_value: "Updated",
+      });
       toast.success("Hardware configuration saved.");
       setStep(2); // Go to Courier Step
       onReload();
@@ -915,6 +953,18 @@ function OrderCard({
     if (error) {
       toast.error("Failed to save courier details: " + error.message);
     } else {
+      await recordActivityLog({
+        actor_id: userId,
+        actor_name: currentActorName,
+        action: "logistics_update",
+        entity_type: "logistics_order",
+        entity_id: material.id,
+        entity_name: material.material_name,
+        company_name: material.material_name,
+        from_value: initialNotes.logistics_status || material.state || "Pending",
+        to_value: state,
+        details: { field: "courier_details", tracking_number: courierId || null },
+      });
       toast.success("Courier details and status updated.");
       setExpanded(false);
       onReload();
@@ -950,6 +1000,18 @@ function OrderCard({
     if (error) {
       toast.error("Failed to update Courier ID: " + error.message);
     } else {
+      await recordActivityLog({
+        actor_id: userId,
+        actor_name: currentActorName,
+        action: "update",
+        entity_type: "logistics_order",
+        entity_id: material.id,
+        entity_name: material.material_name,
+        company_name: material.material_name,
+        from_value: material.tracking_number || "No Courier ID",
+        to_value: courierId || "No Courier ID",
+        details: { field: "courier_id" },
+      });
       toast.success("Courier ID updated successfully.");
       onReload();
     }

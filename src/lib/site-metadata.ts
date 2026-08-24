@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { recordActivityLog } from "@/lib/activity-log";
 
 export type SiteMeta = {
   c1_name: string;
@@ -22,6 +23,17 @@ export type SiteMeta = {
   credential_created?: boolean;
   client_email?: string;
   client_token?: string;
+  activity_logs?: SiteActivityLog[];
+};
+
+export type SiteActivityLog = {
+  id: string;
+  type: "status_change";
+  at: string;
+  user_id: string | null;
+  user_name: string;
+  from_status: string;
+  to_status: string;
 };
 
 const DEFAULT_META: SiteMeta = {
@@ -97,6 +109,70 @@ export function parseSiteMetadata(taskNotes: string | null): SiteMeta {
 export function serializeSiteMetadata(taskNotes: string | null, metaObj: Partial<SiteMeta>): string {
   const base = taskNotes ? stripMetaBlock(taskNotes) : "";
   return `[METADATA:${JSON.stringify(metaObj)}]${base}`;
+}
+
+export function appendStatusActivityLog(
+  meta: SiteMeta,
+  entry: Omit<SiteActivityLog, "id" | "type" | "at"> & { at?: string },
+): SiteMeta {
+  const currentLogs = Array.isArray(meta.activity_logs) ? meta.activity_logs : [];
+  return {
+    ...meta,
+    activity_logs: [
+      {
+        id:
+          typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        type: "status_change",
+        at: entry.at || new Date().toISOString(),
+        user_id: entry.user_id,
+        user_name: entry.user_name,
+        from_status: entry.from_status,
+        to_status: entry.to_status,
+      },
+      ...currentLogs,
+    ].slice(0, 100),
+  };
+}
+
+export async function recordStatusActivityLog(
+  siteId: string,
+  entry: Omit<SiteActivityLog, "id" | "type" | "at"> & { at?: string },
+): Promise<void> {
+  if (!entry.to_status || entry.from_status === entry.to_status) return;
+
+  const { data: site, error } = await supabase
+    .from("sites")
+    .select("id,name,company_name,task_notes")
+    .eq("id", siteId)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  const meta = parseSiteMetadata(site?.task_notes ?? null);
+  const nextMeta = appendStatusActivityLog(meta, entry);
+  const newNotes = serializeSiteMetadata(site?.task_notes ?? null, nextMeta);
+  const { error: updateError } = await supabase
+    .from("sites")
+    .update({ task_notes: newNotes } as never)
+    .eq("id", siteId);
+
+  if (updateError) throw updateError;
+
+  await recordActivityLog({
+    actor_id: entry.user_id,
+    actor_name: entry.user_name,
+    action: "status_change",
+    entity_type: "site",
+    entity_id: siteId,
+    entity_name: site?.company_name || site?.name || "Site",
+    site_id: siteId,
+    company_name: site?.company_name || site?.name || null,
+    factory_name: site?.name || null,
+    from_value: entry.from_status,
+    to_value: entry.to_status,
+  });
 }
 
 const VISIT_RANK: Record<string, number> = {

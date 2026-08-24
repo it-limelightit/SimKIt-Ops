@@ -55,7 +55,7 @@ export function StaffShell({
     { to: `${base}/performance`, label: "Performance", icon: Activity },
     { to: `${base}/drive-links`, label: "Links of Drive", icon: Folder, href: DRIVE_URL },
     { to: `${base}/logistic`, label: "Logistic", icon: Boxes },
-    { to: `${base}/reports`, label: "Reports", icon: BarChart3 },
+    { to: `${base}/reports`, label: "Report and Logs", icon: BarChart3 },
   ];
 
   return (
