@@ -3,6 +3,7 @@ import { useRouterState } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { Button, Card, Input, Label, Select, Badge, Textarea } from "@/components/ui-kit";
 import { toast } from "sonner";
+import logoUrl from "../../../image copy.png";
 import {
   Plus,
   X,
@@ -166,6 +167,10 @@ export function SitesPanel() {
   const [pdfSaving, setPdfSaving] = useState(false);
   const [customLabelDraft, setCustomLabelDraft] = useState<PdfAddressDraft | null>(null);
   const [customLabelDownloading, setCustomLabelDownloading] = useState(false);
+  const [customListOpen, setCustomListOpen] = useState(false);
+  const [customListSearch, setCustomListSearch] = useState("");
+  const [customListSelectedIds, setCustomListSelectedIds] = useState<string[]>([]);
+  const [customListGenerating, setCustomListGenerating] = useState(false);
 
   const routerState = useRouterState();
   const searchParam = (routerState.location.search as any)?.q || "";
@@ -885,6 +890,199 @@ export function SitesPanel() {
     }
   };
 
+  const getCustomListCompanyName = (site: any) =>
+    String(site.company_name || site.name || "Untitled Company").trim();
+
+  const getCustomListDetails = (site: any) => {
+    const parts = [site.address, site.city].map((part) => String(part || "").trim()).filter(Boolean);
+    return parts.length ? parts.join(", ") : "-";
+  };
+
+  const getCustomListContact = (site: any) => {
+    const meta = parseSiteMetadata(site.task_notes);
+    return {
+      name: String(meta.c1_name || meta.c2_name || "-").trim(),
+      mobile: String(meta.c1_mobile || meta.c2_mobile || "-").trim(),
+    };
+  };
+
+  const toggleCustomListSite = (siteId: string) => {
+    setCustomListSelectedIds((prev) =>
+      prev.includes(siteId) ? prev.filter((id) => id !== siteId) : [...prev, siteId],
+    );
+  };
+
+  const openCustomList = () => {
+    setCustomListSearch("");
+    setCustomListSelectedIds([]);
+    setCustomListOpen(true);
+  };
+
+  const downloadCustomListPdf = async () => {
+    const selectedSites = sites
+      .filter((site) => customListSelectedIds.includes(site.id))
+      .sort((a, b) => getCustomListCompanyName(a).localeCompare(getCustomListCompanyName(b)));
+
+    if (selectedSites.length === 0) {
+      toast.error("Select at least one company.");
+      return;
+    }
+
+    setCustomListGenerating(true);
+    try {
+      const [{ jsPDF }] = await Promise.all([import("jspdf")]);
+      const logoDataUrl = await fetch(logoUrl)
+        .then((response) => response.blob())
+        .then(
+          (blob) =>
+            new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(String(reader.result));
+              reader.onerror = reject;
+              reader.readAsDataURL(blob);
+            }),
+        );
+      const watermarkDataUrl = await new Promise<string>((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => {
+          const canvas = document.createElement("canvas");
+          canvas.width = 700;
+          canvas.height = 700;
+          const context = canvas.getContext("2d");
+          if (!context) {
+            reject(new Error("Could not prepare watermark."));
+            return;
+          }
+          context.clearRect(0, 0, canvas.width, canvas.height);
+          context.globalAlpha = 0.14;
+          context.drawImage(image, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL("image/png"));
+        };
+        image.onerror = () => reject(new Error("Could not load company watermark."));
+        image.src = logoDataUrl;
+      });
+      const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const navy: [number, number, number] = [23, 58, 91];
+      const ink: [number, number, number] = [31, 51, 71];
+      const muted: [number, number, number] = [102, 120, 138];
+      const border: [number, number, number] = [215, 224, 232];
+
+      const marginX = 45;
+      const tableWidth = pageWidth - marginX * 2;
+      const colNoX = marginX + 30;
+      const colContactX = marginX + 306;
+      const colMobileX = marginX + 410;
+      const rowHeight = 111;
+      const firstRowY = 145;
+      const headerRowY = 117;
+      const headerRowHeight = 28;
+
+      const addHeader = () => {
+        doc.addImage(watermarkDataUrl, "PNG", pageWidth / 2 - 145, pageHeight / 2 - 145, 290, 290);
+
+        doc.addImage(logoDataUrl, "PNG", marginX, 26, 42, 42);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(14);
+        doc.setTextColor(...navy);
+        doc.text("LimelightIT Research Pvt. Ltd.", marginX + 52, 43);
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        doc.setTextColor(...muted);
+        doc.text("SIM Kit feedback operations", marginX + 52, 57);
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(15);
+        doc.setTextColor(...navy);
+        doc.text("SIM KIT FEEDBACK COMPANIES LIST", pageWidth / 2, 85, { align: "center" });
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8.5);
+        doc.setTextColor(...muted);
+        doc.text(`Selected Companies: ${selectedSites.length}`, pageWidth / 2, 100, { align: "center" });
+        doc.text(new Date().toLocaleDateString("en-IN"), pageWidth - marginX, 55, { align: "right" });
+
+        doc.setFillColor(...navy);
+        doc.roundedRect(marginX, headerRowY, tableWidth, headerRowHeight, 3, 3, "F");
+        doc.setDrawColor(...border);
+        doc.setLineWidth(0.55);
+        doc.line(colNoX, headerRowY, colNoX, headerRowY + headerRowHeight);
+        doc.line(colContactX, headerRowY, colContactX, headerRowY + headerRowHeight);
+        doc.line(colMobileX, headerRowY, colMobileX, headerRowY + headerRowHeight);
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8);
+        doc.setTextColor(255, 255, 255);
+        doc.text("NO.", marginX + 15, headerRowY + 18, { align: "center" });
+        doc.text("COMPANY DETAILS", colNoX + 10, headerRowY + 18);
+        doc.text("CONTACT PERSON", colContactX + 7, headerRowY + 18);
+        doc.text("MOBILE", colMobileX + 7, headerRowY + 18);
+      };
+
+      addHeader();
+      let y = firstRowY;
+
+      selectedSites.forEach((site, index) => {
+        if (y + rowHeight > pageHeight - 36) {
+          doc.addPage();
+          addHeader();
+          y = firstRowY;
+        }
+
+        const contact = getCustomListContact(site);
+        const company = getCustomListCompanyName(site).toUpperCase();
+        const detailLines = doc.splitTextToSize(getCustomListDetails(site), colContactX - colNoX - 22).slice(0, 5);
+
+        doc.setDrawColor(...border);
+        doc.setLineWidth(0.55);
+        doc.line(marginX, y + rowHeight, marginX + tableWidth, y + rowHeight);
+        doc.line(colNoX, y, colNoX, y + rowHeight);
+        doc.line(colContactX, y, colContactX, y + rowHeight);
+        doc.line(colMobileX, y, colMobileX, y + rowHeight);
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9.2);
+        doc.setTextColor(...ink);
+        doc.text(String(index + 1), marginX + 15, y + 55, { align: "center" });
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(9.2);
+        doc.setTextColor(...navy);
+        doc.text(doc.splitTextToSize(company, colContactX - colNoX - 22).slice(0, 2), colNoX + 10, y + 28);
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7.35);
+        doc.setTextColor(...muted);
+        doc.text(detailLines, colNoX + 10, y + 48);
+
+        doc.setFontSize(8.5);
+        doc.setTextColor(...ink);
+        doc.text(doc.splitTextToSize(contact.name, colMobileX - colContactX - 14).slice(0, 3), colContactX + 7, y + 50);
+        doc.text(doc.splitTextToSize(contact.mobile, marginX + tableWidth - colMobileX - 14).slice(0, 3), colMobileX + 7, y + 50);
+
+        y += rowHeight;
+      });
+
+      const totalPages = doc.getNumberOfPages();
+      for (let page = 1; page <= totalPages; page += 1) {
+        doc.setPage(page);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7);
+        doc.setTextColor(...muted);
+        doc.text(`Page ${page} / ${totalPages}`, pageWidth - marginX, pageHeight - 22, { align: "right" });
+      }
+
+      doc.save("SIM_Kit_Feedback_Companies_List.pdf");
+      toast.success("Custom company list PDF downloaded.");
+      setCustomListOpen(false);
+    } catch (err: any) {
+      toast.error("Failed to generate custom list PDF: " + (err.message || err));
+    } finally {
+      setCustomListGenerating(false);
+    }
+  };
+
   const handlePdfSave = async (download = false) => {
     if (!pdfDraft) return;
 
@@ -1208,6 +1406,16 @@ export function SitesPanel() {
       const bDate = new Date(b.created_at || 0).getTime();
       return bDate - aDate;
     });
+  const customListQ = customListSearch.toLowerCase().trim();
+  const customListSites = [...sites]
+    .filter((site) => {
+      if (!customListQ) return true;
+      const meta = parseSiteMetadata(site.task_notes);
+      return [site.name, site.company_name, site.city, site.address, meta.c1_name, meta.c1_mobile].some((value) =>
+        String(value || "").toLowerCase().includes(customListQ),
+      );
+    })
+    .sort((a, b) => getCustomListCompanyName(a).localeCompare(getCustomListCompanyName(b)));
 
   const ITEMS_PER_PAGE = 50;
   const totalItems = filteredSites.length;
@@ -1224,15 +1432,20 @@ export function SitesPanel() {
           </p>
           <h1 className="mt-2 text-4xl uppercase tracking-tight font-extrabold">Sites</h1>
         </div>
-        <Button
-          onClick={() => {
-            resetForm();
-            setCreating(true);
-            setEditingSite(null);
-          }}
-        >
-          <Plus size={16} strokeWidth={1.5} /> New Site
-        </Button>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button variant="secondary" onClick={openCustomList}>
+            <FileText size={16} strokeWidth={1.5} /> Custom List
+          </Button>
+          <Button
+            onClick={() => {
+              resetForm();
+              setCreating(true);
+              setEditingSite(null);
+            }}
+          >
+            <Plus size={16} strokeWidth={1.5} /> New Site
+          </Button>
+        </div>
       </div>
 
       {(creating || editingSite) && (
@@ -1755,6 +1968,142 @@ export function SitesPanel() {
       )}
 
       {/* ── Search & Filters ── */}
+      {customListOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-6">
+          <div className="w-full max-w-3xl rounded-[10px] border border-border bg-surface shadow-2xl">
+            <div className="flex items-center justify-between border-b border-border px-5 py-4">
+              <div>
+                <h2 className="font-syne text-lg font-bold uppercase text-text-primary">
+                  Custom List
+                </h2>
+                <p className="mt-1 text-xs text-text-secondary">
+                  Select companies from the sites list and print the feedback company list PDF.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCustomListOpen(false)}
+                className="rounded-[6px] p-2 text-text-secondary hover:bg-surface-raised hover:text-text-primary"
+                disabled={customListGenerating}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-4 p-5">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative min-w-[220px] flex-1">
+                  <Input
+                    value={customListSearch}
+                    onChange={(e) => setCustomListSearch(e.target.value)}
+                    placeholder="Search company, site, city or mobile"
+                    disabled={customListGenerating}
+                    className="pr-8"
+                  />
+                  {customListSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setCustomListSearch("")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-text-dim hover:text-text-primary"
+                      disabled={customListGenerating}
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+                <Button
+                  variant="secondary"
+                  className="text-xs"
+                  onClick={() => {
+                    const visibleIds = customListSites.map((site) => site.id);
+                    setCustomListSelectedIds((prev) => Array.from(new Set([...prev, ...visibleIds])));
+                  }}
+                  disabled={customListGenerating || customListSites.length === 0}
+                >
+                  Select Visible
+                </Button>
+                <Button
+                  variant="secondary"
+                  className="text-xs"
+                  onClick={() => setCustomListSelectedIds([])}
+                  disabled={customListGenerating || customListSelectedIds.length === 0}
+                >
+                  Clear
+                </Button>
+              </div>
+
+              <div className="max-h-[52vh] overflow-y-auto rounded-[8px] border border-border">
+                {customListSites.length === 0 ? (
+                  <div className="px-4 py-10 text-center text-sm italic text-text-dim">
+                    No companies match your search.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-border">
+                    {customListSites.map((site) => {
+                      const checked = customListSelectedIds.includes(site.id);
+                      const contact = getCustomListContact(site);
+                      return (
+                        <label
+                          key={site.id}
+                          className="flex cursor-pointer items-start gap-3 px-4 py-3 transition-colors hover:bg-surface-raised/60"
+                        >
+                          <span
+                            className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] border ${checked ? "border-lime bg-lime" : "border-border bg-surface"}`}
+                          >
+                            {checked && <Check size={11} strokeWidth={3} className="text-background" />}
+                          </span>
+                          <input
+                            type="checkbox"
+                            className="sr-only"
+                            checked={checked}
+                            onChange={() => toggleCustomListSite(site.id)}
+                            disabled={customListGenerating}
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-semibold text-text-primary">
+                              {getCustomListCompanyName(site)}
+                            </span>
+                            <span className="mt-1 block truncate text-xs text-text-secondary">
+                              {getCustomListDetails(site)}
+                            </span>
+                          </span>
+                          <span className="hidden shrink-0 text-right text-xs text-text-secondary sm:block">
+                            <span className="block font-semibold text-text-primary">{contact.name}</span>
+                            <span className="mt-1 block font-mono text-[10px]">{contact.mobile}</span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-5 py-4">
+              <p className="font-mono text-xs text-text-secondary">
+                {customListSelectedIds.length} selected
+              </p>
+              <div className="flex flex-wrap justify-end gap-3">
+                <Button
+                  variant="secondary"
+                  onClick={() => setCustomListOpen(false)}
+                  disabled={customListGenerating}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => void downloadCustomListPdf()}
+                  disabled={customListGenerating || customListSelectedIds.length === 0}
+                >
+                  <FileText size={15} />
+                  Print PDF
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="space-y-3">
         <div className="flex flex-wrap gap-2 items-center">
           <div className="relative flex-1 min-w-[200px]">

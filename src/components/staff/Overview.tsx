@@ -1651,10 +1651,6 @@ const exportPdf = async () => {
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...teal);
       drawTextFit(clean(bcNames), x + 88, y + 13.5, 34, 7.2, true, 2);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(...ink);
-      doc.setFontSize(7);
-      doc.text(`Sub.: ${r.status === "Submitted" ? "Submitted" : "Pending"}`, x + 88, y + 23);
 
       // Column 4: Status
       doc.setFillColor(...tone.bg);
