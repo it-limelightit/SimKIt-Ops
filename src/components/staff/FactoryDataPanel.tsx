@@ -84,7 +84,14 @@ type SiteWithStatus = Site & {
   credentialCreated: boolean;
   managerPassword: string;
   hasManagerPassword: boolean;
+  ownersMissingPassword: number;
   submittedMonth: string;
+};
+
+type OwnerCredential = {
+  ownerName: string;
+  email: string;
+  password: string;
 };
 
 const FACTORY_OPERATIONS_EXPORT_KEYS = [
@@ -270,6 +277,31 @@ async function copyTextToClipboard(text: string) {
   }
 }
 
+function getOwnerPassword(owner: any, index: number, fallbackPassword?: string) {
+  const ownerPassword = typeof owner?.password === "string" ? owner.password : "";
+  if (ownerPassword.trim()) return ownerPassword;
+  return index === 0 ? fallbackPassword || "" : "";
+}
+
+function hasPasswordForEveryOwner(owners: any[], fallbackPassword?: string) {
+  return owners.length > 0 && owners.every((owner, index) => getOwnerPassword(owner, index, fallbackPassword).trim());
+}
+
+function buildOwnerCredentialMessage(credential: OwnerCredential) {
+  return `Hi Mr. ${credential.ownerName || "Owner"},
+
+Your account has been set up successfully.
+
+Portal URL: https://factory.limelightit.io/auth
+
+Login Credentials:
+
+Email: ${credential.email || "N/A"}
+Password: ${credential.password}
+
+Please log in using the credentials above.`;
+}
+
 export function FactoryDataPanel() {
   const [sites, setSites] = useState<Site[]>([]);
   const [assessments, setAssessments] = useState<Assessment[]>([]);
@@ -284,7 +316,9 @@ export function FactoryDataPanel() {
   const [cityFilter, setCityFilter] = useState("all");
   const [credentialStatus, setCredentialStatus] = useState<Record<string, boolean | undefined>>({});
   const [passwordDrafts, setPasswordDrafts] = useState<Record<string, string>>({});
-  const [savingPasswordSiteId, setSavingPasswordSiteId] = useState<string | null>(null);
+  const [newOwnerDrafts, setNewOwnerDrafts] = useState<Record<string, { name: string; contact: string; email: string; password: string }>>({});
+  const [savingOwnerPasswordKey, setSavingOwnerPasswordKey] = useState<string | null>(null);
+  const [credentialDialog, setCredentialDialog] = useState<OwnerCredential | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<Record<string, any>>({});
   const [certificateDialogOpen, setCertificateDialogOpen] = useState(false);
@@ -430,6 +464,9 @@ export function FactoryDataPanel() {
         const siteMeta = parseSiteMetadata(s.task_notes);
         const isSubmitted = !!assess?.data?.assessment_phase_submitted;
         const isDone = !!assess?.data?.factory_operations_done;
+        const owners = Array.isArray(assess?.data?.factory_op_owners) ? assess.data.factory_op_owners : [];
+        const ownersMissingPassword = owners.filter((owner, index) => !getOwnerPassword(owner, index, siteMeta.manager_password).trim()).length;
+        const hasOwnerPasswords = hasPasswordForEveryOwner(owners, siteMeta.manager_password);
         
         let fillStatus: "completed" | "in_progress" | "no_data" = "no_data";
         if (isSubmitted) {
@@ -444,7 +481,8 @@ export function FactoryDataPanel() {
           updatedAt: assess?.updated_at,
           credentialCreated: credentialStatus[s.id] ?? !!siteMeta.credential_created,
           managerPassword: siteMeta.manager_password || "",
-          hasManagerPassword: !!(siteMeta.manager_password || "").trim(),
+          hasManagerPassword: hasOwnerPasswords,
+          ownersMissingPassword,
           submittedMonth: assess?.updated_at ? assess.updated_at.slice(0, 7) : "",
         };
       })
@@ -460,17 +498,30 @@ export function FactoryDataPanel() {
       });
   }, [sites, assessments, credentialStatus]);
 
+  const selectedSiteData = useMemo(() => 
+    processedSitesList.find(s => s.id === selectedSiteId),
+    [processedSitesList, selectedSiteId]
+  );
+
   useEffect(() => {
     setPasswordDrafts((prev) => {
       const next = { ...prev };
       for (const site of processedSitesList) {
-        if (next[site.id] === undefined) {
+        const assess = assessments.find((a) => a.site_id === site.id);
+        const owners = Array.isArray(assess?.data?.factory_op_owners) ? assess.data.factory_op_owners : [];
+        owners.forEach((owner, index) => {
+          const key = `${site.id}:${index}`;
+          if (next[key] === undefined) {
+            next[key] = getOwnerPassword(owner, index, site.managerPassword);
+          }
+        });
+        if (owners.length === 0 && next[site.id] === undefined) {
           next[site.id] = site.managerPassword;
         }
       }
       return next;
     });
-  }, [processedSitesList]);
+  }, [processedSitesList, assessments]);
 
   // Auto-select first site from the form-filled sites list if selection becomes invalid
   useEffect(() => {
@@ -535,33 +586,116 @@ export function FactoryDataPanel() {
   const passwordCreatedCount = analyticsSites.filter(s => s.hasManagerPassword).length;
   const passwordRemainingCount = analyticsSites.length - passwordCreatedCount;
 
-  const saveManagerPassword = async (siteId: string) => {
-    const site = sites.find((s) => s.id === siteId);
-    if (!site) return;
+  const saveOwnerPassword = async (siteId: string, ownerIndex: number, passwordOverride?: string) => {
+    const assessment = assessments.find((a) => a.site_id === siteId);
+    if (!assessment) return;
 
-    const nextPassword = passwordDrafts[siteId] ?? "";
-    setSavingPasswordSiteId(siteId);
-
-    const meta = parseSiteMetadata(site.task_notes);
-    const nextNotes = serializeSiteMetadata(site.task_notes, {
-      ...meta,
-      manager_password: nextPassword,
-    });
-
-    const { error } = await supabase
-      .from("sites")
-      .update({ task_notes: nextNotes } as never)
-      .eq("id", siteId);
-
-    setSavingPasswordSiteId(null);
-
-    if (error) {
-      toast.error("Could not save manager password: " + error.message);
+    const owners = Array.isArray(assessment.data?.factory_op_owners) ? [...assessment.data.factory_op_owners] : [];
+    const owner = owners[ownerIndex];
+    if (!owner) {
+      toast.error("Owner details are missing. Add and save the owner first.");
       return;
     }
 
-    setSites(prev => prev.map((s) => (s.id === siteId ? { ...s, task_notes: nextNotes } : s)));
-    toast.success(nextPassword.trim() ? "Manager password saved." : "Manager password cleared.");
+    const key = `${siteId}:${ownerIndex}`;
+    const nextPassword = passwordOverride ?? passwordDrafts[key] ?? getOwnerPassword(owner, ownerIndex, parseSiteMetadata(sites.find((s) => s.id === siteId)?.task_notes).manager_password);
+    setSavingOwnerPasswordKey(key);
+
+    owners[ownerIndex] = { ...owner, password: nextPassword };
+    const nextData = {
+      ...assessment.data,
+      factory_op_owners: owners,
+    };
+
+    const { error } = await supabase
+      .from("assessment")
+      .update({
+        data: nextData,
+        updated_at: new Date().toISOString(),
+      } as never)
+      .eq("site_id", siteId);
+
+    setSavingOwnerPasswordKey(null);
+
+    if (error) {
+      toast.error("Could not save owner password: " + error.message);
+      return;
+    }
+
+    setAssessments(prev => prev.map((a) => (a.site_id === siteId ? { ...a, data: nextData, updated_at: new Date().toISOString() } : a)));
+    setPasswordDrafts(prev => ({ ...prev, [key]: nextPassword }));
+    toast.success(nextPassword.trim() ? "Owner password saved." : "Owner password cleared.");
+
+    if (nextPassword.trim()) {
+      setCredentialDialog({
+        ownerName: owner.name || "Owner",
+        email: owner.email || "",
+        password: nextPassword,
+      });
+    }
+  };
+
+  const saveNewOwnerWithPassword = async (siteId: string) => {
+    const assessment = assessments.find((a) => a.site_id === siteId);
+    if (!assessment) return;
+
+    const draft = newOwnerDrafts[siteId] || { name: "", contact: "", email: "", password: "" };
+    if (!draft.name.trim()) {
+      toast.error("Owner name is required");
+      return;
+    }
+    if (!draft.contact.trim()) {
+      toast.error("Owner contact is required");
+      return;
+    }
+    if (!draft.email.trim()) {
+      toast.error("Owner email is required");
+      return;
+    }
+    if (!draft.password.trim()) {
+      toast.error("Owner password is required");
+      return;
+    }
+
+    const key = `${siteId}:new-owner`;
+    setSavingOwnerPasswordKey(key);
+
+    const nextOwner = {
+      name: draft.name.trim(),
+      contact: draft.contact.trim(),
+      email: draft.email.trim(),
+      password: draft.password,
+    };
+    const owners = Array.isArray(assessment.data?.factory_op_owners) ? [...assessment.data.factory_op_owners] : [];
+    const nextData = {
+      ...assessment.data,
+      factory_op_owners: [...owners, nextOwner],
+    };
+    const updatedAt = new Date().toISOString();
+
+    const { error } = await supabase
+      .from("assessment")
+      .update({
+        data: nextData,
+        updated_at: updatedAt,
+      } as never)
+      .eq("site_id", siteId);
+
+    setSavingOwnerPasswordKey(null);
+
+    if (error) {
+      toast.error("Could not save owner details: " + error.message);
+      return;
+    }
+
+    setAssessments(prev => prev.map((a) => (a.site_id === siteId ? { ...a, data: nextData, updated_at: updatedAt } : a)));
+    setNewOwnerDrafts(prev => ({ ...prev, [siteId]: { name: "", contact: "", email: "", password: "" } }));
+    setCredentialDialog({
+      ownerName: nextOwner.name,
+      email: nextOwner.email,
+      password: nextOwner.password,
+    });
+    toast.success("Owner details and password saved.");
   };
 
   const toggleCredentialCreated = async (siteId: string, checked: boolean) => {
@@ -677,6 +811,13 @@ export function FactoryDataPanel() {
       return;
     }
 
+    const previousOwners = Array.isArray(selectedAssessment?.data?.factory_op_owners) ? selectedAssessment.data.factory_op_owners : [];
+    const newlySavedCredentialOwner = owners.find((owner: any, index: number) => {
+      const nextPassword = typeof owner?.password === "string" ? owner.password.trim() : "";
+      const previousPassword = getOwnerPassword(previousOwners[index], index, parsedMetadata?.manager_password).trim();
+      return nextPassword && !previousPassword;
+    });
+
     try {
       const { error } = await supabase
         .from("assessment")
@@ -691,6 +832,13 @@ export function FactoryDataPanel() {
       } else {
         toast.success("Changes saved successfully");
         setIsEditing(false);
+        if (newlySavedCredentialOwner) {
+          setCredentialDialog({
+            ownerName: newlySavedCredentialOwner.name || "Owner",
+            email: newlySavedCredentialOwner.email || "",
+            password: newlySavedCredentialOwner.password,
+          });
+        }
         await loadData();
       }
     } catch (err: any) {
@@ -982,6 +1130,43 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
         </DialogContent>
       </Dialog>
 
+      <Dialog open={!!credentialDialog} onOpenChange={(open) => !open && setCredentialDialog(null)}>
+        <DialogContent className="border-border bg-surface text-text-primary sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="font-syne uppercase tracking-tight">
+              Owner Login Credentials
+            </DialogTitle>
+            <DialogDescription className="text-text-secondary">
+              Copy this message and share it with the owner.
+            </DialogDescription>
+          </DialogHeader>
+
+          {credentialDialog && (
+            <div className="rounded-lg border border-border bg-surface-raised/40 p-4">
+              <pre className="whitespace-pre-wrap break-words text-xs leading-6 text-text-primary font-mono">
+                {buildOwnerCredentialMessage(credentialDialog)}
+              </pre>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:space-x-0">
+            <Button type="button" variant="secondary" onClick={() => setCredentialDialog(null)}>
+              Close
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                if (!credentialDialog) return;
+                copyToClipboard(buildOwnerCredentialMessage(credentialDialog), "Owner Login Message");
+              }}
+            >
+              <Copy size={16} />
+              Copy
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {loading ? (
         <div className="space-y-6">
           <Skeleton className="h-48 w-full" />
@@ -1122,18 +1307,17 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                   return (
                     <div
                       key={s.id}
-                      className={`w-full overflow-x-auto rounded-xl border transition-all duration-200 ${
+                      onClick={() => setSelectedSiteId(s.id)}
+                      className={`w-full rounded-xl border p-4 transition-all duration-200 cursor-pointer ${
                         isActive
                           ? "bg-lime/10 border-lime ring-2 ring-lime/20 shadow-sm"
                           : "bg-surface/70 border-border/80 hover:border-border-bright"
                       }`}
                     >
-                      <div className="min-w-[1680px] p-4 flex items-center justify-between gap-4">
-                      {/* Left Company Info */}
-                      <div className="w-[1040px] min-w-0 flex items-center gap-4">
-                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      <div className="grid grid-cols-1 xl:grid-cols-[auto_minmax(220px,1.1fr)_minmax(220px,1.4fr)_130px_auto] gap-3 xl:items-center">
+                        <div className="flex flex-wrap items-center gap-2">
                           <label
-                            className="flex items-center gap-2 rounded-lg border border-border bg-surface-raised/30 px-3 py-2 cursor-pointer select-none"
+                            className="flex h-9 items-center gap-2 rounded-lg border border-border bg-surface-raised/30 px-3 cursor-pointer select-none"
                             title={s.credentialCreated ? "Credential created" : "Mark credential as created"}
                             onClick={(e) => e.stopPropagation()}
                           >
@@ -1149,8 +1333,8 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                           </label>
 
                           <div
-                            className="flex items-center gap-2 rounded-lg border border-border bg-surface-raised/30 px-3 py-2 select-none"
-                            title={s.hasManagerPassword ? "Manager password created" : "Manager password remaining"}
+                            className="flex h-9 items-center gap-2 rounded-lg border border-border bg-surface-raised/30 px-3 select-none"
+                            title={s.hasManagerPassword ? "Owner passwords created" : `${s.ownersMissingPassword} owner password(s) remaining`}
                           >
                             <KeyRound size={14} className={s.hasManagerPassword ? "text-lime" : "text-amber-400"} />
                             <span className={`text-[9px] font-mono font-bold uppercase ${s.hasManagerPassword ? "text-lime" : "text-amber-400"}`}>
@@ -1159,7 +1343,7 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                           </div>
                         </div>
 
-                        <div className="w-[280px] min-w-0">
+                        <div className="min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="font-mono text-[9px] uppercase tracking-wider text-text-dim">
                               {s.city || "No Location"}
@@ -1176,41 +1360,23 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                           </h4>
                         </div>
 
-                        <div className="w-[360px] text-xs text-text-secondary truncate">
+                        <div className="min-w-0 text-xs text-text-secondary truncate">
                           {s.address || "No registered address provided"}
                         </div>
 
-                        {s.updatedAt && (
-                          <div className="w-[130px] text-[10px] font-mono text-text-dim">
-                            Updated: {formatDate(s.updatedAt)}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Right Action Options: Copy JSON & View Details */}
-                      <div className="w-[590px] flex items-center justify-end gap-2 shrink-0">
-                        <div className="flex items-center gap-2 rounded-lg border border-border/80 bg-surface/80 p-1.5">
-                          <Input
-                            type="text"
-                            value={passwordDrafts[s.id] ?? s.managerPassword}
-                            onChange={(e) => setPasswordDrafts(prev => ({ ...prev, [s.id]: e.target.value }))}
-                            onClick={(e) => e.stopPropagation()}
-                            placeholder="Enter password"
-                            className="h-8 w-36 text-xs font-mono"
-                          />
-                          <Button
-                            onClick={() => saveManagerPassword(s.id)}
-                            disabled={savingPasswordSiteId === s.id}
-                            className="h-8 py-1 px-3 text-xs bg-lime text-black hover:bg-lime/90 flex items-center gap-1 font-bold cursor-pointer"
-                          >
-                            <Save size={12} />
-                            {savingPasswordSiteId === s.id ? "Saving" : "Save"}
-                          </Button>
+                        <div className="text-[10px] font-mono text-text-dim">
+                          {s.updatedAt ? `Updated: ${formatDate(s.updatedAt)}` : "Updated: N/A"}
                         </div>
+
+                        {/* Right Action Options: Copy JSON & View Details */}
+                        <div className="flex flex-wrap items-center justify-start xl:justify-end gap-2">
                         <Button
                           variant="secondary"
                           size="sm"
-                          onClick={() => handleCopyFactoryJson(s)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCopyFactoryJson(s);
+                          }}
                           className="py-1 px-3 text-xs flex items-center gap-1.5 bg-surface-raised border border-border hover:border-lime/50 transition-all cursor-pointer"
                           title="Copy filled Factory Operations JSON for this company"
                         >
@@ -1221,12 +1387,15 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                         <Button
                           variant={isActive ? "primary" : "outline"}
                           size="sm"
-                          onClick={() => setSelectedSiteId(s.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedSiteId(s.id);
+                          }}
                           className="py-1 px-4 text-xs font-bold uppercase tracking-wider cursor-pointer"
                         >
                           {isActive ? "Viewing Form" : "View Details"}
                         </Button>
-                      </div>
+                        </div>
                       </div>
                     </div>
                   );
@@ -1379,27 +1548,10 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
 
                     <div className="bg-surface-raised/40 p-3.5 rounded-lg border border-border/60">
                       <div className="text-text-secondary font-mono text-[9px] uppercase tracking-wider">
-                        Manager Password
+                        Owner Password Status
                       </div>
-                      <div className="mt-2 flex flex-col sm:flex-row gap-2">
-                        <Input
-                          type="text"
-                          value={passwordDrafts[selectedSite.id] ?? parsedMetadata?.manager_password ?? ""}
-                          onChange={(e) => setPasswordDrafts(prev => ({ ...prev, [selectedSite.id]: e.target.value }))}
-                          placeholder="Enter or set password"
-                          className="h-8 text-xs font-mono"
-                        />
-                        <Button
-                          onClick={() => saveManagerPassword(selectedSite.id)}
-                          disabled={savingPasswordSiteId === selectedSite.id}
-                          className="h-8 py-1 px-3 text-xs bg-lime text-black hover:bg-lime/90 flex items-center gap-1 font-bold cursor-pointer"
-                        >
-                          <Save size={12} />
-                          {savingPasswordSiteId === selectedSite.id ? "Saving" : "Save"}
-                        </Button>
-                      </div>
-                      <div className={`mt-2 text-[10px] font-mono font-bold uppercase ${(parsedMetadata?.manager_password || "").trim() ? "text-lime" : "text-amber-400"}`}>
-                        {(parsedMetadata?.manager_password || "").trim() ? "Password Created" : "Password Remaining"}
+                      <div className={`mt-2 text-[10px] font-mono font-bold uppercase ${selectedSiteData?.hasManagerPassword ? "text-lime" : "text-amber-400"}`}>
+                        {selectedSiteData?.hasManagerPassword ? "All Owner Passwords Created" : `${selectedSiteData?.ownersMissingPassword ?? 0} Owner Password(s) Remaining`}
                       </div>
                     </div>
 
@@ -1511,7 +1663,7 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                           
                           <div className="space-y-3">
                             {(editData.factory_op_owners || []).map((o: any, idx: number) => (
-                              <div key={idx} className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end border-b border-border/20 pb-3 last:border-0 last:pb-0">
+                              <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end border-b border-border/20 pb-3 last:border-0 last:pb-0">
                                 <div>
                                   <Label className="text-[10px]">Owner Name</Label>
                                   <Input
@@ -1536,19 +1688,40 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                                     className="h-8 text-xs"
                                   />
                                 </div>
-                                <div className="flex items-center gap-2">
-                                  <div className="flex-1">
-                                    <Label className="text-[10px]">Owner Email</Label>
+                                <div>
+                                  <Label className="text-[10px]">Owner Email</Label>
+                                  <Input
+                                    value={o.email || ""}
+                                    onChange={(e) => {
+                                      const owners = [...editData.factory_op_owners];
+                                      owners[idx] = { ...owners[idx], email: e.target.value };
+                                      setEditData({ ...editData, factory_op_owners: owners });
+                                    }}
+                                    className="h-8 text-xs"
+                                  />
+                                </div>
+                                <div className="flex items-end gap-2">
+                                  <div className="flex-1 min-w-0">
+                                    <Label className="text-[10px]">Password</Label>
                                     <Input
-                                      value={o.email || ""}
+                                      type="text"
+                                      value={o.password || ""}
                                       onChange={(e) => {
                                         const owners = [...editData.factory_op_owners];
-                                        owners[idx] = { ...owners[idx], email: e.target.value };
+                                        owners[idx] = { ...owners[idx], password: e.target.value };
                                         setEditData({ ...editData, factory_op_owners: owners });
                                       }}
-                                      className="h-8 text-xs"
+                                      placeholder="Enter password"
+                                      className="h-8 text-xs font-mono"
                                     />
                                   </div>
+                                  <Button
+                                    className="h-8 py-1 px-2.5 text-xs bg-lime text-black hover:bg-lime/90"
+                                    disabled={savingOwnerPasswordKey === `${selectedSiteId}:${idx}`}
+                                    onClick={() => saveOwnerPassword(selectedSiteId, idx, o.password || "")}
+                                  >
+                                    <Save size={12} />
+                                  </Button>
                                   <Button
                                     variant="danger"
                                     className="h-8 py-1 px-2.5 text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20"
@@ -2047,8 +2220,8 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                       <div className="bg-surface/50 border border-border/70 p-4 rounded-xl space-y-3 shadow-sm">
                         <div className="space-y-2.5 max-h-[220px] overflow-y-auto pr-1">
                           {(selectedAssessment.data.factory_op_owners ?? []).map((o: any, idx: number) => (
-                            <div key={idx} className="text-xs border-b border-border/30 pb-2.5 last:border-0 last:pb-0 flex items-center justify-between gap-2">
-                              <div>
+                            <div key={idx} className="text-xs border-b border-border/30 pb-2.5 last:border-0 last:pb-0 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                              <div className="min-w-0">
                                 <p className="font-bold text-text-primary text-xs">{o.name || "Unnamed Owner"}</p>
                                 <div className="flex flex-wrap items-center gap-3 mt-1 text-[11px]">
                                   {o.contact && (
@@ -2063,17 +2236,120 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                                   )}
                                 </div>
                               </div>
-                              <button
-                                onClick={() => copyToClipboard(`${o.name} | ${o.contact || "No Phone"} | ${o.email || "No Email"}`, "Owner Details")}
-                                className="text-text-dim hover:text-lime p-1 rounded cursor-pointer shrink-0"
-                                title="Copy Owner Details"
-                              >
-                                <Copy size={13} />
-                              </button>
+                              <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                                <Input
+                                  type="text"
+                                  value={passwordDrafts[`${selectedSite.id}:${idx}`] ?? getOwnerPassword(o, idx, parsedMetadata?.manager_password)}
+                                  onChange={(e) => setPasswordDrafts(prev => ({ ...prev, [`${selectedSite.id}:${idx}`]: e.target.value }))}
+                                  placeholder="Enter password"
+                                  className="h-8 w-44 text-xs font-mono"
+                                />
+                                <Button
+                                  onClick={() => saveOwnerPassword(selectedSite.id, idx)}
+                                  disabled={savingOwnerPasswordKey === `${selectedSite.id}:${idx}`}
+                                  className="h-8 py-1 px-3 text-xs bg-lime text-black hover:bg-lime/90 flex items-center gap-1 font-bold cursor-pointer"
+                                >
+                                  <Save size={12} />
+                                  {savingOwnerPasswordKey === `${selectedSite.id}:${idx}` ? "Saving" : "Save Password"}
+                                </Button>
+                                {getOwnerPassword(o, idx, parsedMetadata?.manager_password).trim() && (
+                                  <Button
+                                    variant="secondary"
+                                    className="h-8 py-1 px-3 text-xs flex items-center gap-1 cursor-pointer"
+                                    onClick={() => setCredentialDialog({
+                                      ownerName: o.name || "Owner",
+                                      email: o.email || "",
+                                      password: getOwnerPassword(o, idx, parsedMetadata?.manager_password),
+                                    })}
+                                  >
+                                    <KeyRound size={12} />
+                                    Show Message
+                                  </Button>
+                                )}
+                                <button
+                                  onClick={() => copyToClipboard(`${o.name} | ${o.contact || "No Phone"} | ${o.email || "No Email"}`, "Owner Details")}
+                                  className="text-text-dim hover:text-lime p-1 rounded cursor-pointer shrink-0"
+                                  title="Copy Owner Details"
+                                >
+                                  <Copy size={13} />
+                                </button>
+                              </div>
                             </div>
                           ))}
                           {(!selectedAssessment.data.factory_op_owners || selectedAssessment.data.factory_op_owners.length === 0) && (
-                            <p className="text-xs text-text-dim italic">No owner details recorded</p>
+                            (() => {
+                              const draft = newOwnerDrafts[selectedSite.id] || { name: "", contact: "", email: "", password: "" };
+                              const setDraft = (key: "name" | "contact" | "email" | "password", value: string) => {
+                                setNewOwnerDrafts(prev => ({
+                                  ...prev,
+                                  [selectedSite.id]: {
+                                    ...(prev[selectedSite.id] || { name: "", contact: "", email: "", password: "" }),
+                                    [key]: value,
+                                  },
+                                }));
+                              };
+
+                              return (
+                                <div className="rounded-lg border border-dashed border-border bg-surface-raised/30 p-3 space-y-3">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                      <p className="text-xs font-bold text-text-primary">No owner details recorded</p>
+                                      <p className="text-[10px] text-text-dim">Add owner details here and save the password without opening edit mode.</p>
+                                    </div>
+                                    <Badge tone="warning" className="text-[9px] py-0 px-2 font-mono">Owner Missing</Badge>
+                                  </div>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2">
+                                    <div>
+                                      <Label className="text-[10px]">Owner Name</Label>
+                                      <Input
+                                        value={draft.name}
+                                        onChange={(e) => setDraft("name", e.target.value)}
+                                        placeholder="Owner name"
+                                        className="h-8 text-xs"
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label className="text-[10px]">Owner Contact</Label>
+                                      <Input
+                                        value={draft.contact}
+                                        onChange={(e) => setDraft("contact", e.target.value)}
+                                        placeholder="Mobile number"
+                                        className="h-8 text-xs"
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label className="text-[10px]">Owner Email</Label>
+                                      <Input
+                                        value={draft.email}
+                                        onChange={(e) => setDraft("email", e.target.value)}
+                                        placeholder="Email address"
+                                        className="h-8 text-xs"
+                                      />
+                                    </div>
+                                    <div className="flex items-end gap-2">
+                                      <div className="flex-1 min-w-0">
+                                        <Label className="text-[10px]">Password</Label>
+                                        <Input
+                                          type="text"
+                                          value={draft.password}
+                                          onChange={(e) => setDraft("password", e.target.value)}
+                                          placeholder="Enter password"
+                                          className="h-8 text-xs font-mono"
+                                        />
+                                      </div>
+                                      <Button
+                                        onClick={() => saveNewOwnerWithPassword(selectedSite.id)}
+                                        disabled={savingOwnerPasswordKey === `${selectedSite.id}:new-owner`}
+                                        className="h-8 py-1 px-3 text-xs bg-lime text-black hover:bg-lime/90 flex items-center gap-1 font-bold cursor-pointer"
+                                      >
+                                        <Save size={12} />
+                                        {savingOwnerPasswordKey === `${selectedSite.id}:new-owner` ? "Saving" : "Save"}
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })()
                           )}
                         </div>
                       </div>
