@@ -1,7 +1,16 @@
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, Button, Input, Select, Badge, Skeleton, Label } from "@/components/ui-kit";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { jsPDF } from "jspdf";
 import {
   ClipboardList,
   Building2,
@@ -25,7 +34,9 @@ import {
   Save,
   XCircle,
   Copy,
-  Check
+  Check,
+  KeyRound,
+  Download,
 } from "lucide-react";
 import { parseSiteMetadata, serializeSiteMetadata } from "@/lib/site-metadata";
 
@@ -63,6 +74,17 @@ type Machine = {
   serial?: string;
   year?: number;
   condition?: string;
+};
+
+type SiteWithStatus = Site & {
+  fillStatus: "completed" | "in_progress" | "no_data";
+  isDone: boolean;
+  isSubmitted: boolean;
+  updatedAt?: string;
+  credentialCreated: boolean;
+  managerPassword: string;
+  hasManagerPassword: boolean;
+  submittedMonth: string;
 };
 
 const FACTORY_OPERATIONS_EXPORT_KEYS = [
@@ -145,6 +167,80 @@ function formatTime24(value?: string) {
   return trimmed;
 }
 
+function formatCertificateDate(value: string) {
+  if (!value) return "";
+  const [year, month, day] = value.split("-");
+  if (!year || !month || !day) return value;
+  return `${day}/${month}/${year}`;
+}
+
+function makeDownloadFilename(companyName: string, extension: "doc" | "pdf") {
+  const safeCompany = companyName
+    .trim()
+    .replace(/[^a-z0-9]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "company";
+  return `Installation-Commissioning-Certificate-${safeCompany}.${extension}`;
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function getCertificateSections(companyName: string, certificateDate: string) {
+  return {
+    title: "Installation and Commissioning Certificate",
+    subtitle: "(Implementation of Shopfloor Insight & Monitoring Kit - SIM Kit)",
+    dateLine: `Date: ${certificateDate}`,
+    toLines: [
+      "To,",
+      "National Productivity Council (NPC)",
+      "(Under Ministry of Commerce & Industry, Government of India)",
+    ],
+    subject: "Subject: Certification of Successful Installation & Commissioning of SIM Kit",
+    greeting: "Dear Sir,",
+    paragraphs: [
+      "This is to certify that the Shopfloor Insight & Monitoring Kit (SIM Kit) has been successfully installed and commissioned at our facility under the project \"Scaling up Industry 4.0 Transformation in Gujarat's Manufacturing Sector.\"",
+      "We are pleased to confirm that:",
+    ],
+    bullets: [
+      "The SIM Kit device has been successfully installed and integrated with our machine.",
+      "Machine data acquisition has commenced, and real-time data is being captured.",
+      "The digital dashboard has been developed and is fully functional, providing clear visualization of operational parameters.",
+      "The system is currently operational across its key modules, including Overall Equipment Effectiveness (OEE) Monitoring, Breakdown Analysis, Condition Monitoring, and Energy Monitoring.",
+    ],
+    closingParagraphs: [
+      "With the implementation of SIM Kit, we are now able to monitor machine performance, analyze downtime, track energy consumption, and make informed decisions through data-driven insights. The initiative has significantly improved our shopfloor visibility and strengthened our journey towards Industry 4.0 adoption.",
+      "We appreciate the efforts of the Service Provider Startup, LimelightIT Research PVT LTD, for their technical support and smooth execution of the installation. We also extend our gratitude to the National Productivity Council (NPC) for their guidance and support throughout the project.",
+      "This certificate is issued as a confirmation of successful installation, commissioning, and operationalization of the SIM Kit system at our unit.",
+    ],
+    signOffLines: [
+      "With regards,",
+      `For ${companyName}`,
+      "Authorized Signatory",
+      "Name:",
+      "Designation:",
+      "Company Seal",
+    ],
+  };
+}
+
 function getShiftWorkingDays(shift: any, data?: Record<string, any>) {
   if (Array.isArray(shift?.workingDays)) return shift.workingDays;
   if (Array.isArray(data?.factory_op_working_days)) return data.factory_op_working_days;
@@ -183,11 +279,17 @@ export function FactoryDataPanel() {
   const [selectedSiteId, setSelectedSiteId] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("credential_remaining");
+  const [passwordFilter, setPasswordFilter] = useState("all");
   const [monthFilter, setMonthFilter] = useState("all");
   const [cityFilter, setCityFilter] = useState("all");
   const [credentialStatus, setCredentialStatus] = useState<Record<string, boolean | undefined>>({});
+  const [passwordDrafts, setPasswordDrafts] = useState<Record<string, string>>({});
+  const [savingPasswordSiteId, setSavingPasswordSiteId] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<Record<string, any>>({});
+  const [certificateDialogOpen, setCertificateDialogOpen] = useState(false);
+  const [certificateCompanyName, setCertificateCompanyName] = useState("");
+  const [certificateDate, setCertificateDate] = useState(() => new Date().toISOString().slice(0, 10));
 
 
   const loadData = async () => {
@@ -321,7 +423,7 @@ export function FactoryDataPanel() {
 
   // List of processed sites with their form completeness info
   // Filter out any site that does not have the form submitted by Field Associate or client.
-  const processedSitesList = useMemo(() => {
+  const processedSitesList = useMemo<SiteWithStatus[]>(() => {
     return sites
       .map(s => {
         const assess = assessments.find(a => a.site_id === s.id);
@@ -341,6 +443,8 @@ export function FactoryDataPanel() {
           isSubmitted,
           updatedAt: assess?.updated_at,
           credentialCreated: credentialStatus[s.id] ?? !!siteMeta.credential_created,
+          managerPassword: siteMeta.manager_password || "",
+          hasManagerPassword: !!(siteMeta.manager_password || "").trim(),
           submittedMonth: assess?.updated_at ? assess.updated_at.slice(0, 7) : "",
         };
       })
@@ -349,9 +453,24 @@ export function FactoryDataPanel() {
         if (a.credentialCreated !== b.credentialCreated) {
           return a.credentialCreated ? 1 : -1;
         }
+        if (a.hasManagerPassword !== b.hasManagerPassword) {
+          return a.hasManagerPassword ? 1 : -1;
+        }
         return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
       });
   }, [sites, assessments, credentialStatus]);
+
+  useEffect(() => {
+    setPasswordDrafts((prev) => {
+      const next = { ...prev };
+      for (const site of processedSitesList) {
+        if (next[site.id] === undefined) {
+          next[site.id] = site.managerPassword;
+        }
+      }
+      return next;
+    });
+  }, [processedSitesList]);
 
   // Auto-select first site from the form-filled sites list if selection becomes invalid
   useEffect(() => {
@@ -387,10 +506,13 @@ export function FactoryDataPanel() {
       if (!matchSearch) return false;
       if (monthFilter !== "all" && s.submittedMonth !== monthFilter) return false;
       if (cityFilter !== "all" && (s.city || "Unknown") !== cityFilter) return false;
-      if (statusFilter === "credential_created") return s.credentialCreated;
-      return !s.credentialCreated;
+      if (statusFilter === "credential_created" && !s.credentialCreated) return false;
+      if (statusFilter === "credential_remaining" && s.credentialCreated) return false;
+      if (passwordFilter === "password_created" && !s.hasManagerPassword) return false;
+      if (passwordFilter === "password_remaining" && s.hasManagerPassword) return false;
+      return true;
     });
-  }, [processedSitesList, searchQuery, statusFilter, monthFilter, cityFilter]);
+  }, [processedSitesList, searchQuery, statusFilter, passwordFilter, monthFilter, cityFilter]);
 
   const availableMonths = useMemo(() => {
     return Array.from(new Set(processedSitesList.map(s => s.submittedMonth).filter(Boolean))).sort().reverse();
@@ -410,6 +532,38 @@ export function FactoryDataPanel() {
 
   const credentialCreatedCount = analyticsSites.filter(s => s.credentialCreated).length;
   const credentialRemainingCount = analyticsSites.length - credentialCreatedCount;
+  const passwordCreatedCount = analyticsSites.filter(s => s.hasManagerPassword).length;
+  const passwordRemainingCount = analyticsSites.length - passwordCreatedCount;
+
+  const saveManagerPassword = async (siteId: string) => {
+    const site = sites.find((s) => s.id === siteId);
+    if (!site) return;
+
+    const nextPassword = passwordDrafts[siteId] ?? "";
+    setSavingPasswordSiteId(siteId);
+
+    const meta = parseSiteMetadata(site.task_notes);
+    const nextNotes = serializeSiteMetadata(site.task_notes, {
+      ...meta,
+      manager_password: nextPassword,
+    });
+
+    const { error } = await supabase
+      .from("sites")
+      .update({ task_notes: nextNotes } as never)
+      .eq("id", siteId);
+
+    setSavingPasswordSiteId(null);
+
+    if (error) {
+      toast.error("Could not save manager password: " + error.message);
+      return;
+    }
+
+    setSites(prev => prev.map((s) => (s.id === siteId ? { ...s, task_notes: nextNotes } : s)));
+    toast.success(nextPassword.trim() ? "Manager password saved." : "Manager password cleared.");
+  };
+
   const toggleCredentialCreated = async (siteId: string, checked: boolean) => {
     const site = sites.find((s) => s.id === siteId);
     if (!site) return;
@@ -641,6 +795,124 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
     setEditData({ ...editData, factory_op_shifts: shifts });
   };
 
+  const openCertificateDialog = () => {
+    const defaultCompanyName =
+      selectedAssessment?.data?.factory_op_name ||
+      selectedSite?.company_name ||
+      selectedSite?.name ||
+      "";
+    setCertificateCompanyName(defaultCompanyName);
+    setCertificateDate(new Date().toISOString().slice(0, 10));
+    setCertificateDialogOpen(true);
+  };
+
+  const validateCertificateFields = () => {
+    if (!certificateCompanyName.trim()) {
+      toast.error("Company name is required.");
+      return null;
+    }
+    if (!certificateDate) {
+      toast.error("Date is required.");
+      return null;
+    }
+    return {
+      companyName: certificateCompanyName.trim(),
+      certificateDate: formatCertificateDate(certificateDate),
+    };
+  };
+
+  const downloadCertificateWord = () => {
+    const fields = validateCertificateFields();
+    if (!fields) return;
+
+    const certificate = getCertificateSections(fields.companyName, fields.certificateDate);
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${escapeHtml(certificate.title)}</title>
+  <style>
+    @page { size: A4; margin: 1in; }
+    body { font-family: "Times New Roman", serif; font-size: 12pt; line-height: 1.45; color: #000; }
+    h1 { font-size: 16pt; text-align: center; margin: 0 0 4pt; }
+    .subtitle { text-align: center; margin: 0 0 18pt; }
+    .date { text-align: left; margin: 0 0 18pt; }
+    .subject { font-weight: bold; margin: 18pt 0; }
+    p { margin: 0 0 12pt; }
+    ul { margin: 0 0 12pt 20pt; padding: 0; }
+    li { margin: 0 0 6pt; }
+    .signoff { margin-top: 30pt; }
+    .signoff p { margin: 0 0 8pt; }
+  </style>
+</head>
+<body>
+  <h1>${escapeHtml(certificate.title)}</h1>
+  <p class="subtitle">${escapeHtml(certificate.subtitle)}</p>
+  <p class="date">${escapeHtml(certificate.dateLine)}</p>
+  ${certificate.toLines.map((line) => `<p>${escapeHtml(line)}</p>`).join("")}
+  <p class="subject">${escapeHtml(certificate.subject)}</p>
+  <p>${escapeHtml(certificate.greeting)}</p>
+  ${certificate.paragraphs.map((line) => `<p>${escapeHtml(line)}</p>`).join("")}
+  <ul>${certificate.bullets.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>
+  ${certificate.closingParagraphs.map((line) => `<p>${escapeHtml(line)}</p>`).join("")}
+  <div class="signoff">
+    ${certificate.signOffLines.map((line) => `<p>${escapeHtml(line)}</p>`).join("")}
+  </div>
+</body>
+</html>`;
+
+    downloadBlob(
+      new Blob(["\ufeff", html], { type: "application/msword;charset=utf-8" }),
+      makeDownloadFilename(fields.companyName, "doc")
+    );
+    toast.success("Word certificate downloaded.");
+  };
+
+  const downloadCertificatePdf = () => {
+    const fields = validateCertificateFields();
+    if (!fields) return;
+
+    const certificate = getCertificateSections(fields.companyName, fields.certificateDate);
+    const pdf = new jsPDF({ unit: "pt", format: "a4" });
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const margin = 56;
+    const maxWidth = pageWidth - margin * 2;
+    let y = 58;
+
+    const addWrappedText = (text: string, options: { size?: number; bold?: boolean; center?: boolean; gap?: number } = {}) => {
+      pdf.setFont("times", options.bold ? "bold" : "normal");
+      pdf.setFontSize(options.size ?? 12);
+      const lines = pdf.splitTextToSize(text, maxWidth);
+      lines.forEach((line: string) => {
+        if (y > pageHeight - margin) {
+          pdf.addPage();
+          y = margin;
+        }
+        pdf.text(line, options.center ? pageWidth / 2 : margin, y, { align: options.center ? "center" : "left" });
+        y += (options.size ?? 12) + 5;
+      });
+      y += options.gap ?? 7;
+    };
+
+    addWrappedText(certificate.title, { size: 16, bold: true, center: true, gap: 2 });
+    addWrappedText(certificate.subtitle, { center: true, gap: 18 });
+    addWrappedText(certificate.dateLine, { gap: 18 });
+    certificate.toLines.forEach((line) => addWrappedText(line, { gap: 0 }));
+    y += 10;
+    addWrappedText(certificate.subject, { bold: true, gap: 18 });
+    addWrappedText(certificate.greeting);
+    certificate.paragraphs.forEach((line) => addWrappedText(line));
+    certificate.bullets.forEach((line) => addWrappedText(`- ${line}`, { gap: 1 }));
+    y += 4;
+    certificate.closingParagraphs.forEach((line) => addWrappedText(line));
+    y += 18;
+    certificate.signOffLines.forEach((line) => addWrappedText(line, { gap: 0 }));
+
+    pdf.save(makeDownloadFilename(fields.companyName, "pdf"));
+    toast.success("PDF certificate downloaded.");
+  };
+
   return (
     <div className="space-y-6 pb-24">
       {/* Title Header */}
@@ -656,12 +928,59 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
             Browse, edit and verify operational questionnaires submitted during assessment visits.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" variant="secondary" onClick={openCertificateDialog}>
+            <FileText size={16} />
+            Create Commission Certificate
+          </Button>
           <Badge tone="success" className="px-2.5 py-1 text-xs">
             Auto-fetch: Active
           </Badge>
         </div>
       </header>
+
+      <Dialog open={certificateDialogOpen} onOpenChange={setCertificateDialogOpen}>
+        <DialogContent className="border-border bg-surface text-text-primary sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-syne uppercase tracking-tight">
+              Create Commission Certificate
+            </DialogTitle>
+            <DialogDescription className="text-text-secondary">
+              Enter the certificate details. This information is used only for the downloaded file.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <Label>Company Name</Label>
+              <Input
+                value={certificateCompanyName}
+                onChange={(e) => setCertificateCompanyName(e.target.value)}
+                placeholder="Enter company name"
+              />
+            </div>
+            <div>
+              <Label>Date</Label>
+              <Input
+                type="date"
+                value={certificateDate}
+                onChange={(e) => setCertificateDate(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:space-x-0">
+            <Button type="button" variant="secondary" onClick={downloadCertificateWord}>
+              <Download size={16} />
+              Download Word
+            </Button>
+            <Button type="button" onClick={downloadCertificatePdf}>
+              <Download size={16} />
+              Download PDF
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {loading ? (
         <div className="space-y-6">
@@ -673,7 +992,7 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
           
           {/* PART 1 (TOP HORIZONTAL SECTION): Factory Companies Row Deck */}
           <Card className="p-5 bg-surface/50 backdrop-blur-md border border-border space-y-4 shadow-sm">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
               <button
                 type="button"
                 onClick={() => setStatusFilter("credential_remaining")}
@@ -683,7 +1002,7 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                     : "border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/15"
                 }`}
               >
-                <div className="text-[9px] font-mono uppercase tracking-widest text-amber-400">Remaining / Pending</div>
+                <div className="text-[9px] font-mono uppercase tracking-widest text-amber-400">Pending Credential</div>
                 <div className="mt-1 text-2xl font-extrabold text-amber-400 font-mono">{credentialRemainingCount}</div>
                 <div className="mt-1 text-[10px] text-text-secondary">Click to show pending companies</div>
               </button>
@@ -699,6 +1018,32 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                 <div className="text-[9px] font-mono uppercase tracking-widest text-lime">Credential Created</div>
                 <div className="mt-1 text-2xl font-extrabold text-lime font-mono">{credentialCreatedCount}</div>
                 <div className="mt-1 text-[10px] text-text-secondary">Click to show created companies</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPasswordFilter("password_remaining")}
+                className={`rounded-xl border p-4 text-left transition-all cursor-pointer ${
+                  passwordFilter === "password_remaining"
+                    ? "border-amber-400 bg-amber-500/15 ring-2 ring-amber-500/20"
+                    : "border-border bg-surface/70 hover:border-amber-400/50"
+                }`}
+              >
+                <div className="text-[9px] font-mono uppercase tracking-widest text-amber-400">Password Remaining</div>
+                <div className="mt-1 text-2xl font-extrabold text-amber-400 font-mono">{passwordRemainingCount}</div>
+                <div className="mt-1 text-[10px] text-text-secondary">Click to show password pending</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPasswordFilter("password_created")}
+                className={`rounded-xl border p-4 text-left transition-all cursor-pointer ${
+                  passwordFilter === "password_created"
+                    ? "border-lime bg-lime/15 ring-2 ring-lime/20"
+                    : "border-border bg-surface/70 hover:border-lime/50"
+                }`}
+              >
+                <div className="text-[9px] font-mono uppercase tracking-widest text-lime">Password Created</div>
+                <div className="mt-1 text-2xl font-extrabold text-lime font-mono">{passwordCreatedCount}</div>
+                <div className="mt-1 text-[10px] text-text-secondary">Click to show passwords saved</div>
               </button>
             </div>
 
@@ -728,8 +1073,17 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                   onChange={(e) => setStatusFilter(e.target.value)}
                   className="h-8 text-xs py-0.5 bg-surface"
                 >
-                  <option value="credential_remaining">Pending</option>
+                  <option value="credential_remaining">Pending Credential</option>
                   <option value="credential_created">Credential Created</option>
+                </Select>
+                <Select
+                  value={passwordFilter}
+                  onChange={(e) => setPasswordFilter(e.target.value)}
+                  className="h-8 text-xs py-0.5 bg-surface"
+                >
+                  <option value="all">All Passwords</option>
+                  <option value="password_remaining">Password Remaining</option>
+                  <option value="password_created">Password Created</option>
                 </Select>
                 <Select
                   value={monthFilter}
@@ -768,31 +1122,44 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                   return (
                     <div
                       key={s.id}
-                      className={`w-full p-4 rounded-xl border transition-all duration-200 flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+                      className={`w-full overflow-x-auto rounded-xl border transition-all duration-200 ${
                         isActive
                           ? "bg-lime/10 border-lime ring-2 ring-lime/20 shadow-sm"
                           : "bg-surface/70 border-border/80 hover:border-border-bright"
                       }`}
                     >
+                      <div className="min-w-[1680px] p-4 flex items-center justify-between gap-4">
                       {/* Left Company Info */}
-                      <div className="flex-1 min-w-0 flex flex-col md:flex-row md:items-center gap-4">
-                        <label
-                          className="flex items-center gap-2 shrink-0 rounded-lg border border-border bg-surface-raised/30 px-3 py-2 cursor-pointer select-none"
-                          title={s.credentialCreated ? "Credential created" : "Mark credential as created"}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={s.credentialCreated}
-                            onChange={(e) => toggleCredentialCreated(s.id, e.target.checked)}
-                            className="h-4 w-4 accent-lime cursor-pointer"
-                          />
-                          <span className={`text-[9px] font-mono font-bold uppercase ${s.credentialCreated ? "text-lime" : "text-amber-400"}`}>
-                            {s.credentialCreated ? "Credential Created" : "Pending Credential"}
-                          </span>
-                        </label>
+                      <div className="w-[1040px] min-w-0 flex items-center gap-4">
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          <label
+                            className="flex items-center gap-2 rounded-lg border border-border bg-surface-raised/30 px-3 py-2 cursor-pointer select-none"
+                            title={s.credentialCreated ? "Credential created" : "Mark credential as created"}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={s.credentialCreated}
+                              onChange={(e) => toggleCredentialCreated(s.id, e.target.checked)}
+                              className="h-4 w-4 accent-lime cursor-pointer"
+                            />
+                            <span className={`text-[9px] font-mono font-bold uppercase ${s.credentialCreated ? "text-lime" : "text-amber-400"}`}>
+                              {s.credentialCreated ? "Credential Created" : "Pending Credential"}
+                            </span>
+                          </label>
 
-                        <div className="min-w-[200px]">
+                          <div
+                            className="flex items-center gap-2 rounded-lg border border-border bg-surface-raised/30 px-3 py-2 select-none"
+                            title={s.hasManagerPassword ? "Manager password created" : "Manager password remaining"}
+                          >
+                            <KeyRound size={14} className={s.hasManagerPassword ? "text-lime" : "text-amber-400"} />
+                            <span className={`text-[9px] font-mono font-bold uppercase ${s.hasManagerPassword ? "text-lime" : "text-amber-400"}`}>
+                              {s.hasManagerPassword ? "Password Created" : "Password Remaining"}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="w-[280px] min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="font-mono text-[9px] uppercase tracking-wider text-text-dim">
                               {s.city || "No Location"}
@@ -809,19 +1176,37 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                           </h4>
                         </div>
 
-                        <div className="hidden lg:block text-xs text-text-secondary truncate max-w-xs">
+                        <div className="w-[360px] text-xs text-text-secondary truncate">
                           {s.address || "No registered address provided"}
                         </div>
 
                         {s.updatedAt && (
-                          <div className="text-[10px] font-mono text-text-dim">
+                          <div className="w-[130px] text-[10px] font-mono text-text-dim">
                             Updated: {formatDate(s.updatedAt)}
                           </div>
                         )}
                       </div>
 
                       {/* Right Action Options: Copy JSON & View Details */}
-                      <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+                      <div className="w-[590px] flex items-center justify-end gap-2 shrink-0">
+                        <div className="flex items-center gap-2 rounded-lg border border-border/80 bg-surface/80 p-1.5">
+                          <Input
+                            type="text"
+                            value={passwordDrafts[s.id] ?? s.managerPassword}
+                            onChange={(e) => setPasswordDrafts(prev => ({ ...prev, [s.id]: e.target.value }))}
+                            onClick={(e) => e.stopPropagation()}
+                            placeholder="Enter password"
+                            className="h-8 w-36 text-xs font-mono"
+                          />
+                          <Button
+                            onClick={() => saveManagerPassword(s.id)}
+                            disabled={savingPasswordSiteId === s.id}
+                            className="h-8 py-1 px-3 text-xs bg-lime text-black hover:bg-lime/90 flex items-center gap-1 font-bold cursor-pointer"
+                          >
+                            <Save size={12} />
+                            {savingPasswordSiteId === s.id ? "Saving" : "Save"}
+                          </Button>
+                        </div>
                         <Button
                           variant="secondary"
                           size="sm"
@@ -841,6 +1226,7 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                         >
                           {isActive ? "Viewing Form" : "View Details"}
                         </Button>
+                      </div>
                       </div>
                     </div>
                   );
@@ -972,6 +1358,49 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                       ) : (
                         <p className="mt-1.5 text-text-dim italic">No primary metadata contact</p>
                       )}
+                    </div>
+
+                    <div className="bg-surface-raised/40 p-3.5 rounded-lg border border-border/60">
+                      <div className="text-text-secondary font-mono text-[9px] uppercase tracking-wider">
+                        Credential Status
+                      </div>
+                      <label className="mt-2 flex w-fit items-center gap-2 rounded-lg border border-border bg-surface/70 px-3 py-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={!!parsedMetadata?.credential_created}
+                          onChange={(e) => toggleCredentialCreated(selectedSite.id, e.target.checked)}
+                          className="h-4 w-4 accent-lime cursor-pointer"
+                        />
+                        <span className={`text-[10px] font-mono font-bold uppercase ${parsedMetadata?.credential_created ? "text-lime" : "text-amber-400"}`}>
+                          {parsedMetadata?.credential_created ? "Credential Created" : "Pending Credential"}
+                        </span>
+                      </label>
+                    </div>
+
+                    <div className="bg-surface-raised/40 p-3.5 rounded-lg border border-border/60">
+                      <div className="text-text-secondary font-mono text-[9px] uppercase tracking-wider">
+                        Manager Password
+                      </div>
+                      <div className="mt-2 flex flex-col sm:flex-row gap-2">
+                        <Input
+                          type="text"
+                          value={passwordDrafts[selectedSite.id] ?? parsedMetadata?.manager_password ?? ""}
+                          onChange={(e) => setPasswordDrafts(prev => ({ ...prev, [selectedSite.id]: e.target.value }))}
+                          placeholder="Enter or set password"
+                          className="h-8 text-xs font-mono"
+                        />
+                        <Button
+                          onClick={() => saveManagerPassword(selectedSite.id)}
+                          disabled={savingPasswordSiteId === selectedSite.id}
+                          className="h-8 py-1 px-3 text-xs bg-lime text-black hover:bg-lime/90 flex items-center gap-1 font-bold cursor-pointer"
+                        >
+                          <Save size={12} />
+                          {savingPasswordSiteId === selectedSite.id ? "Saving" : "Save"}
+                        </Button>
+                      </div>
+                      <div className={`mt-2 text-[10px] font-mono font-bold uppercase ${(parsedMetadata?.manager_password || "").trim() ? "text-lime" : "text-amber-400"}`}>
+                        {(parsedMetadata?.manager_password || "").trim() ? "Password Created" : "Password Remaining"}
+                      </div>
                     </div>
 
                     <div className="bg-surface-raised/40 p-3.5 rounded-lg border border-border/60">

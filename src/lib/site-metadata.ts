@@ -21,6 +21,7 @@ export type SiteMeta = {
   assessor_email: string;
   assessor_address: string;
   credential_created?: boolean;
+  manager_password?: string;
   client_email?: string;
   client_token?: string;
   activity_logs?: SiteActivityLog[];
