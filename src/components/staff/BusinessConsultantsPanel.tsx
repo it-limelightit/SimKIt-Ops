@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button, Badge, Input, Label } from "@/components/ui-kit";
 import { toast } from "sonner";
 import { parseSiteMetadata, serializeSiteMetadata } from "@/lib/site-metadata";
+import { actorName, recordActivityLog } from "@/lib/activity-log";
 import { createServerFn } from "@tanstack/react-start";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { X } from "lucide-react";
@@ -93,6 +94,41 @@ export function BusinessConsultantsPanel() {
   const [editPassword, setEditPassword] = useState("");
   const [updating, setUpdating] = useState(false);
 
+  const getCurrentActor = async () => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const userId = session?.user?.id ?? null;
+    if (!userId) return { id: null, name: "Unknown User" };
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("name,mobile,email")
+      .eq("id", userId)
+      .maybeSingle();
+
+    return { id: userId, name: actorName(profile, session?.user?.email, userId) };
+  };
+
+  const profileLabel = (profile: any) =>
+    profile?.name || profile?.email || profile?.mobile || "Field Associate";
+
+  const changedProfileFields = () => {
+    if (!editingConsultant) return [];
+    const changes = [
+      { field: "name", label: "Name", from: editingConsultant.name || "", to: editName || "" },
+      { field: "email", label: "Email", from: editingConsultant.email || "", to: editEmail || "" },
+      { field: "mobile", label: "Mobile", from: editingConsultant.mobile || "", to: editMobile || "" },
+      { field: "whatsapp", label: "WhatsApp", from: editingConsultant.whatsapp || "", to: editWhatsapp || "" },
+    ].filter((change) => change.from !== change.to);
+
+    if (editPassword) {
+      changes.push({ field: "password", label: "Password", from: "Hidden", to: "Changed" });
+    }
+
+    return changes;
+  };
+
   useEffect(() => {
     if (editingConsultant) {
       setEditName(editingConsultant.name || "");
@@ -110,6 +146,7 @@ export function BusinessConsultantsPanel() {
     try {
       const isEmailChanged = editEmail.toLowerCase() !== editingConsultant.email?.toLowerCase();
       const isPasswordChanged = !!editPassword;
+      const changes = changedProfileFields();
 
       if (isEmailChanged || isPasswordChanged) {
         const { data: { session } } = await supabase.auth.getSession();
@@ -165,6 +202,31 @@ export function BusinessConsultantsPanel() {
         .eq("id", editingConsultant.id);
 
       if (profileError) throw profileError;
+
+      if (changes.length > 0) {
+        const actor = await getCurrentActor();
+        await Promise.all(
+          changes.map((change) =>
+            recordActivityLog({
+              actor_id: actor.id,
+              actor_name: actor.name,
+              action: "update",
+              entity_type: "profile",
+              entity_id: editingConsultant.id,
+              entity_name: profileLabel(editingConsultant),
+              company_name: profileLabel(editingConsultant),
+              factory_name: "Field Associate Profile",
+              from_value: `${change.label}: ${change.from || "Blank"}`,
+              to_value: `${change.label}: ${change.to || "Blank"}`,
+              details: {
+                field: change.field,
+                target_profile_id: editingConsultant.id,
+                target_profile_name: profileLabel(editingConsultant),
+              },
+            }),
+          ),
+        );
+      }
 
       toast.success("Consultant profile updated successfully!");
       setEditingConsultant(null);
@@ -237,9 +299,24 @@ export function BusinessConsultantsPanel() {
   }, []);
 
   const toggle = async (id: string, active: boolean) => {
+    const target = rows.find((row) => row.id === id);
     const { error } = await supabase.from("profiles").update({ is_active: active } as never).eq("id", id);
     if (error) toast.error(error.message);
     else {
+      const actor = await getCurrentActor();
+      await recordActivityLog({
+        actor_id: actor.id,
+        actor_name: actor.name,
+        action: "update",
+        entity_type: "profile",
+        entity_id: id,
+        entity_name: profileLabel(target),
+        company_name: profileLabel(target),
+        factory_name: "Field Associate Profile",
+        from_value: `Status: ${active ? "Inactive" : "Active"}`,
+        to_value: `Status: ${active ? "Active" : "Inactive"}`,
+        details: { field: "is_active", target_profile_id: id },
+      });
       toast.success(active ? "Activated" : "Deactivated");
       await load();
     }
@@ -247,12 +324,31 @@ export function BusinessConsultantsPanel() {
 
   const handleToggleManager = async (userId: string, isCurrentlyManager: boolean) => {
     try {
+      const target = rows.find((row) => row.id === userId);
       // Use SECURITY DEFINER RPC to bypass RLS on user_roles (no INSERT/DELETE policy for authenticated)
       const { error } = await supabase.rpc("toggle_user_manager_role", {
         _target_user_id: userId,
         _make_manager: !isCurrentlyManager,
       });
       if (error) throw error;
+      const actor = await getCurrentActor();
+      await recordActivityLog({
+        actor_id: actor.id,
+        actor_name: actor.name,
+        action: "update",
+        entity_type: "user_role",
+        entity_id: userId,
+        entity_name: profileLabel(target),
+        company_name: profileLabel(target),
+        factory_name: "Field Associate Profile",
+        from_value: `Manager: ${isCurrentlyManager ? "Yes" : "No"}`,
+        to_value: `Manager: ${isCurrentlyManager ? "No" : "Yes"}`,
+        details: {
+          field: "manager_role",
+          target_profile_id: userId,
+          granted: !isCurrentlyManager,
+        },
+      });
       toast.success(isCurrentlyManager ? "Manager role revoked" : "Manager role granted");
       await load();
     } catch (err: any) {
@@ -298,6 +394,7 @@ export function BusinessConsultantsPanel() {
   const deleteConsultant = async (workerId: string, name: string) => {
     if (!window.confirm(`Permanently delete "${name}"? This cannot be undone.`)) return;
     try {
+      const actor = await getCurrentActor();
       // 1. Remove from all site worker_ids arrays (client-side, for multi-BC metadata)
       const { data: sites } = await supabase
         .from("sites")
@@ -319,6 +416,20 @@ export function BusinessConsultantsPanel() {
       const { error } = await supabase.rpc("delete_worker", { worker_id: workerId });
       if (error) throw error;
 
+      await recordActivityLog({
+        actor_id: actor.id,
+        actor_name: actor.name,
+        action: "delete",
+        entity_type: "profile",
+        entity_id: workerId,
+        entity_name: name,
+        company_name: name,
+        factory_name: "Field Associate Profile",
+        from_value: "Profile existed",
+        to_value: "Profile deleted",
+        details: { target_profile_id: workerId },
+      });
+
       // 3. Clean up local stage storage
       try {
         const stored = localStorage.getItem("consultant_stages");
@@ -339,6 +450,7 @@ export function BusinessConsultantsPanel() {
   const clearConsultantData = async (workerId: string) => {
     if (!window.confirm("Are you sure you want to clear all assigned tasks, appointments, and progress data for this field associate? This will reset their app screen to 'Task will be assigned'.")) return;
     try {
+      const target = rows.find((row) => row.id === workerId);
       const { data: workerSites, error: sitesError } = await supabase
         .from("sites")
         .select("id")
@@ -373,6 +485,25 @@ export function BusinessConsultantsPanel() {
         .eq("assigned_worker_id", workerId);
 
       if (updateError) throw updateError;
+
+      const actor = await getCurrentActor();
+      await recordActivityLog({
+        actor_id: actor.id,
+        actor_name: actor.name,
+        action: "update",
+        entity_type: "profile",
+        entity_id: workerId,
+        entity_name: profileLabel(target),
+        company_name: profileLabel(target),
+        factory_name: "Field Associate Profile",
+        from_value: `${siteIds.length} assigned ${siteIds.length === 1 ? "site" : "sites"}`,
+        to_value: "Assignments and progress cleared",
+        details: {
+          field: "assigned_work",
+          target_profile_id: workerId,
+          cleared_site_ids: siteIds,
+        },
+      });
 
       toast.success("Field Associate side cleared successfully");
       await load();
