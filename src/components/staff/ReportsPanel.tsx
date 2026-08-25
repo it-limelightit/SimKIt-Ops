@@ -11,12 +11,13 @@ import {
   Download,
   Factory,
   FileText,
+  LogIn,
   Search,
   UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
 
-type ViewMode = "company" | "consultant" | "activity";
+type ViewMode = "company" | "consultant" | "activity" | "loginActivity";
 
 type Consultant = {
   id: string;
@@ -153,7 +154,9 @@ export function ReportsPanel() {
   const [view, setView] = useState<ViewMode>(() => {
     if (typeof window === "undefined") return "company";
     const saved = window.localStorage.getItem("managerReportsView");
-    return saved === "activity" || saved === "consultant" || saved === "company" ? saved : "company";
+    return saved === "loginActivity" || saved === "activity" || saved === "consultant" || saved === "company"
+      ? saved
+      : "company";
   });
   const [sites, setSites] = useState<SiteRecord[]>([]);
   const [consultants, setConsultants] = useState<Consultant[]>([]);
@@ -239,8 +242,8 @@ export function ReportsPanel() {
           supabase
             .from("activity_logs" as any)
             .select("*")
-            .gte("created_at", new Date(new Date().setHours(0, 0, 0, 0)).toISOString())
-            .order("created_at", { ascending: false }),
+            .order("created_at", { ascending: false })
+            .limit(1000),
         ]);
 
         if (siteResult.error)
@@ -350,12 +353,10 @@ export function ReportsPanel() {
   }, [rows, filters]);
 
   const activityRows = useMemo<ActivityRow[]>(() => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const isTodayOrNewer = (value: string | null | undefined) => {
+    const hasValidDate = (value: string | null | undefined) => {
       if (!value) return false;
       const date = new Date(value);
-      return !Number.isNaN(date.getTime()) && date >= todayStart;
+      return !Number.isNaN(date.getTime());
     };
     const siteById = new Map(sites.map((site) => [site.id, site]));
     const profileName = (workerId: string | null | undefined) => {
@@ -369,7 +370,7 @@ export function ReportsPanel() {
         const logs = Array.isArray(meta.activity_logs) ? meta.activity_logs : [];
         return logs
           .filter((log: any) => log?.type === "status_change")
-          .filter((log: any) => isTodayOrNewer(String(log.at || site.created_at)))
+          .filter((log: any) => hasValidDate(String(log.at || site.created_at)))
           .map((log: any) => ({
             id: String(log.id || `${site.id}-${log.at}`),
             activityType: "status_change" as const,
@@ -421,7 +422,7 @@ export function ReportsPanel() {
         (phase === "commissioning" && row.data?.commissioning_phase_submitted_at) ||
         row.updated_at ||
         site.created_at;
-      if (!isTodayOrNewer(changedAt)) return null;
+      if (!hasValidDate(changedAt)) return null;
       if (hasLoggedStatus(site.id, toStatus, changedAt)) return null;
       return {
         id: `${phase}-${site.id}-${changedAt}`,
@@ -456,7 +457,40 @@ export function ReportsPanel() {
       .sort((a, b) => new Date(b.changedAt).getTime() - new Date(a.changedAt).getTime());
   }, [sites, assessments, installations, commissionings, auditLogs, consultantMap]);
 
-  const filteredActivityRows = activityRows;
+  const filteredLogRows = useMemo(() => {
+    const search = filters.search.trim().toLowerCase();
+    return activityRows.filter((row) => {
+      if (
+        search &&
+        ![
+          row.companyName,
+          row.factoryName,
+          row.city,
+          row.userName,
+          row.changedAt,
+          row.fromStatus,
+          row.toStatus,
+          actionLabel(row.activityType),
+        ].some((value) => value.toLowerCase().includes(search))
+      ) {
+        return false;
+      }
+      const rowDate = row.changedAt.slice(0, 10);
+      if (filters.from && rowDate < filters.from) return false;
+      if (filters.to && rowDate > filters.to) return false;
+      return true;
+    });
+  }, [activityRows, filters.from, filters.search, filters.to]);
+
+  const filteredActivityRows = useMemo(
+    () => filteredLogRows.filter((row) => row.activityType !== "login"),
+    [filteredLogRows],
+  );
+
+  const filteredLoginRows = useMemo(
+    () => filteredLogRows.filter((row) => row.activityType === "login"),
+    [filteredLogRows],
+  );
 
   const cities = useMemo(
     () => Array.from(new Set(rows.map((row) => row.city).filter((city) => city !== "—"))).sort(),
@@ -547,7 +581,8 @@ export function ReportsPanel() {
   };
 
   const exportActivityPdf = async () => {
-    if (filteredActivityRows.length === 0) {
+    const rowsToExport = view === "loginActivity" ? filteredLoginRows : filteredActivityRows;
+    if (rowsToExport.length === 0) {
       toast.error("There are no activity log rows to export.");
       return;
     }
@@ -594,7 +629,7 @@ export function ReportsPanel() {
         doc.setFont("helvetica", "normal");
         doc.setFontSize(8.5);
         doc.setTextColor(...muted);
-        doc.text(`Total Activities: ${filteredActivityRows.length}`, pageWidth / 2, 100, { align: "center" });
+        doc.text(`Total Activities: ${rowsToExport.length}`, pageWidth / 2, 100, { align: "center" });
         doc.text(new Date().toLocaleDateString("en-IN"), pageWidth - marginX, 55, { align: "right" });
 
         doc.setFillColor(...navy);
@@ -616,7 +651,7 @@ export function ReportsPanel() {
 
       addHeader();
       let y = firstRowY;
-      filteredActivityRows.forEach((row, index) => {
+      rowsToExport.forEach((row, index) => {
         if (y + rowHeight > pageHeight - 36) {
           doc.addPage();
           addHeader();
@@ -663,7 +698,7 @@ export function ReportsPanel() {
         doc.text(`Page ${page} / ${totalPages}`, pageWidth - marginX, pageHeight - 22, { align: "right" });
       }
 
-      doc.save(`activity-log-report-${new Date().toISOString().slice(0, 10)}.pdf`);
+      doc.save(`${view === "loginActivity" ? "last-login-activity" : "activity-log"}-report-${new Date().toISOString().slice(0, 10)}.pdf`);
       toast.success("Activity log PDF exported successfully.");
     } catch (error) {
       console.error(error);
@@ -674,7 +709,7 @@ export function ReportsPanel() {
   };
 
   const exportPdf = async () => {
-    if (view === "activity") {
+    if (view === "activity" || view === "loginActivity") {
       await exportActivityPdf();
       return;
     }
@@ -908,7 +943,7 @@ export function ReportsPanel() {
           <h1 className="mt-2 text-4xl uppercase tracking-tight font-extrabold">Report and Logs</h1>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => changeView("company")} variant={view !== "activity" ? "primary" : "secondary"}>
+          <Button onClick={() => changeView("company")} variant={view === "company" || view === "consultant" ? "primary" : "secondary"}>
             <Building2 size={16} strokeWidth={1.5} />
             Factory Report
           </Button>
@@ -916,11 +951,19 @@ export function ReportsPanel() {
             <Clock3 size={16} strokeWidth={1.5} />
             Activity Log
           </Button>
+          <Button onClick={() => changeView("loginActivity")} variant={view === "loginActivity" ? "primary" : "secondary"}>
+            <LogIn size={16} strokeWidth={1.5} />
+            Last Login Activity Track
+          </Button>
           <Button onClick={() => void exportPdf()} disabled={exportingPdf}>
             <FileText size={16} strokeWidth={1.5} />
-            {exportingPdf ? "Building PDF..." : view === "activity" ? "Print Activity PDF" : "Export PDF"}
+            {exportingPdf
+              ? "Building PDF..."
+              : view === "activity" || view === "loginActivity"
+                ? "Print Activity PDF"
+                : "Export PDF"}
           </Button>
-          {view !== "activity" && (
+          {view !== "activity" && view !== "loginActivity" && (
             <Button onClick={exportCsv} variant="secondary">
               <Download size={16} strokeWidth={1.5} /> Export CSV
             </Button>
@@ -928,7 +971,54 @@ export function ReportsPanel() {
         </div>
       </header>
 
-      {view !== "activity" && (
+      {(view === "activity" || view === "loginActivity") && (
+      <section className="rounded-[10px] border border-border bg-surface p-5 space-y-4">
+        <div className="relative">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" />
+          <Input
+            className="pl-10"
+            placeholder={
+              view === "loginActivity"
+                ? "Search date, user or login status..."
+                : "Search date, user, company, site or activity..."
+            }
+            value={filters.search}
+            onChange={(event) => setFilters({ ...filters, search: event.target.value })}
+          />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <Label>From</Label>
+            <Input
+              type="date"
+              value={filters.from}
+              onChange={(event) => setFilters({ ...filters, from: event.target.value })}
+            />
+          </div>
+          <div>
+            <Label>To</Label>
+            <Input
+              type="date"
+              value={filters.to}
+              onChange={(event) => setFilters({ ...filters, to: event.target.value })}
+            />
+          </div>
+        </div>
+        {Object.values(filters).some(Boolean) && (
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="font-mono text-[10px] uppercase tracking-wider text-coral hover:opacity-70"
+            >
+              Clear all filters
+            </button>
+          </div>
+        )}
+      </section>
+      )}
+
+      {view !== "activity" && view !== "loginActivity" && (
       <section className="rounded-[10px] border border-border bg-surface p-5 space-y-4">
         <div className="relative">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" />
@@ -997,7 +1087,7 @@ export function ReportsPanel() {
       </section>
       )}
 
-      {view !== "activity" && (
+      {view !== "activity" && view !== "loginActivity" && (
         <div className="flex w-full max-w-xl rounded-[8px] border border-border bg-surface p-1">
           <ViewButton
             active={view === "company"}
@@ -1019,7 +1109,9 @@ export function ReportsPanel() {
           Loading factory data…
         </div>
       ) : view === "activity" ? (
-        <ActivityLogView rows={filteredActivityRows} />
+        <ActivityLogView rows={filteredActivityRows} title="Activity Log" emptyMessage="No activity has been recorded yet." />
+      ) : view === "loginActivity" ? (
+        <ActivityLogView rows={filteredLoginRows} title="Last Login Activity Track" emptyMessage="No login activity has been recorded yet." />
       ) : view === "company" ? (
         <GroupedView
           groups={companyGroups.map(([name, groupRows]) => ({ name, rows: groupRows }))}
@@ -1037,11 +1129,30 @@ export function ReportsPanel() {
   );
 }
 
-function ActivityLogView({ rows }: { rows: ActivityRow[] }) {
+const LOG_PAGE_SIZE = 100;
+
+function ActivityLogView({
+  rows,
+  title,
+  emptyMessage,
+}: {
+  rows: ActivityRow[];
+  title: string;
+  emptyMessage: string;
+}) {
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(rows.length / LOG_PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const visibleRows = rows.slice((currentPage - 1) * LOG_PAGE_SIZE, currentPage * LOG_PAGE_SIZE);
+
+  useEffect(() => {
+    setPage(1);
+  }, [rows]);
+
   if (rows.length === 0) {
     return (
       <div className="rounded-[10px] border border-border bg-surface px-6 py-16 text-center text-text-dim">
-        No manual status-change activity has been recorded yet.
+        {emptyMessage}
       </div>
     );
   }
@@ -1051,10 +1162,10 @@ function ActivityLogView({ rows }: { rows: ActivityRow[] }) {
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface-raised/60 px-5 py-4">
         <div>
           <h2 className="text-[15px] font-extrabold text-text-primary tracking-tight">
-            Activity Log
+            {title}
           </h2>
           <p className="mt-0.5 font-mono text-[9px] uppercase tracking-wider text-text-secondary">
-            {rows.length} manual status {rows.length === 1 ? "change" : "changes"}
+            {rows.length} {rows.length === 1 ? "record" : "records"}
           </p>
         </div>
       </div>
@@ -1070,7 +1181,7 @@ function ActivityLogView({ rows }: { rows: ActivityRow[] }) {
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, index) => {
+            {visibleRows.map((row, index) => {
               const changedAt = new Date(row.changedAt);
               const displayDate = Number.isNaN(changedAt.getTime())
                 ? row.changedAt
@@ -1108,6 +1219,35 @@ function ActivityLogView({ rows }: { rows: ActivityRow[] }) {
           </tbody>
         </table>
       </div>
+      {totalPages > 1 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-surface-raised/40 px-5 py-3">
+          <p className="font-mono text-[10px] uppercase tracking-wider text-text-secondary">
+            Showing {(currentPage - 1) * LOG_PAGE_SIZE + 1}-
+            {Math.min(currentPage * LOG_PAGE_SIZE, rows.length)} of {rows.length}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              className="px-3 py-1 text-xs"
+              disabled={currentPage === 1}
+              onClick={() => setPage((value) => Math.max(1, value - 1))}
+            >
+              Previous
+            </Button>
+            <span className="font-mono text-[10px] uppercase tracking-wider text-text-secondary">
+              Page {currentPage} / {totalPages}
+            </span>
+            <Button
+              variant="secondary"
+              className="px-3 py-1 text-xs"
+              disabled={currentPage === totalPages}
+              onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
