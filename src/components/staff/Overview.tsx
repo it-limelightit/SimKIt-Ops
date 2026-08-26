@@ -174,7 +174,7 @@ export function Overview() {
     });
 
     const nextSubmitted = new Set<string>();
-    if (aData?.assessment_phase_submitted) nextSubmitted.add("assessment");
+    if (pctKeys(aData, ASSESSMENT_KEYS) === 100) nextSubmitted.add("assessment");
     if (iData?.installation_phase_submitted) nextSubmitted.add("installation");
     if (cData?.commissioning_phase_submitted) nextSubmitted.add("commissioning");
     setModalSubmittedPhases(nextSubmitted);
@@ -757,7 +757,7 @@ const allProcessedRows: SiteRow[] = rawSites.map((site) => {
 
   const isFullyDone = site.consultant_stage === "Completion" || site.consultant_stage === "Billing";
 
-  let aP = isFullyDone || ar?.data?.assessment_phase_submitted ? 100 : pctKeys(ar?.data, ASSESSMENT_KEYS);
+  let aP = isFullyDone ? 100 : pctKeys(ar?.data, ASSESSMENT_KEYS);
   let iP = isFullyDone ? 100 : pctKeys(ir?.data, INSTALLATION_KEYS);
   let cP = isFullyDone ? 100 : pctKeys(cr?.data, COMMISSIONING_KEYS);
   const updated = [ar?.updated_at, ir?.updated_at, cr?.updated_at].filter(Boolean).sort().pop() ?? null;

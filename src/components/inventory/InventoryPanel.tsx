@@ -79,6 +79,46 @@ type InventoryPanelProps = {
   defaultFilterState?: string;
 };
 
+const CUSTOM_OPTION_VALUE = "__custom__";
+const DEFAULT_OTA_KEYS = [
+  "0bda416c-b70b-48a4-9b5f-f9be1ad54669",
+  "5e97f426-d490-420d-9462-e94c878d8e98",
+];
+const DEFAULT_OTA_ACCOUNTS = [
+  "kuldeepshrimali.limelight@gmail.com",
+];
+const DEFAULT_COURIER_PARTNERS = ["Tirupati"];
+
+function readCustomDropdownOptions(storageKey: string) {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(storageKey) || "[]");
+    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string" && item.trim()) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeCustomDropdownOption(storageKey: string, value: string) {
+  if (typeof window === "undefined") return;
+  const trimmed = value.trim();
+  if (!trimmed) return;
+  const next = uniqueDropdownOptions([...readCustomDropdownOptions(storageKey), trimmed]);
+  window.localStorage.setItem(storageKey, JSON.stringify(next));
+}
+
+function uniqueDropdownOptions(options: string[]) {
+  const seen = new Set<string>();
+  return options.reduce<string[]>((next, option) => {
+    const trimmed = option.trim();
+    const key = trimmed.toLowerCase();
+    if (!trimmed || seen.has(key)) return next;
+    seen.add(key);
+    next.push(trimmed);
+    return next;
+  }, []);
+}
+
 export function InventoryPanel({ editable = false, defaultFilterState = "all" }: InventoryPanelProps) {
   const [materials, setMaterials] = useState<Material[]>([]);
   const [loading, setLoading] = useState(true);
@@ -405,6 +445,97 @@ interface CourierNotes {
   arrived_date: string;
   courier_id: string;
   logistics_status?: string;
+}
+
+function DropdownWithCustomOption({
+  label,
+  value,
+  onChange,
+  defaultOptions,
+  storageKey,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  defaultOptions: string[];
+  storageKey: string;
+  placeholder: string;
+}) {
+  const [customOptions, setCustomOptions] = useState<string[]>(() => readCustomDropdownOptions(storageKey));
+  const options = useMemo(
+    () => uniqueDropdownOptions([...defaultOptions, ...customOptions, ...(value ? [value] : [])]),
+    [customOptions, defaultOptions, value],
+  );
+  const isKnownValue = !value || options.includes(value);
+  const [showCustomInput, setShowCustomInput] = useState(!isKnownValue);
+  const [customValue, setCustomValue] = useState(isKnownValue ? "" : value);
+
+  useEffect(() => {
+    const nextCustomOptions = readCustomDropdownOptions(storageKey);
+    setCustomOptions(nextCustomOptions);
+    const nextOptions = uniqueDropdownOptions([...defaultOptions, ...nextCustomOptions]);
+    const nextIsKnownValue = !value || nextOptions.includes(value);
+    setShowCustomInput(!nextIsKnownValue);
+    setCustomValue(nextIsKnownValue ? "" : value);
+  }, [defaultOptions, storageKey, value]);
+
+  const addCustomValue = () => {
+    const trimmed = customValue.trim();
+    if (!trimmed) return;
+    writeCustomDropdownOption(storageKey, trimmed);
+    setCustomOptions(readCustomDropdownOptions(storageKey));
+    onChange(trimmed);
+    setShowCustomInput(false);
+  };
+
+  return (
+    <div>
+      <Label>{label}</Label>
+      <Select
+        value={showCustomInput ? CUSTOM_OPTION_VALUE : value}
+        onChange={(e) => {
+          const nextValue = e.target.value;
+          if (nextValue === CUSTOM_OPTION_VALUE) {
+            setShowCustomInput(true);
+            setCustomValue(value);
+            return;
+          }
+          setShowCustomInput(false);
+          onChange(nextValue);
+        }}
+      >
+        <option value="">{placeholder}</option>
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+        <option value={CUSTOM_OPTION_VALUE}>Add custom...</option>
+      </Select>
+      {showCustomInput && (
+        <div className="mt-2 flex gap-2">
+          <Input
+            value={customValue}
+            onChange={(e) => {
+              setCustomValue(e.target.value);
+              onChange(e.target.value);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                addCustomValue();
+              }
+            }}
+            placeholder={`Enter ${label.toLowerCase()}`}
+          />
+          <Button type="button" variant="secondary" onClick={addCustomValue} className="shrink-0 px-3">
+            Add
+          </Button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function OrderCard({
@@ -1353,12 +1484,24 @@ function OrderCard({
                           <Input value={iccid} onChange={(e) => setIccid(e.target.value)} placeholder="SIM Card ICCID" />
                         </div>
                         <div>
-                          <Label>OTA Key</Label>
-                          <Input value={otaKey} onChange={(e) => setOtaKey(e.target.value)} placeholder="Secure Key" />
+                          <DropdownWithCustomOption
+                            label="OTA Key"
+                            value={otaKey}
+                            onChange={setOtaKey}
+                            defaultOptions={DEFAULT_OTA_KEYS}
+                            storageKey="simkit_custom_ota_keys"
+                            placeholder="Select OTA key..."
+                          />
                         </div>
                         <div>
-                          <Label>OTA Account</Label>
-                          <Input value={otaAccount} onChange={(e) => setOtaAccount(e.target.value)} placeholder="ota-admin@email.com" />
+                          <DropdownWithCustomOption
+                            label="OTA Account"
+                            value={otaAccount}
+                            onChange={setOtaAccount}
+                            defaultOptions={DEFAULT_OTA_ACCOUNTS}
+                            storageKey="simkit_custom_ota_accounts"
+                            placeholder="Select OTA account..."
+                          />
                         </div>
                       </div>
 
@@ -1418,11 +1561,13 @@ function OrderCard({
                     <>
                       <div className="grid gap-4 sm:grid-cols-2">
                         <div>
-                          <Label>Courier Partner Name</Label>
-                          <Input
+                          <DropdownWithCustomOption
+                            label="Courier Partner Name"
                             value={courierPartner}
-                            onChange={(e) => setCourierPartner(e.target.value)}
-                            placeholder="e.g. Delhivery, Blue Dart"
+                            onChange={setCourierPartner}
+                            defaultOptions={DEFAULT_COURIER_PARTNERS}
+                            storageKey="simkit_custom_courier_partners"
+                            placeholder="Select courier partner"
                           />
                         </div>
                         <div>

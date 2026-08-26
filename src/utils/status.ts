@@ -4,6 +4,7 @@ export const ASSESSMENT_KEYS = [
   "mom_uploaded",
   "media_uploaded",
   "factory_operations_done",
+  "device_order_completed",
 ];
 
 export const INSTALLATION_KEYS = [
@@ -131,7 +132,7 @@ export function getCanonicalStatus(
   const ir = iMap.get(site.id);
   const cr = cMap.get(site.id);
 
-  const realAP = ar?.data?.assessment_phase_submitted ? 100 : pctKeys(ar?.data, ASSESSMENT_KEYS);
+  const realAP = pctKeys(ar?.data, ASSESSMENT_KEYS);
   const realIP = pctKeys(ir?.data, INSTALLATION_KEYS);
   const realCP = pctKeys(cr?.data, COMMISSIONING_KEYS);
 
@@ -147,14 +148,14 @@ export function getCanonicalStatus(
     return "Installed";
   }
 
-  // 7. Assessed (A === 100 or A > 0)
-  if (realAP === 100 || realAP > 0) {
+  // 7. Assessed only after MOM, media, factory form, and device order are complete.
+  if (realAP === 100) {
     return "Assessed";
   }
 
   // 8. Panel Dispatched (logistics-derived only after assessment is complete)
   const isPanelDispatched = ["Shipped", "Transit", "In transit", "Delivered"].includes(logisticsStatus);
-  if (isPanelDispatched) {
+  if (isPanelDispatched && realAP === 100) {
     return "Panel Dispatched";
   }
 

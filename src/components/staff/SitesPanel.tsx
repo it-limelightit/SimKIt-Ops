@@ -286,7 +286,7 @@ export function SitesPanel() {
   const isSiteSubmitted = (site: any) => {
     if (site.consultant_stage === "Completion" || site.consultant_stage === "Billing") return true;
     const ar = aMap.get(site.id);
-    return !!ar?.data?.assessment_phase_submitted;
+    return pctKeys(ar?.data, ASSESSMENT_KEYS) === 100;
   };
 
   const isSiteCertification = (site: any) => {
@@ -319,8 +319,8 @@ export function SitesPanel() {
     const meta = parseSiteMetadata(site.task_notes);
     const stage = (site.consultant_stage || meta.status || "").toLowerCase();
     const ar = aMap.get(site.id);
-    const aP = ar?.data?.assessment_phase_submitted ? 100 : pctKeys(ar?.data, ASSESSMENT_KEYS);
-    return stage.includes("assessment") || aP > 0;
+    const aP = pctKeys(ar?.data, ASSESSMENT_KEYS);
+    return stage.includes("assessment") || aP === 100;
   };
 
   const normalizeCompanyName = (name: string): string => {

@@ -201,7 +201,7 @@ function BusinessConsultantPage() {
       const iData = iMap.get(s.id)?.data;
       const cData = cMap.get(s.id)?.data;
 
-      const aPctRaw = aData?.assessment_phase_submitted ? 100 : pctCount(aData, ASSESSMENT_KEYS);
+      const aPctRaw = pctCount(aData, ASSESSMENT_KEYS);
       const iPctRaw = iData?.installation_phase_submitted ? 100 : pctCount(iData, INSTALLATION_KEYS);
       const cPctRaw = cData?.commissioning_phase_submitted ? 100 : pctCount(cData, COMMISSIONING_KEYS);
 
@@ -354,6 +354,10 @@ function BusinessConsultantPage() {
   const meta = parseSiteMetadata(site?.task_notes ?? null);
   const selectedSiteWithProgress = sitesWithProgress.find(s => s.id === site?.id);
   const displayedStatus = selectedSiteWithProgress?.derivedStatus || site?.consultant_stage || meta.status || "Not Started Yet";
+  const displayedStatusLabel =
+    displayedStatus === "Pending Assignment" || displayedStatus === "Not Started Yet"
+      ? "Pending Assessment"
+      : displayedStatus;
 
   const updateConsultantStage = async (stage: "Billing" | "Completion") => {
     if (!site) return;
@@ -545,8 +549,8 @@ function BusinessConsultantPage() {
                 {site.name}
               </h3>
             </div>
-            <Badge tone={displayedStatus === "Submitted" || displayedStatus === "Commissioned" || displayedStatus === "Billing" || displayedStatus === "Completion" ? "success" : displayedStatus === "Dropped / Rejected" ? "danger" : "warning"}>
-              {displayedStatus}
+            <Badge tone={displayedStatus === "Submitted" || displayedStatus === "Commissioned" || displayedStatus === "Billing" || displayedStatus === "Completion" ? "success" : displayedStatus === "Dropped / Rejected" ? "danger" : displayedStatusLabel === "Pending Assessment" ? "info" : "warning"}>
+              {displayedStatusLabel}
             </Badge>
           </div>
 
@@ -1306,6 +1310,7 @@ const ASSESSMENT_KEYS = [
   "mom_uploaded",
   "media_uploaded",
   "factory_operations_done",
+  "device_order_completed",
 ];
 const INSTALLATION_KEYS = ["delivery_confirmed", "coordination_done", "photos_uploaded"];
 const COMMISSIONING_KEYS = [

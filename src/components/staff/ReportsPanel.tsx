@@ -123,7 +123,7 @@ function groupReportRows(rows: FactoryRow[], key: (row: FactoryRow) => string) {
   return Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b));
 }
 
-const ASSESSMENT_KEYS = ["mom_uploaded", "media_uploaded", "factory_operations_done"];
+const ASSESSMENT_KEYS = ["mom_uploaded", "media_uploaded", "factory_operations_done", "device_order_completed"];
 const INSTALLATION_KEYS = ["delivery_confirmed", "coordination_done", "photos_uploaded"];
 const COMMISSIONING_KEYS = [
   "coordination_done",
