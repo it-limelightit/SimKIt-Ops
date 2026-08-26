@@ -51,6 +51,72 @@ const COMMON_DOWNTIME_REASONS = [
 
 const WORKING_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
+type ClientFormSite = {
+  id: string;
+  name: string;
+  company_name: string;
+  address: string;
+  city: string;
+  consultant_stage: string;
+  client_email: string;
+};
+
+type ClientFormLookupResult = {
+  success: boolean;
+  error?: string;
+  site?: ClientFormSite;
+  assessmentData?: Record<string, any>;
+};
+
+function formatTelegramSubmittedAt(value?: string) {
+  const date = value ? new Date(value) : new Date();
+  const safeDate = Number.isNaN(date.getTime()) ? new Date() : date;
+
+  return safeDate.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+async function notifyFactoryFormSubmittedOnTelegram(site: ClientFormSite | undefined, assessmentData: Record<string, any>) {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+
+  if (!botToken || !chatId) {
+    console.warn("[Telegram] TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is not configured; skipping factory form notification.");
+    return;
+  }
+
+  const companyName = assessmentData.factory_op_name || site?.company_name || site?.name || "Unknown Company";
+  const simkitOpsLink = process.env.SIMKIT_OPS_LINK || "https://sim-k-it-ops.vercel.app/";
+  const message = [
+    "New factory form submitted",
+    "",
+    `Company: ${companyName}`,
+    `Date & Time: ${formatTelegramSubmittedAt(assessmentData.factory_form_submitted_at)}`,
+    `SIMKit Ops: ${simkitOpsLink}`,
+  ].join("\n");
+
+  const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text: message,
+      disable_web_page_preview: true,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Telegram API error: ${errorText}`);
+  }
+}
+
 // Server Function to fetch Site details and Assessment data by Token
 export const getClientFormSiteByTokenFn = createServerFn({ method: "POST" })
   .validator((data: unknown) => data as { token: string })
@@ -67,20 +133,7 @@ export const getClientFormSiteByTokenFn = createServerFn({ method: "POST" })
       return { success: false, error: error.message };
     }
 
-    return res as {
-      success: boolean;
-      error?: string;
-      site?: {
-        id: string;
-        name: string;
-        company_name: string;
-        address: string;
-        city: string;
-        consultant_stage: string;
-        client_email: string;
-      };
-      assessmentData?: Record<string, any>;
-    };
+    return res as ClientFormLookupResult;
   });
 
 // Server Function to save the form data
@@ -89,6 +142,20 @@ export const saveClientFormByTokenFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const { token, assessmentData } = data;
     if (!token) return { success: false, error: "No token provided" };
+
+    let existingForm: ClientFormLookupResult | null = null;
+    try {
+      const { data: existingRes, error: existingError } = await supabase.rpc("get_client_form_site_by_token", {
+        token_val: token
+      });
+      if (existingError) {
+        console.warn("Could not check previous factory form submission state:", existingError.message);
+      } else {
+        existingForm = existingRes as ClientFormLookupResult;
+      }
+    } catch (existingErr: any) {
+      console.warn("Could not check previous factory form submission state:", existingErr?.message || existingErr);
+    }
 
     const { data: res, error } = await supabase.rpc("save_client_form_by_token", {
       token_val: token,
@@ -100,7 +167,19 @@ export const saveClientFormByTokenFn = createServerFn({ method: "POST" })
       return { success: false, error: error.message };
     }
 
-    return res as { success: boolean; error?: string };
+    const saveResult = res as { success: boolean; error?: string };
+    const wasAlreadySubmitted = existingForm?.assessmentData?.assessment_phase_submitted === true;
+    const isSubmittedNow = assessmentData.assessment_phase_submitted === true;
+
+    if (saveResult.success && isSubmittedNow && !wasAlreadySubmitted) {
+      try {
+        await notifyFactoryFormSubmittedOnTelegram(existingForm?.site, assessmentData);
+      } catch (telegramErr: any) {
+        console.error("Factory form saved, but Telegram notification failed:", telegramErr?.message || telegramErr);
+      }
+    }
+
+    return saveResult;
   });
 
 // Server Function to send email invitation
