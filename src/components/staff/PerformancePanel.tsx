@@ -131,7 +131,7 @@ export function PerformancePanel() {
         const assessment = ar?.data ?? null;
         const installation = ir?.data ?? null;
         const commissioning = cr?.data ?? null;
-        const assessmentPct = assessment?.assessment_phase_submitted ? 100 : completionPct(assessment, ASSESSMENT_KEYS);
+        const assessmentPct = completionPct(assessment, ASSESSMENT_KEYS);
         const installationPct = installation?.installation_phase_submitted ? 100 : completionPct(installation, INSTALLATION_KEYS);
         const commissioningPct = commissioning?.commissioning_phase_submitted ? 100 : completionPct(commissioning, COMMISSIONING_KEYS);
 
@@ -1075,7 +1075,7 @@ function initials(name: string) {
     .join("") || "FA";
 }
 
-const ASSESSMENT_KEYS = ["mom_uploaded", "media_uploaded", "factory_operations_done"];
+const ASSESSMENT_KEYS = ["mom_uploaded", "media_uploaded", "factory_operations_done", "device_order_completed"];
 const INSTALLATION_KEYS = ["delivery_confirmed", "coordination_done", "photos_uploaded"];
 const COMMISSIONING_KEYS = [
   "coordination_done",

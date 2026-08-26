@@ -230,7 +230,11 @@ function getCertificateSections(companyName: string, certificateDate: string) {
       "The SIM Kit device has been successfully installed and integrated with our machine.",
       "Machine data acquisition has commenced, and real-time data is being captured.",
       "The digital dashboard has been developed and is fully functional, providing clear visualization of operational parameters.",
-      "The system is currently operational across its key modules, including Overall Equipment Effectiveness (OEE) Monitoring, Breakdown Analysis, Condition Monitoring, and Energy Monitoring.",
+      "The system is currently operational across its key modules, including:",
+      "Overall Equipment Effectiveness (OEE) Monitoring",
+      "Breakdown Analysis",
+      "Condition Monitoring",
+      "Energy Monitoring",
     ],
     closingParagraphs: [
       "With the implementation of SIM Kit, we are now able to monitor machine performance, analyze downtime, track energy consumption, and make informed decisions through data-driven insights. The initiative has significantly improved our shopfloor visibility and strengthened our journey towards Industry 4.0 adoption.",
@@ -980,17 +984,17 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
   <meta charset="utf-8" />
   <title>${escapeHtml(certificate.title)}</title>
   <style>
-    @page { size: A4; margin: 1in; }
-    body { font-family: "Times New Roman", serif; font-size: 12pt; line-height: 1.45; color: #000; }
-    h1 { font-size: 16pt; text-align: center; margin: 0 0 4pt; }
-    .subtitle { text-align: center; margin: 0 0 18pt; }
-    .date { text-align: left; margin: 0 0 18pt; }
-    .subject { font-weight: bold; margin: 18pt 0; }
-    p { margin: 0 0 12pt; }
-    ul { margin: 0 0 12pt 20pt; padding: 0; }
-    li { margin: 0 0 6pt; }
-    .signoff { margin-top: 30pt; }
-    .signoff p { margin: 0 0 8pt; }
+    @page { size: A4; margin: 0.45in 0.65in; }
+    body { font-family: "Times New Roman", serif; font-size: 10.5pt; line-height: 1.12; color: #000; }
+    h1 { font-size: 14.5pt; font-weight: bold; text-align: center; margin: 0 0 2pt; }
+    .subtitle { text-align: center; margin: 0 0 12pt; }
+    .date { text-align: right; margin: 0 0 12pt; }
+    .subject { font-weight: bold; margin: 12pt 0; }
+    p { margin: 0 0 5pt; }
+    ul { margin: 0 0 6pt 0.28in; padding: 0; }
+    li { margin: 0 0 2pt; padding-left: 0.06in; }
+    .signoff { margin-top: 12pt; }
+    .signoff p { margin: 0 0 4pt; }
   </style>
 </head>
 <body>
@@ -1024,37 +1028,62 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
     const pdf = new jsPDF({ unit: "pt", format: "a4" });
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
-    const margin = 56;
+    const margin = 46;
     const maxWidth = pageWidth - margin * 2;
-    let y = 58;
+    let y = 42;
 
-    const addWrappedText = (text: string, options: { size?: number; bold?: boolean; center?: boolean; gap?: number } = {}) => {
+    const addWrappedText = (text: string, options: { size?: number; bold?: boolean; align?: "left" | "center" | "right"; gap?: number; lineGap?: number } = {}) => {
       pdf.setFont("times", options.bold ? "bold" : "normal");
-      pdf.setFontSize(options.size ?? 12);
+      pdf.setFontSize(options.size ?? 10.5);
       const lines = pdf.splitTextToSize(text, maxWidth);
       lines.forEach((line: string) => {
         if (y > pageHeight - margin) {
           pdf.addPage();
           y = margin;
         }
-        pdf.text(line, options.center ? pageWidth / 2 : margin, y, { align: options.center ? "center" : "left" });
-        y += (options.size ?? 12) + 5;
+        const align = options.align ?? "left";
+        const x = align === "center" ? pageWidth / 2 : align === "right" ? pageWidth - margin : margin;
+        pdf.text(line, x, y, { align });
+        y += (options.size ?? 10.5) + (options.lineGap ?? 1.8);
       });
-      y += options.gap ?? 7;
+      y += options.gap ?? 3;
     };
 
-    addWrappedText(certificate.title, { size: 16, bold: true, center: true, gap: 2 });
-    addWrappedText(certificate.subtitle, { center: true, gap: 18 });
-    addWrappedText(certificate.dateLine, { gap: 18 });
+    const addBulletText = (text: string) => {
+      pdf.setFont("times", "normal");
+      pdf.setFontSize(10.5);
+      const bulletX = margin + 18;
+      const textX = margin + 34;
+      const bulletWidth = pageWidth - margin - textX;
+      const lines = pdf.splitTextToSize(text, bulletWidth);
+      if (y > pageHeight - margin) {
+        pdf.addPage();
+        y = margin;
+      }
+      pdf.text("•", bulletX, y);
+      lines.forEach((line: string, index: number) => {
+        if (y > pageHeight - margin) {
+          pdf.addPage();
+          y = margin;
+        }
+        pdf.text(line, textX, y);
+        if (index < lines.length - 1) y += 12.3;
+      });
+      y += 14.2;
+    };
+
+    addWrappedText(certificate.title, { size: 14.5, bold: true, align: "center", gap: 1 });
+    addWrappedText(certificate.subtitle, { align: "center", gap: 12 });
+    addWrappedText(certificate.dateLine, { align: "right", gap: 12 });
     certificate.toLines.forEach((line) => addWrappedText(line, { gap: 0 }));
-    y += 10;
-    addWrappedText(certificate.subject, { bold: true, gap: 18 });
+    y += 6;
+    addWrappedText(certificate.subject, { bold: true, gap: 12 });
     addWrappedText(certificate.greeting);
     certificate.paragraphs.forEach((line) => addWrappedText(line));
-    certificate.bullets.forEach((line) => addWrappedText(`- ${line}`, { gap: 1 }));
-    y += 4;
+    certificate.bullets.forEach((line) => addBulletText(line));
+    y += 1;
     certificate.closingParagraphs.forEach((line) => addWrappedText(line));
-    y += 18;
+    y += 8;
     certificate.signOffLines.forEach((line) => addWrappedText(line, { gap: 0 }));
 
     pdf.save(makeDownloadFilename(fields.companyName, "pdf"));

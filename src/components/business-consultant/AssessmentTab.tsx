@@ -731,6 +731,17 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
     }
   }, [siteId]);
 
+  const copyClientFormLink = async (link: string) => {
+    if (!link) return false;
+    try {
+      await navigator.clipboard.writeText(link);
+      return true;
+    } catch (err) {
+      console.warn("Could not copy client form link:", err);
+      return false;
+    }
+  };
+
   const handleGenerateShareLink = async () => {
     if (!siteId) return;
     try {
@@ -747,17 +758,22 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
       } else {
         const link = `${window.location.origin}/client-form?token=${token}`;
         setGeneratedLink(link);
-        toast.success("Share link generated successfully!");
+        const copied = await copyClientFormLink(link);
+        toast.success(copied ? "Share link generated and copied!" : "Share link generated successfully.");
       }
     } catch (err: any) {
       toast.error("Error: " + err.message);
     }
   };
 
-  const handleCopyLink = () => {
+  const handleCopyLink = async () => {
     if (!generatedLink) return;
-    navigator.clipboard.writeText(generatedLink);
-    toast.success("Copied client form link to clipboard!");
+    const copied = await copyClientFormLink(generatedLink);
+    if (copied) {
+      toast.success("Copied client form link to clipboard!");
+    } else {
+      toast.error("Could not copy automatically. Select and copy the generated link manually.");
+    }
   };
 
   const [sendingEmail, setSendingEmail] = useState(false);
@@ -789,6 +805,9 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
       if (error) {
         throw new Error("Failed to save client details: " + error.message);
       }
+
+      const link = `${window.location.origin}/client-form?token=${token}`;
+      setGeneratedLink(link);
 
       const { sendClientFormEmailFn } = await import("../../routes/client-form");
       const res = await sendClientFormEmailFn({
@@ -972,7 +991,7 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center w-full md:max-w-lg">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 items-stretch sm:items-center w-full md:max-w-lg">
             <div className="flex-1">
               <Input
                 placeholder="Client email address"
@@ -1007,6 +1026,14 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
                 </Button>
               )}
             </div>
+            {generatedLink && (
+              <Input
+                readOnly
+                value={generatedLink}
+                onFocus={(e) => e.currentTarget.select()}
+                className="sm:basis-full h-8 text-[11px] bg-surface font-mono"
+              />
+            )}
           </div>
         </div>
 
