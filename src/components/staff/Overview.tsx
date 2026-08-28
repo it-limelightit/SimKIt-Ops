@@ -1554,11 +1554,34 @@ const exportPdf = async () => {
       return { fg: teal, bg: [232, 247, 250], label: status.toUpperCase() };
     };
 
-    const drawTextFit = (text: string, x: number, y: number, maxWidth: number, size = 8, bold = false, maxLines = 2) => {
+    const drawTextFit = (
+      text: string,
+      x: number,
+      y: number,
+      maxWidth: number,
+      size = 8,
+      bold = false,
+      maxLines = 2,
+      lineHeight = size * 0.42 + 2.3,
+    ) => {
       doc.setFont("helvetica", bold ? "bold" : "normal");
       doc.setFontSize(size);
       const lines = doc.splitTextToSize(clean(text), maxWidth).slice(0, maxLines);
-      lines.forEach((line: string, i: number) => doc.text(line, x, y + i * (size * 0.42 + 2.3)));
+      lines.forEach((line: string, i: number) => doc.text(line, x, y + i * lineHeight));
+      return lines.length;
+    };
+
+    const drawAddressFit = (text: string, x: number, y: number, maxWidth: number, maxLines = 3) => {
+      doc.setFont("helvetica", "normal");
+      let size = 5.7;
+      let lines = doc.splitTextToSize(clean(text), maxWidth);
+      while (lines.length > maxLines && size > 4.4) {
+        size -= 0.2;
+        doc.setFontSize(size);
+        lines = doc.splitTextToSize(clean(text), maxWidth);
+      }
+      doc.setFontSize(size);
+      lines.slice(0, maxLines).forEach((line: string, i: number) => doc.text(line, x, y + i * 3.6));
     };
 
     const drawCenteredWrappedText = (
@@ -1683,12 +1706,12 @@ const exportPdf = async () => {
       doc.rect(x + 24.2, y + 11.9, 2.6, 3.4, "S");
       doc.rect(x + 23.4, y + 13.2, 4.3, 2.1, "S");
       doc.setTextColor(...navy);
-      drawTextFit(clean(r.company_name || r.name).toUpperCase(), x + 31, y + 9.5, 50, 7.8, true, 2);
+      const companyLines = drawTextFit(clean(r.company_name || r.name).toUpperCase(), x + 31, y + 9.5, 50, 7.8, true, 2);
 
       const fullAddress = r.address || (r.city && r.city.includes(",") ? r.city : "");
       if (fullAddress) {
         doc.setTextColor(...muted);
-        drawTextFit(fullAddress, x + 31, y + 18.5, 50, 6.2, false, 1);
+        drawAddressFit(fullAddress, x + 31, companyLines > 1 ? y + 17.8 : y + 15.8, 52, companyLines > 1 ? 2 : 3);
       }
 
       // Column 3: Field Associate
