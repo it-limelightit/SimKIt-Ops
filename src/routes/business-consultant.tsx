@@ -12,7 +12,7 @@ import { parseSiteMetadata, recordStatusActivityLog, serializeSiteMetadata } fro
 import { toast } from "sonner";
 import { InventoryPanel } from "@/components/inventory/InventoryPanel";
 import { OrderTab } from "@/components/business-consultant/OrderTab";
-import { getCanonicalStatus } from "@/utils/status";
+import { getCanonicalStatus, getAssessmentPendingReasons, hasDeviceOrder } from "@/utils/status";
 
 export const Route = createFileRoute("/business-consultant")({
   ssr: false,
@@ -35,6 +35,7 @@ function BusinessConsultantPage() {
     overall: number;
     status: "Complete" | "Working" | "Pending";
     derivedStatus: string;
+    assessmentPendingReasons: string[];
   }>>([]);
   const [selectedSiteId, setSelectedSiteId] = useState<string>("");
   const [selectedFactoryId, setSelectedFactoryId] = useState<string>("");
@@ -204,6 +205,7 @@ function BusinessConsultantPage() {
       const aPctRaw = pctCount(aData, ASSESSMENT_KEYS);
       const iPctRaw = iData?.installation_phase_submitted ? 100 : pctCount(iData, INSTALLATION_KEYS);
       const cPctRaw = cData?.commissioning_phase_submitted ? 100 : pctCount(cData, COMMISSIONING_KEYS);
+      const assessmentPendingReasons = getAssessmentPendingReasons(aData, hasDeviceOrder(s, aData, materials));
 
       const derivedStatus = getCanonicalStatus(s, aMap, iMap, cMap, materials);
 
@@ -245,7 +247,8 @@ function BusinessConsultantPage() {
         cPct,
         overall,
         status,
-        derivedStatus
+        derivedStatus,
+        assessmentPendingReasons
       };
     });
 
@@ -893,7 +896,7 @@ function ConsultantDashboard({
   sites,
   onSelectSite
 }: {
-  sites: Array<Site & { aPct: number; iPct: number; cPct: number; overall: number; status: "Complete" | "Working" | "Pending"; derivedStatus: string }>;
+  sites: Array<Site & { aPct: number; iPct: number; cPct: number; overall: number; status: "Complete" | "Working" | "Pending"; derivedStatus: string; assessmentPendingReasons: string[] }>;
   onSelectSite: (siteId: string) => void;
 }) {
   const [selectedKpi, setSelectedKpi] = useState<string>("not_started");
@@ -1172,7 +1175,7 @@ function ConsultantDashboard({
                   </div>
 
                   {/* Manager status badge */}
-                  <div className="sm:w-36 shrink-0 flex sm:justify-center">
+                  <div className="sm:w-36 shrink-0 flex flex-col items-start gap-1 sm:items-center">
                     {managerStatus ? (
                       <span className={`inline-block rounded-[5px] border px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-wider ${st.bg} ${st.text} ${st.border}`}>
                         {displayStatus}
@@ -1181,6 +1184,14 @@ function ConsultantDashboard({
                       <span className="text-text-dim text-[10px] font-mono">—</span>
                     )}
                   </div>
+
+                  {s.assessmentPendingReasons.length > 0 && (managerStatus === "Assessed" || managerStatus === "Panel Dispatched") && (
+                    <div className="sm:w-28 shrink-0 flex sm:justify-center">
+                      <span className="inline-block rounded-[5px] border border-warning/20 bg-warning/8 px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider text-warning">
+                        {s.assessmentPendingReasons.join(", ")}
+                      </span>
+                    </div>
+                  )}
 
                   {/* Action button */}
                   <div className="sm:w-36 shrink-0 flex sm:justify-end">
@@ -1313,10 +1324,8 @@ function Shell({
 }
 
 const ASSESSMENT_KEYS = [
-  "mom_uploaded",
   "media_uploaded",
   "factory_operations_done",
-  "device_order_completed",
 ];
 const INSTALLATION_KEYS = ["delivery_confirmed", "coordination_done", "photos_uploaded"];
 const COMMISSIONING_KEYS = [

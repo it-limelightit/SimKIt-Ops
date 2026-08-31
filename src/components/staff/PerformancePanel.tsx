@@ -1075,7 +1075,7 @@ function initials(name: string) {
     .join("") || "FA";
 }
 
-const ASSESSMENT_KEYS = ["mom_uploaded", "media_uploaded", "factory_operations_done", "device_order_completed"];
+const ASSESSMENT_KEYS = ["media_uploaded", "factory_operations_done"];
 const INSTALLATION_KEYS = ["delivery_confirmed", "coordination_done", "photos_uploaded"];
 const COMMISSIONING_KEYS = [
   "coordination_done",

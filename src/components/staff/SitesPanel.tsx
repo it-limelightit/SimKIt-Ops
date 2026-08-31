@@ -20,7 +20,7 @@ import {
   FileText,
 } from "lucide-react";
 import { parseSiteMetadata, recordStatusActivityLog, serializeSiteMetadata } from "@/lib/site-metadata";
-import { getCanonicalStatus, ASSESSMENT_KEYS, INSTALLATION_KEYS, COMMISSIONING_KEYS, pctKeys, getSiteWorkerIds, isSiteDropped } from "@/utils/status";
+import { getCanonicalStatus, ASSESSMENT_KEYS, INSTALLATION_KEYS, COMMISSIONING_KEYS, pctKeys, getSiteWorkerIds, isSiteDropped, getAssessmentPendingReasons, hasDeviceOrder } from "@/utils/status";
 
 export { parseSiteMetadata, serializeSiteMetadata };
 
@@ -2395,6 +2395,8 @@ export function SitesPanel() {
                 paginatedSites.map((s) => {
                   const meta = parseSiteMetadata(s.task_notes);
                   const canonicalStatus = getCanonicalStatus(s, aMap, iMap, cMap, materials);
+                  const assessmentData = aMap.get(s.id)?.data;
+                  const assessmentPendingReasons = getAssessmentPendingReasons(assessmentData, hasDeviceOrder(s, assessmentData, materials));
                   const assignedIds = getSiteWorkerIds(s);
                   return (
                     <tr
@@ -2501,6 +2503,11 @@ export function SitesPanel() {
                               </option>
                             ))}
                           </select>
+                          {assessmentPendingReasons.length > 0 && (canonicalStatus === "Assessed" || canonicalStatus === "Panel Dispatched") && (
+                            <span className="w-fit rounded border border-warning/20 bg-warning/8 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-warning">
+                              {assessmentPendingReasons.join(", ")}
+                            </span>
+                          )}
                           {meta.visit_status && (
                             <span
                               className={`font-mono text-[9px] uppercase tracking-wider ${

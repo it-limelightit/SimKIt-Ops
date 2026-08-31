@@ -350,15 +350,6 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit, requ
       <div className="mt-8 flex justify-end">
         <Button
           onClick={async () => {
-            if (shouldShow("MOM") && !data.mom_uploaded) {
-              toast.error("Please complete the MOM (Minutes of Meeting) section.");
-              return;
-            }
-
-            if (shouldShow("MOM") && !(await validateSectionLinks("MOM", ["mom"]))) {
-              return;
-            }
-
             if (shouldShow("Media") && !data.media_uploaded) {
               toast.error("Please complete the Photos & Videos section.");
               return;
