@@ -879,9 +879,14 @@ function siteStatusStyle(status: string) {
     case "Assessment & Visit": return { bg: "bg-[#C4E1F6]/20", text: "text-[#1D4ED8]", border: "border-[#1D4ED8]/20" };
     case "Pending Assignment":
     case "Assigned": return { bg: "bg-[#800000]/10", text: "text-[#D07070]", border: "border-[#800000]/20" };
+    case "Pending Assessment": return { bg: "bg-indigo-600/10", text: "text-indigo-600", border: "border-indigo-600/20" };
     case "Not Started Yet": return { bg: "bg-indigo-600/10", text: "text-indigo-600", border: "border-indigo-600/20" };
     default: return { bg: "bg-surface-raised", text: "text-text-secondary", border: "border-border" };
   }
+}
+
+function consultantStatusLabel(status: string) {
+  return status === "Pending Assignment" || status === "Not Started Yet" ? "Pending Assessment" : status;
 }
 
 function ConsultantDashboard({
@@ -1133,7 +1138,8 @@ function ConsultantDashboard({
         <div className="space-y-3">
           {filteredSites.map((s) => {
             const managerStatus = s.derivedStatus;
-            const st = siteStatusStyle(managerStatus);
+            const displayStatus = consultantStatusLabel(managerStatus);
+            const st = siteStatusStyle(displayStatus);
             return (
               <div key={s.id} className="border border-border rounded-[10px] bg-surface px-5 py-4 hover:bg-surface-raised/30 transition-colors shadow-xs">
                 <div className="flex flex-col sm:flex-row sm:items-center gap-4">
@@ -1169,7 +1175,7 @@ function ConsultantDashboard({
                   <div className="sm:w-36 shrink-0 flex sm:justify-center">
                     {managerStatus ? (
                       <span className={`inline-block rounded-[5px] border px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-wider ${st.bg} ${st.text} ${st.border}`}>
-                        {managerStatus}
+                        {displayStatus}
                       </span>
                     ) : (
                       <span className="text-text-dim text-[10px] font-mono">—</span>
