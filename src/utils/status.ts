@@ -1,11 +1,39 @@
 import { parseSiteMetadata } from "@/lib/site-metadata";
 
 export const ASSESSMENT_KEYS = [
-  "mom_uploaded",
   "media_uploaded",
   "factory_operations_done",
-  "device_order_completed",
 ];
+
+export function isAssessmentMomPending(data: any) {
+  return !!data?.assessment_phase_submitted && !data?.mom_uploaded;
+}
+
+export function getAssessmentPendingReasons(data: any, deviceOrderExists = false) {
+  const reasons: string[] = [];
+  if (!data?.assessment_phase_submitted) return ["Assessment Submit Pending"];
+  if (!data?.mom_uploaded) reasons.push("MOM Pending");
+  if (!data?.media_uploaded) reasons.push("Media Pending");
+  if (!data?.factory_operations_done) reasons.push("Factory Form Pending");
+  if (!data?.device_order_completed && !deviceOrderExists) reasons.push("Device Order Pending");
+  return reasons;
+}
+
+export function getSubmittedLogisticsOrder(site: any, materials: any[]) {
+  if (!site || !Array.isArray(materials)) return null;
+  return materials.find((m) => {
+    if (m.submitted === false) return false;
+    const normMat = normalizeCompanyName(m.material_name);
+    const normComp = normalizeCompanyName(site.company_name);
+    const normName = normalizeCompanyName(site.name);
+    return (normComp && (normMat.includes(normComp) || normComp.includes(normMat))) ||
+      (normName && (normMat.includes(normName) || normName.includes(normMat)));
+  }) ?? null;
+}
+
+export function hasDeviceOrder(site: any, assessmentData: any, materials: any[]) {
+  return !!assessmentData?.device_order_completed || !!getSubmittedLogisticsOrder(site, materials);
+}
 
 export const INSTALLATION_KEYS = [
   "delivery_confirmed",
@@ -78,6 +106,10 @@ export const getLogisticsStatus = (m: any): string => {
   return m.state === "In transit" ? "Transit" : (m.state || "Pending");
 };
 
+export function isActualDispatchLogisticsStatus(status: string) {
+  return ["shipped", "transit", "in transit", "delivered"].includes((status || "").trim().toLowerCase());
+}
+
 export function getCanonicalStatus(
   site: any,
   aMap: Map<string, any> | { get: (id: string) => any },
@@ -96,14 +128,7 @@ export function getCanonicalStatus(
   if (typeof materialsOrLogisticsStatus === "string") {
     logisticsStatus = materialsOrLogisticsStatus;
   } else if (Array.isArray(materialsOrLogisticsStatus)) {
-    const matchingMaterial = materialsOrLogisticsStatus.find((m) => {
-      if (m.submitted === false) return false;
-      const normMat = normalizeCompanyName(m.material_name);
-      const normComp = normalizeCompanyName(site.company_name);
-      const normName = normalizeCompanyName(site.name);
-      return (normComp && (normMat.includes(normComp) || normComp.includes(normMat))) ||
-             (normName && (normMat.includes(normName) || normName.includes(normMat)));
-    });
+    const matchingMaterial = getSubmittedLogisticsOrder(site, materialsOrLogisticsStatus);
     logisticsStatus = matchingMaterial ? getLogisticsStatus(matchingMaterial) : "Pending";
   }
 
@@ -118,14 +143,15 @@ export function getCanonicalStatus(
   }
 
   // 3. Explicit Manager Metadata Override (High priority manual overrides)
+  const isPanelDispatched = isActualDispatchLogisticsStatus(logisticsStatus);
   if (meta.status === "Certification Pending") return "Certification Pending";
   if (meta.status === "Unsubmitted") return "Unsubmitted";
   if (meta.status === "Commissioned") return "Commissioned";
   if (meta.status === "Installed") return "Installed";
-  if (meta.status === "Panel Dispatched" && ["Shipped", "Transit", "In transit", "Delivered"].includes(logisticsStatus)) return "Panel Dispatched";
+  if (meta.status === "Panel Dispatched" && isPanelDispatched) return "Panel Dispatched";
   if (meta.status === "Assessed" || meta.status === "In Assessment") return "Assessed";
-  if (meta.status === "Not Started Yet") return "Not Started Yet";
-  if (meta.status === "Pending Assignment") return hasWorker ? "Not Started Yet" : "Pending Assignment";
+  if (meta.status === "Not Started Yet" && !isPanelDispatched) return "Not Started Yet";
+  if (meta.status === "Pending Assignment" && !isPanelDispatched) return hasWorker ? "Not Started Yet" : "Pending Assignment";
 
   // 4. Dynamic progress calculations (Automated fallback based on form activity / logistics if no meta.status override exists)
   const ar = aMap.get(site.id);
@@ -148,15 +174,15 @@ export function getCanonicalStatus(
     return "Installed";
   }
 
-  // 7. Assessed only after MOM, media, factory form, and device order are complete.
-  if (realAP === 100) {
-    return "Assessed";
+  // 7. Actual panel movement requires a submitted logistics order.
+  if (isPanelDispatched) {
+    return "Panel Dispatched";
   }
 
-  // 8. Panel Dispatched (logistics-derived only after assessment is complete)
-  const isPanelDispatched = ["Shipped", "Transit", "In transit", "Delivered"].includes(logisticsStatus);
-  if (isPanelDispatched && realAP === 100) {
-    return "Panel Dispatched";
+  // 8. Assessed once assessment is submitted or required assessment work is complete.
+  // MOM and device order are follow-up reasons, not blockers for this lifecycle bucket.
+  if (realAP === 100 || !!ar?.data?.assessment_phase_submitted) {
+    return "Assessed";
   }
 
   // 9. Default: Not Started Yet / Pending Assignment

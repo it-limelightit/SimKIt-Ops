@@ -9,7 +9,9 @@ import {
   COMMISSIONING_KEYS,
   pctKeys,
   getSiteWorkerIds,
-  normalizeCompanyName,
+  getAssessmentPendingReasons,
+  getSubmittedLogisticsOrder,
+  hasDeviceOrder,
 } from "@/utils/status";
 import { toast } from "sonner";
 import { Skeleton, Button, ProgressBar, Select, Label, Input, Card } from "@/components/ui-kit";
@@ -84,6 +86,8 @@ type SiteRow = {
   };
   logisticsStatus: string;
   hasLogisticsOrder: boolean;
+  hasDeviceOrder: boolean;
+  assessmentPendingReasons: string[];
   status: string;
 };
 
@@ -646,17 +650,24 @@ export function Overview() {
     if (selectedKpi === "dispatched_actual") {
       const logisticsStatus = row.logisticsStatus || "Pending";
       return (
-        <select
-          value={logisticsStatus}
-          onClick={(e) => e.stopPropagation()}
-          onChange={(e) => e.stopPropagation()}
-          className="rounded border px-2 py-0.5 text-[11px] font-semibold cursor-default outline-none transition-colors bg-blue-50 text-blue-700 border-blue-200"
-          title="Logistics status"
-        >
-          <optgroup label="Logistics Category">
-            <option value={logisticsStatus}>{logisticsStatus}</option>
-          </optgroup>
-        </select>
+        <div className="flex flex-col items-start gap-1">
+          <select
+            value={logisticsStatus}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => e.stopPropagation()}
+            className="rounded border px-2 py-0.5 text-[11px] font-semibold cursor-default outline-none transition-colors bg-blue-50 text-blue-700 border-blue-200"
+            title="Logistics status"
+          >
+            <optgroup label="Logistics Category">
+              <option value={logisticsStatus}>{logisticsStatus}</option>
+            </optgroup>
+          </select>
+          {row.assessmentPendingReasons.length > 0 && (
+            <span className="rounded border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+              {row.assessmentPendingReasons.join(", ")}
+            </span>
+          )}
+        </div>
       );
     }
 
@@ -672,26 +683,33 @@ export function Overview() {
     }
 
     return (
-      <select
-        value={canonicalStatus || ""}
-        onClick={(e) => e.stopPropagation()} // Prevent row click navigation
-        onChange={(e) => {
-          e.stopPropagation(); // Prevent row click navigation
-          updateSiteStatus(row.id, e.target.value, row.task_notes, canonicalStatus);
-        }}
-        className={`rounded border px-2 py-0.5 text-[11px] font-semibold cursor-pointer outline-none transition-colors ${toneClass}`}
-      >
-        {canonicalStatus === "Panel Dispatched" && (
-          <option value="Panel Dispatched" className="bg-surface text-text-primary">
-            Pending Panel Dispatched
-          </option>
+      <div className="flex flex-col items-start gap-1">
+        <select
+          value={canonicalStatus || ""}
+          onClick={(e) => e.stopPropagation()} // Prevent row click navigation
+          onChange={(e) => {
+            e.stopPropagation(); // Prevent row click navigation
+            updateSiteStatus(row.id, e.target.value, row.task_notes, canonicalStatus);
+          }}
+          className={`rounded border px-2 py-0.5 text-[11px] font-semibold cursor-pointer outline-none transition-colors ${toneClass}`}
+        >
+          {canonicalStatus === "Panel Dispatched" && (
+            <option value="Panel Dispatched" className="bg-surface text-text-primary">
+              Pending Panel Dispatched
+            </option>
+          )}
+          {FACTORY_STATUS_OPTIONS.map((status) => (
+            <option key={status} value={status} className="bg-surface text-text-primary">
+              {status}
+            </option>
+          ))}
+        </select>
+        {row.assessmentPendingReasons.length > 0 && (canonicalStatus === "Assessed" || canonicalStatus === "Panel Dispatched") && (
+          <span className="rounded border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+            {row.assessmentPendingReasons.join(", ")}
+          </span>
         )}
-        {FACTORY_STATUS_OPTIONS.map((status) => (
-          <option key={status} value={status} className="bg-surface text-text-primary">
-            {status}
-          </option>
-        ))}
-      </select>
+      </div>
     );
   };
 
@@ -777,24 +795,20 @@ const allProcessedRows: SiteRow[] = rawSites.map((site) => {
     }
   }
 
-  const matchingMaterial = rawMaterials.find((m) => {
-    if (m.submitted === false) return false;
-    const normMat = normalizeCompanyName(m.material_name);
-    const normComp = normalizeCompanyName(site.company_name);
-    const normName = normalizeCompanyName(site.name);
-    const matched = (normComp && (normMat.includes(normComp) || normComp.includes(normMat))) ||
-      (normName && (normMat.includes(normName) || normName.includes(normMat)));
-    return matched;
-  });
+  const matchingMaterial = getSubmittedLogisticsOrder(site, rawMaterials);
   const hasLogisticsOrder = !!matchingMaterial;
   const logisticsStatus = matchingMaterial ? getLogisticsStatus(matchingMaterial) : "";
+  const deviceOrderExists = hasDeviceOrder(site, ar?.data, rawMaterials);
+  const logisticsStatusNormalized = logisticsStatus.trim().toLowerCase();
+  const isLogisticsDispatched = ["shipped", "transit", "in transit", "delivered"].includes(logisticsStatusNormalized);
   const canonicalStatus = getCanonicalStatus(site, aMap, iMap, cMap, rawMaterials);
+  const assessmentPendingReasons = getAssessmentPendingReasons(ar?.data, deviceOrderExists);
 
   if (canonicalStatus === "Assessed") {
     aP = 100;
     iP = 0;
     cP = 0;
-  } else if (canonicalStatus === "Installed" || canonicalStatus === "Panel Dispatched") {
+  } else if (canonicalStatus === "Installed" || canonicalStatus === "Panel Dispatched" || isLogisticsDispatched) {
     aP = 100;
     iP = canonicalStatus === "Installed" ? 100 : 0;
     cP = 0;
@@ -831,6 +845,8 @@ const allProcessedRows: SiteRow[] = rawSites.map((site) => {
     status: canonicalStatus,
     logisticsStatus,
     hasLogisticsOrder,
+    hasDeviceOrder: deviceOrderExists,
+    assessmentPendingReasons,
   };
 });
 
@@ -846,7 +862,9 @@ const logisticsStatusKey = (r: SiteRow) => r.logisticsStatus.trim().toLowerCase(
 const isActualDispatchLogisticsStatus = (r: SiteRow) => ["shipped", "transit", "in transit", "delivered"].includes(logisticsStatusKey(r));
 
 const isPendingPanelDispatched = (r: SiteRow) => {
-  return ![
+  return r.hasDeviceOrder &&
+    r.status === "Assessed" &&
+    ![
     "Submitted",
     "Unsubmitted",
     "Certification Pending",
@@ -855,8 +873,7 @@ const isPendingPanelDispatched = (r: SiteRow) => {
     "Installed",
     "Commissioned",
   ].includes(r.status) &&
-    !isActualDispatchLogisticsStatus(r) &&
-    (r.status === "Panel Dispatched" || (r.hasLogisticsOrder && ["pending", "packing"].includes(logisticsStatusKey(r))));
+    !isActualDispatchLogisticsStatus(r);
 };
 const isDispatchedActual = (r: SiteRow) => {
   return r.hasLogisticsOrder &&
@@ -892,7 +909,7 @@ const countInstalled = activeAssignedRows.filter((r) => r.status === "Installed"
 const countCommissioned = activeAssignedRows.filter((r) => r.status === "Commissioned").length;
 const countPendingDispatched = activeAssignedRows.filter((r) => isPendingPanelDispatched(r)).length;
 const countDispatched = activeAssignedRows.filter((r) => isDispatchedActual(r)).length;
-const countAssessment = activeAssignedRows.filter((r) => r.status === "Assessed").length;
+const countAssessment = activeAssignedRows.filter((r) => r.status === "Assessed" || isPendingPanelDispatched(r) || isDispatchedActual(r)).length;
 const countDropped = filteredForCounts.filter((r) => r.status === "Dropped / Rejected").length;
 const countNotStarted = activeAssignedRows.filter((r) => r.status === "Not Started Yet" && !isPendingPanelDispatched(r) && !isDispatchedActual(r)).length;
 const countAssignedBc = activeAssignedRows.length;
@@ -921,7 +938,7 @@ const filteredByKpi = filteredForCounts.filter((row) => {
     case "not_started":
       return row.workerIds.length > 0 && status === "Not Started Yet" && !isPendingPanelDispatched(row) && !isDispatchedActual(row);
     case "assessment":
-      return row.workerIds.length > 0 && status === "Assessed";
+      return row.workerIds.length > 0 && (status === "Assessed" || isPendingPanelDispatched(row) || isDispatchedActual(row));
     case "dispatched":
       return isPendingPanelDispatched(row);
     case "dispatched_actual":

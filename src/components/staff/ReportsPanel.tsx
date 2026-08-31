@@ -95,6 +95,10 @@ const isPendingStatus = (status: string) =>
   ["Pending Assignment", "Assigned", "Assessed", "Panel Dispatched", "Installed", "Commissioned", "Unsubmitted", "Not Started Yet"].includes(status);
 const isAwaitingStatus = (status: string) => status === "Certification Pending";
 
+function displayStatusLabel(status: string) {
+  return status === "Pending Assignment" || status === "Not Started Yet" ? "Pending Assessment" : status;
+}
+
 function statusStyle(status: string) {
   if (status === "Submitted") return "border-emerald-250 bg-emerald-50 text-emerald-700";
   if (status === "Dropped / Rejected") return "border-red-200 bg-red-50 text-red-700";
@@ -102,7 +106,7 @@ function statusStyle(status: string) {
   if (status === "Commissioned") return "border-teal-250 bg-teal-50 text-teal-700";
   if (status === "Installed") return "border-cyan-200 bg-cyan-50 text-cyan-700";
   if (status === "Panel Dispatched" || status === "Assessed") return "border-blue-200 bg-blue-50 text-blue-700";
-  if (status === "Assigned" || status === "Not Started Yet") return "border-indigo-200 bg-indigo-50 text-indigo-700";
+  if (status === "Assigned" || status === "Not Started Yet" || status === "Pending Assessment") return "border-indigo-200 bg-indigo-50 text-indigo-700";
   if (status === "Pending Assignment") return "border-amber-200 bg-amber-50 text-amber-700";
   return "border-stone-200 bg-stone-50 text-stone-600";
 }
@@ -123,7 +127,7 @@ function groupReportRows(rows: FactoryRow[], key: (row: FactoryRow) => string) {
   return Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b));
 }
 
-const ASSESSMENT_KEYS = ["mom_uploaded", "media_uploaded", "factory_operations_done", "device_order_completed"];
+const ASSESSMENT_KEYS = ["media_uploaded", "factory_operations_done"];
 const INSTALLATION_KEYS = ["delivery_confirmed", "coordination_done", "photos_uploaded"];
 const COMMISSIONING_KEYS = [
   "coordination_done",
@@ -339,6 +343,7 @@ export function ReportsPanel() {
           row.city,
           row.consultantNames.join(" "),
           row.status,
+          displayStatusLabel(row.status),
         ].some((value) => value.toLowerCase().includes(search))
       ) {
         return false;
@@ -470,6 +475,8 @@ export function ReportsPanel() {
           row.changedAt,
           row.fromStatus,
           row.toStatus,
+          displayStatusLabel(row.fromStatus),
+          displayStatusLabel(row.toStatus),
           actionLabel(row.activityType),
         ].some((value) => value.toLowerCase().includes(search))
       ) {
@@ -555,7 +562,7 @@ export function ReportsPanel() {
         row.factoryName,
         row.city,
         row.consultantNames.join(" | ") || "Unassigned",
-        row.status,
+        displayStatusLabel(row.status),
         row.createdAt,
       ]),
     ].map((line) => line.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(","));
@@ -684,7 +691,9 @@ export function ReportsPanel() {
         doc.text(doc.splitTextToSize(row.factoryName, 154).slice(0, 1), cols.company + 8, y + 42);
         doc.setTextColor(...ink);
         const activityText =
-          row.activityType === "login" ? row.toStatus : `${row.fromStatus} -> ${row.toStatus}`;
+          row.activityType === "login"
+            ? displayStatusLabel(row.toStatus)
+            : `${displayStatusLabel(row.fromStatus)} -> ${displayStatusLabel(row.toStatus)}`;
         doc.text(doc.splitTextToSize(activityText, 120).slice(0, 2), cols.change + 8, y + 24);
         y += rowHeight;
       });
@@ -805,7 +814,7 @@ export function ReportsPanel() {
               row.factoryName,
               row.city,
               row.consultantNames.join(", ") || "Unassigned",
-              row.status,
+              displayStatusLabel(row.status),
             ]),
             theme: "grid",
             styles: {
@@ -878,12 +887,12 @@ export function ReportsPanel() {
       const cityGroups = groupReportRows(filteredRows, (row) => row.city);
       const orderedStatusGroups = STATUS_OPTIONS.map(
         (status) =>
-          [status, filteredRows.filter((row) => row.status === status)] as [string, FactoryRow[]],
+          [displayStatusLabel(status), filteredRows.filter((row) => row.status === status)] as [string, FactoryRow[]],
       ).filter(([, groupRows]) => groupRows.length > 0);
       const knownStatuses = new Set<string>(STATUS_OPTIONS);
       const otherStatusGroups = groupReportRows(
         filteredRows.filter((row) => !knownStatuses.has(row.status)),
-        (row) => row.status,
+        (row) => displayStatusLabel(row.status),
       );
       const statusGroups = [...orderedStatusGroups, ...otherStatusGroups];
       const associateGroups = consultantGroups.map(
@@ -1206,11 +1215,11 @@ function ActivityLogView({
                     </div>
                   </td>
                   <td className="px-5 py-3 font-mono text-[11px] font-bold uppercase tracking-wider text-text-secondary">
-                    {row.activityType === "login" ? "Login" : row.fromStatus}
+                    {row.activityType === "login" ? "Login" : displayStatusLabel(row.fromStatus)}
                   </td>
                   <td className="px-5 py-3">
-                    <span className={`inline-flex rounded-[5px] border px-2.5 py-1 font-mono text-[9px] font-bold uppercase tracking-wider ${statusStyle(row.toStatus)}`}>
-                      {row.toStatus}
+                    <span className={`inline-flex rounded-[5px] border px-2.5 py-1 font-mono text-[9px] font-bold uppercase tracking-wider ${statusStyle(displayStatusLabel(row.toStatus))}`}>
+                      {displayStatusLabel(row.toStatus)}
                     </span>
                   </td>
                 </tr>
@@ -1450,9 +1459,9 @@ function GroupedView({
                       )}
                       <td className="px-5 py-3">
                         <span
-                          className={`inline-flex rounded-[5px] border px-2.5 py-1 font-mono text-[9px] font-bold uppercase tracking-wider ${statusStyle(row.status)}`}
+                          className={`inline-flex rounded-[5px] border px-2.5 py-1 font-mono text-[9px] font-bold uppercase tracking-wider ${statusStyle(displayStatusLabel(row.status))}`}
                         >
-                          {row.status}
+                          {displayStatusLabel(row.status)}
                         </span>
                       </td>
                     </tr>

@@ -12,7 +12,7 @@ import { parseSiteMetadata, recordStatusActivityLog, serializeSiteMetadata } fro
 import { toast } from "sonner";
 import { InventoryPanel } from "@/components/inventory/InventoryPanel";
 import { OrderTab } from "@/components/business-consultant/OrderTab";
-import { getCanonicalStatus } from "@/utils/status";
+import { getCanonicalStatus, getAssessmentPendingReasons, hasDeviceOrder } from "@/utils/status";
 
 export const Route = createFileRoute("/business-consultant")({
   ssr: false,
@@ -35,6 +35,7 @@ function BusinessConsultantPage() {
     overall: number;
     status: "Complete" | "Working" | "Pending";
     derivedStatus: string;
+    assessmentPendingReasons: string[];
   }>>([]);
   const [selectedSiteId, setSelectedSiteId] = useState<string>("");
   const [selectedFactoryId, setSelectedFactoryId] = useState<string>("");
@@ -204,6 +205,7 @@ function BusinessConsultantPage() {
       const aPctRaw = pctCount(aData, ASSESSMENT_KEYS);
       const iPctRaw = iData?.installation_phase_submitted ? 100 : pctCount(iData, INSTALLATION_KEYS);
       const cPctRaw = cData?.commissioning_phase_submitted ? 100 : pctCount(cData, COMMISSIONING_KEYS);
+      const assessmentPendingReasons = getAssessmentPendingReasons(aData, hasDeviceOrder(s, aData, materials));
 
       const derivedStatus = getCanonicalStatus(s, aMap, iMap, cMap, materials);
 
@@ -245,7 +247,8 @@ function BusinessConsultantPage() {
         cPct,
         overall,
         status,
-        derivedStatus
+        derivedStatus,
+        assessmentPendingReasons
       };
     });
 
@@ -879,16 +882,21 @@ function siteStatusStyle(status: string) {
     case "Assessment & Visit": return { bg: "bg-[#C4E1F6]/20", text: "text-[#1D4ED8]", border: "border-[#1D4ED8]/20" };
     case "Pending Assignment":
     case "Assigned": return { bg: "bg-[#800000]/10", text: "text-[#D07070]", border: "border-[#800000]/20" };
+    case "Pending Assessment": return { bg: "bg-indigo-600/10", text: "text-indigo-600", border: "border-indigo-600/20" };
     case "Not Started Yet": return { bg: "bg-indigo-600/10", text: "text-indigo-600", border: "border-indigo-600/20" };
     default: return { bg: "bg-surface-raised", text: "text-text-secondary", border: "border-border" };
   }
+}
+
+function consultantStatusLabel(status: string) {
+  return status === "Pending Assignment" || status === "Not Started Yet" ? "Pending Assessment" : status;
 }
 
 function ConsultantDashboard({
   sites,
   onSelectSite
 }: {
-  sites: Array<Site & { aPct: number; iPct: number; cPct: number; overall: number; status: "Complete" | "Working" | "Pending"; derivedStatus: string }>;
+  sites: Array<Site & { aPct: number; iPct: number; cPct: number; overall: number; status: "Complete" | "Working" | "Pending"; derivedStatus: string; assessmentPendingReasons: string[] }>;
   onSelectSite: (siteId: string) => void;
 }) {
   const [selectedKpi, setSelectedKpi] = useState<string>("not_started");
@@ -1133,7 +1141,8 @@ function ConsultantDashboard({
         <div className="space-y-3">
           {filteredSites.map((s) => {
             const managerStatus = s.derivedStatus;
-            const st = siteStatusStyle(managerStatus);
+            const displayStatus = consultantStatusLabel(managerStatus);
+            const st = siteStatusStyle(displayStatus);
             return (
               <div key={s.id} className="border border-border rounded-[10px] bg-surface px-5 py-4 hover:bg-surface-raised/30 transition-colors shadow-xs">
                 <div className="flex flex-col sm:flex-row sm:items-center gap-4">
@@ -1166,15 +1175,23 @@ function ConsultantDashboard({
                   </div>
 
                   {/* Manager status badge */}
-                  <div className="sm:w-36 shrink-0 flex sm:justify-center">
+                  <div className="sm:w-36 shrink-0 flex flex-col items-start gap-1 sm:items-center">
                     {managerStatus ? (
                       <span className={`inline-block rounded-[5px] border px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-wider ${st.bg} ${st.text} ${st.border}`}>
-                        {managerStatus}
+                        {displayStatus}
                       </span>
                     ) : (
                       <span className="text-text-dim text-[10px] font-mono">—</span>
                     )}
                   </div>
+
+                  {s.assessmentPendingReasons.length > 0 && (managerStatus === "Assessed" || managerStatus === "Panel Dispatched") && (
+                    <div className="sm:w-28 shrink-0 flex sm:justify-center">
+                      <span className="inline-block rounded-[5px] border border-warning/20 bg-warning/8 px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider text-warning">
+                        {s.assessmentPendingReasons.join(", ")}
+                      </span>
+                    </div>
+                  )}
 
                   {/* Action button */}
                   <div className="sm:w-36 shrink-0 flex sm:justify-end">
@@ -1307,10 +1324,8 @@ function Shell({
 }
 
 const ASSESSMENT_KEYS = [
-  "mom_uploaded",
   "media_uploaded",
   "factory_operations_done",
-  "device_order_completed",
 ];
 const INSTALLATION_KEYS = ["delivery_confirmed", "coordination_done", "photos_uploaded"];
 const COMMISSIONING_KEYS = [
