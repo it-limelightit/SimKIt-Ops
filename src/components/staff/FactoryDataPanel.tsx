@@ -13,7 +13,6 @@ import { toast } from "sonner";
 import { jsPDF } from "jspdf";
 import {
   ClipboardList,
-  Building2,
   MapPin,
   Users,
   Wrench,
@@ -323,6 +322,7 @@ export function FactoryDataPanel() {
   const [newOwnerDrafts, setNewOwnerDrafts] = useState<Record<string, { name: string; contact: string; email: string; password: string }>>({});
   const [savingOwnerPasswordKey, setSavingOwnerPasswordKey] = useState<string | null>(null);
   const [credentialDialog, setCredentialDialog] = useState<OwnerCredential | null>(null);
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<Record<string, any>>({});
   const [certificateDialogOpen, setCertificateDialogOpen] = useState(false);
@@ -1205,87 +1205,93 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
         <div className="space-y-8">
           
           {/* PART 1 (TOP HORIZONTAL SECTION): Factory Companies Row Deck */}
-          <Card className="p-5 bg-surface/50 backdrop-blur-md border border-border space-y-4 shadow-sm">
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+          <Card className="p-5 bg-surface/50 backdrop-blur-md border border-border space-y-5 shadow-sm">
+            <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+              <div>
+                <span className="font-mono text-[9px] uppercase tracking-widest text-lime font-bold">
+                  Active Company Submissions
+                </span>
+                <h3 className="text-2xl font-extrabold font-syne uppercase text-text-primary mt-1">
+                  Factory Assessment Directory
+                </h3>
+                <p className="text-xs text-text-secondary mt-1">
+                  {filteredSites.length} matching companies from {processedSitesList.length} submitted factory forms
+                </p>
+              </div>
+              <div className="flex items-center gap-2 rounded-lg border border-border bg-surface-raised/50 px-3 py-2">
+                <ClipboardList size={16} className="text-lime" />
+                <span className="text-[10px] font-mono uppercase tracking-wider text-text-secondary">
+                  Click a row to open details
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
               <button
                 type="button"
                 onClick={() => setStatusFilter("credential_remaining")}
-                className={`rounded-xl border p-4 text-left transition-all cursor-pointer ${
+                className={`rounded-lg border p-4 text-left transition-all cursor-pointer ${
                   statusFilter === "credential_remaining"
                     ? "border-amber-400 bg-amber-500/15 ring-2 ring-amber-500/20"
                     : "border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/15"
                 }`}
               >
                 <div className="text-[9px] font-mono uppercase tracking-widest text-amber-400">Pending Credential</div>
-                <div className="mt-1 text-2xl font-extrabold text-amber-400 font-mono">{credentialRemainingCount}</div>
-                <div className="mt-1 text-[10px] text-text-secondary">Click to show pending companies</div>
+                <div className="mt-1 text-2xl font-extrabold text-amber-400 font-mono leading-none">{credentialRemainingCount}</div>
               </button>
               <button
                 type="button"
                 onClick={() => setStatusFilter("credential_created")}
-                className={`rounded-xl border p-4 text-left transition-all cursor-pointer ${
+                className={`rounded-lg border p-4 text-left transition-all cursor-pointer ${
                   statusFilter === "credential_created"
                     ? "border-lime bg-lime/15 ring-2 ring-lime/20"
                     : "border-lime/30 bg-lime/10 hover:bg-lime/15"
                 }`}
               >
                 <div className="text-[9px] font-mono uppercase tracking-widest text-lime">Credential Created</div>
-                <div className="mt-1 text-2xl font-extrabold text-lime font-mono">{credentialCreatedCount}</div>
-                <div className="mt-1 text-[10px] text-text-secondary">Click to show created companies</div>
+                <div className="mt-1 text-2xl font-extrabold text-lime font-mono leading-none">{credentialCreatedCount}</div>
               </button>
               <button
                 type="button"
                 onClick={() => setPasswordFilter("password_remaining")}
-                className={`rounded-xl border p-4 text-left transition-all cursor-pointer ${
+                className={`rounded-lg border p-4 text-left transition-all cursor-pointer ${
                   passwordFilter === "password_remaining"
                     ? "border-amber-400 bg-amber-500/15 ring-2 ring-amber-500/20"
                     : "border-border bg-surface/70 hover:border-amber-400/50"
                 }`}
               >
                 <div className="text-[9px] font-mono uppercase tracking-widest text-amber-400">Password Remaining</div>
-                <div className="mt-1 text-2xl font-extrabold text-amber-400 font-mono">{passwordRemainingCount}</div>
-                <div className="mt-1 text-[10px] text-text-secondary">Click to show password pending</div>
+                <div className="mt-1 text-2xl font-extrabold text-amber-400 font-mono leading-none">{passwordRemainingCount}</div>
               </button>
               <button
                 type="button"
                 onClick={() => setPasswordFilter("password_created")}
-                className={`rounded-xl border p-4 text-left transition-all cursor-pointer ${
+                className={`rounded-lg border p-4 text-left transition-all cursor-pointer ${
                   passwordFilter === "password_created"
                     ? "border-lime bg-lime/15 ring-2 ring-lime/20"
                     : "border-border bg-surface/70 hover:border-lime/50"
                 }`}
               >
                 <div className="text-[9px] font-mono uppercase tracking-widest text-lime">Password Created</div>
-                <div className="mt-1 text-2xl font-extrabold text-lime font-mono">{passwordCreatedCount}</div>
-                <div className="mt-1 text-[10px] text-text-secondary">Click to show passwords saved</div>
+                <div className="mt-1 text-2xl font-extrabold text-lime font-mono leading-none">{passwordCreatedCount}</div>
               </button>
             </div>
 
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border/60 pb-3">
-              <div>
-                <span className="font-mono text-[9px] uppercase tracking-widest text-lime font-bold">
-                  Part 1 &bull; Active Company Submissions
-                </span>
-                <h3 className="text-base font-extrabold font-syne uppercase text-text-primary mt-0.5">
-                  Factory Assessment Directory ({filteredSites.length})
-                </h3>
-              </div>
-
-              {/* Controls: Search & Filter */}
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="relative w-64">
+            <div className="rounded-xl border border-border bg-surface-raised/30 p-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[minmax(260px,1.4fr)_repeat(4,minmax(150px,1fr))] gap-3">
+                <div className="relative">
                   <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-text-dim" />
                   <Input
                     placeholder="Search factory or city…"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-8 h-8 text-xs bg-surface"
+                    className="pl-8 h-9 text-xs bg-surface"
                   />
                 </div>
                 <Select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
-                  className="h-8 text-xs py-0.5 bg-surface"
+                  className="h-9 text-xs py-0.5 bg-surface"
                 >
                   <option value="credential_remaining">Pending Credential</option>
                   <option value="credential_created">Credential Created</option>
@@ -1293,7 +1299,7 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                 <Select
                   value={passwordFilter}
                   onChange={(e) => setPasswordFilter(e.target.value)}
-                  className="h-8 text-xs py-0.5 bg-surface"
+                  className="h-9 text-xs py-0.5 bg-surface"
                 >
                   <option value="all">All Passwords</option>
                   <option value="password_remaining">Password Remaining</option>
@@ -1302,7 +1308,7 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                 <Select
                   value={monthFilter}
                   onChange={(e) => setMonthFilter(e.target.value)}
-                  className="h-8 text-xs py-0.5 bg-surface"
+                  className="h-9 text-xs py-0.5 bg-surface"
                 >
                   <option value="all">All Months</option>
                   {availableMonths.map((month) => (
@@ -1314,7 +1320,7 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                 <Select
                   value={cityFilter}
                   onChange={(e) => setCityFilter(e.target.value)}
-                  className="h-8 text-xs py-0.5 bg-surface"
+                  className="h-9 text-xs py-0.5 bg-surface"
                 >
                   <option value="all">All Cities</option>
                   {availableCities.map((city) => (
@@ -1323,11 +1329,34 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                 </Select>
               </div>
             </div>
+          </Card>
 
-            {/* Horizontal Company Rows Deck */}
-            <div className="space-y-2.5 max-h-[360px] overflow-y-auto pr-1">
+          <Card className="p-0 bg-surface/50 backdrop-blur-md border border-border overflow-hidden shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border px-5 py-4">
+              <div>
+                <span className="font-mono text-[9px] uppercase tracking-widest text-lime font-bold">
+                  Factory Form Data
+                </span>
+                <h3 className="text-base font-extrabold font-syne uppercase text-text-primary mt-0.5">
+                  Company List
+                </h3>
+              </div>
+              <Badge tone="ghost" className="text-[10px] font-mono">
+                {filteredSites.length} Result(s)
+              </Badge>
+            </div>
+
+            <div className="rounded-none bg-background/30 overflow-hidden">
+              <div className="hidden xl:grid grid-cols-[minmax(0,1.4fr)_96px_minmax(0,1.15fr)_120px_180px] gap-3 border-b border-border bg-surface-raised/50 px-5 py-2.5 text-[9px] font-mono font-bold uppercase tracking-widest text-text-secondary">
+                <span>Company</span>
+                <span>City</span>
+                <span>Registered Address</span>
+                <span>Updated</span>
+                <span className="text-right">Actions</span>
+              </div>
+              <div>
               {filteredSites.length === 0 ? (
-                <div className="text-center text-xs text-text-dim py-8 italic border border-dashed border-border rounded-xl">
+                <div className="text-center text-xs text-text-dim py-10 italic">
                   No matching factory companies found
                 </div>
               ) : (
@@ -1336,47 +1365,19 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                   return (
                     <div
                       key={s.id}
-                      onClick={() => setSelectedSiteId(s.id)}
-                      className={`w-full rounded-xl border p-4 transition-all duration-200 cursor-pointer ${
+                      onClick={() => {
+                        setSelectedSiteId(s.id);
+                        setDetailDialogOpen(true);
+                      }}
+                      className={`w-full border-b border-border/70 p-4 transition-all duration-200 cursor-pointer last:border-b-0 ${
                         isActive
-                          ? "bg-lime/10 border-lime ring-2 ring-lime/20 shadow-sm"
-                          : "bg-surface/70 border-border/80 hover:border-border-bright"
+                          ? "bg-lime/10"
+                          : "bg-surface/70 hover:bg-surface-raised/50"
                       }`}
                     >
-                      <div className="grid grid-cols-1 xl:grid-cols-[auto_minmax(220px,1.1fr)_minmax(220px,1.4fr)_130px_auto] gap-3 xl:items-center">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <label
-                            className="flex h-9 items-center gap-2 rounded-lg border border-border bg-surface-raised/30 px-3 cursor-pointer select-none"
-                            title={s.credentialCreated ? "Credential created" : "Mark credential as created"}
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={s.credentialCreated}
-                              onChange={(e) => toggleCredentialCreated(s.id, e.target.checked)}
-                              className="h-4 w-4 accent-lime cursor-pointer"
-                            />
-                            <span className={`text-[9px] font-mono font-bold uppercase ${s.credentialCreated ? "text-lime" : "text-amber-400"}`}>
-                              {s.credentialCreated ? "Credential Created" : "Pending Credential"}
-                            </span>
-                          </label>
-
-                          <div
-                            className="flex h-9 items-center gap-2 rounded-lg border border-border bg-surface-raised/30 px-3 select-none"
-                            title={s.hasManagerPassword ? "Owner passwords created" : `${s.ownersMissingPassword} owner password(s) remaining`}
-                          >
-                            <KeyRound size={14} className={s.hasManagerPassword ? "text-lime" : "text-amber-400"} />
-                            <span className={`text-[9px] font-mono font-bold uppercase ${s.hasManagerPassword ? "text-lime" : "text-amber-400"}`}>
-                              {s.hasManagerPassword ? "Password Created" : "Password Remaining"}
-                            </span>
-                          </div>
-                        </div>
-
+                      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.4fr)_96px_minmax(0,1.15fr)_120px_180px] gap-3 xl:items-center">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="font-mono text-[9px] uppercase tracking-wider text-text-dim">
-                              {s.city || "No Location"}
-                            </span>
                             {s.fillStatus === "completed" && (
                               <Badge tone="success" className="text-[9px] py-0 px-1.5 font-mono">Completed</Badge>
                             )}
@@ -1387,9 +1388,38 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                           <h4 className="font-bold text-sm text-text-primary uppercase tracking-tight truncate mt-0.5">
                             {s.name}
                           </h4>
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <label
+                            className="flex h-7 items-center gap-2 rounded-md border border-border bg-surface-raised/40 px-2 cursor-pointer select-none"
+                            title={s.credentialCreated ? "Credential created" : "Mark credential as created"}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={s.credentialCreated}
+                              onChange={(e) => toggleCredentialCreated(s.id, e.target.checked)}
+                              className="h-3.5 w-3.5 accent-lime cursor-pointer"
+                            />
+                            <span className={`text-[9px] font-mono font-bold uppercase ${s.credentialCreated ? "text-lime" : "text-amber-400"}`}>
+                              {s.credentialCreated ? "Credential Created" : "Pending Credential"}
+                            </span>
+                          </label>
+
+                          <span
+                            className={`flex h-7 items-center gap-1.5 rounded-md border border-border bg-surface-raised/40 px-2 text-[9px] font-mono font-bold uppercase ${s.hasManagerPassword ? "text-lime" : "text-amber-400"}`}
+                            title={s.hasManagerPassword ? "Owner passwords created" : `${s.ownersMissingPassword} owner password(s) remaining`}
+                          >
+                            <KeyRound size={12} />
+                            {s.hasManagerPassword ? "Password Created" : "Password Remaining"}
+                          </span>
+                          </div>
                         </div>
 
-                        <div className="min-w-0 text-xs text-text-secondary truncate">
+                        <div className="font-mono text-[10px] uppercase tracking-wider text-text-dim">
+                          {s.city || "No Location"}
+                        </div>
+
+                        <div className="min-w-0 text-xs text-text-secondary xl:truncate">
                           {s.address || "No registered address provided"}
                         </div>
 
@@ -1406,11 +1436,11 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                             e.stopPropagation();
                             handleCopyFactoryJson(s);
                           }}
-                          className="py-1 px-3 text-xs flex items-center gap-1.5 bg-surface-raised border border-border hover:border-lime/50 transition-all cursor-pointer"
+                          className="py-1 px-2.5 text-xs flex items-center gap-1.5 bg-surface-raised border border-border hover:border-lime/50 transition-all cursor-pointer"
                           title="Copy filled Factory Operations JSON for this company"
                         >
                           <Copy size={14} className="text-lime" />
-                          <span>Copy Entire JSON</span>
+                          <span>Copy JSON</span>
                         </Button>
 
                         <Button
@@ -1419,10 +1449,11 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                           onClick={(e) => {
                             e.stopPropagation();
                             setSelectedSiteId(s.id);
+                            setDetailDialogOpen(true);
                           }}
-                          className="py-1 px-4 text-xs font-bold uppercase tracking-wider cursor-pointer"
+                          className="py-1 px-3 text-xs font-bold uppercase tracking-wider cursor-pointer"
                         >
-                          {isActive ? "Viewing Form" : "View Details"}
+                          {isActive ? "Open" : "Details"}
                         </Button>
                         </div>
                       </div>
@@ -1430,25 +1461,32 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                   );
                 })
               )}
+              </div>
             </div>
           </Card>
 
-          {/* PART 2 (BOTTOM HORIZONTAL SECTION): Selected Factory Detail Form View */}
-          <div className="space-y-6">
-            {!selectedSite ? (
-              <Card className="p-12 text-center bg-surface/50 border border-border/60">
-                <Building2 className="mx-auto h-12 w-12 text-text-dim stroke-[1.5] mb-4" />
-                <h3 className="text-lg font-bold text-text-primary">No Factory Selected</h3>
-                <p className="text-text-secondary text-xs mt-1">
-                  Please choose a site from the factory directory above to view its operational details.
-                </p>
-              </Card>
-            ) : (
-              <div className="space-y-6 animate-in fade-in duration-300">
+          {/* Selected Factory Detail Dialog */}
+          <Dialog
+            open={detailDialogOpen && !!selectedSite}
+            onOpenChange={(open) => {
+              setDetailDialogOpen(open);
+              if (!open) setIsEditing(false);
+            }}
+          >
+            <DialogContent className="max-w-[min(1180px,calc(100vw-2rem))] max-h-[calc(100vh-2rem)] overflow-y-auto border-border bg-background p-0 text-text-primary">
+              <DialogHeader className="sr-only">
+                <DialogTitle>Factory Form Details</DialogTitle>
+                <DialogDescription>
+                  View and manage the selected factory form submission.
+                </DialogDescription>
+              </DialogHeader>
+              {selectedSite && (
+                <div className="p-5">
+                  <div className="space-y-6 animate-in fade-in duration-300">
                 
                 {/* Sticky Header Information Box */}
-                <div className="sticky top-2 z-20 bg-surface/90 backdrop-blur-xl p-5 rounded-xl border border-border shadow-lg space-y-3">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/60 pb-3">
+                <div className="sticky top-2 z-20 bg-surface/90 backdrop-blur-xl p-5 rounded-xl border border-border shadow-lg">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] uppercase font-mono tracking-widest text-lime font-bold">
@@ -1534,7 +1572,7 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                  <div className="hidden">
                     <div className="bg-surface-raised/40 p-3.5 rounded-lg border border-border/60">
                       <div className="text-text-secondary font-mono text-[9px] uppercase tracking-wider">
                         Primary Contact (Metadata)
@@ -2748,10 +2786,12 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                       )}
                     </div>
                   )}
+                  </div>
                 </div>
               )}
-            </div>
-          </div>
+            </DialogContent>
+          </Dialog>
+        </div>
       )}
     </div>
   );
