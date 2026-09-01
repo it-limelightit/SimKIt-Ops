@@ -459,6 +459,14 @@ export function Overview() {
         const siteObj = rawSites.find(s => s.id === siteId);
         const workerIds = getSiteWorkerIds(siteObj);
         const workerId = workerIds[0] || siteObj?.assigned_worker_id || null;
+        const [existingAssessmentRes, existingInstallationRes, existingCommissioningRes] = await Promise.all([
+          supabase.from("assessment").select("data").eq("site_id", siteId).maybeSingle(),
+          supabase.from("installation").select("data").eq("site_id", siteId).maybeSingle(),
+          supabase.from("commissioning").select("data").eq("site_id", siteId).maybeSingle(),
+        ]);
+        const existingAssessmentData = (existingAssessmentRes.data?.data ?? {}) as Record<string, any>;
+        const existingInstallationData = (existingInstallationRes.data?.data ?? {}) as Record<string, any>;
+        const existingCommissioningData = (existingCommissioningRes.data?.data ?? {}) as Record<string, any>;
 
         if (metaStatus === "Dropped / Rejected") {
           // Clear all phase ownership and progress when a company is dropped.
@@ -484,17 +492,18 @@ export function Overview() {
             supabase.from("assessment").upsert({
               site_id: siteId,
               worker_id: workerId,
-              data: { mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
+              data: { ...existingAssessmentData, mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
             }, { onConflict: "site_id" }),
             supabase.from("installation").upsert({
               site_id: siteId,
               worker_id: workerId,
-              data: { delivery_confirmed: true, coordination_done: true, photos_uploaded: true, installation_phase_submitted: true }
+              data: { ...existingInstallationData, delivery_confirmed: true, coordination_done: true, photos_uploaded: true, installation_phase_submitted: true }
             }, { onConflict: "site_id" }),
             supabase.from("commissioning").upsert({
               site_id: siteId,
               worker_id: workerId,
               data: {
+                ...existingCommissioningData,
                 coordination_done: true,
                 visit_done: true,
                 connection_done: true,
@@ -512,12 +521,12 @@ export function Overview() {
             supabase.from("assessment").upsert({
               site_id: siteId,
               worker_id: workerId,
-              data: { mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
+              data: { ...existingAssessmentData, mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
             }, { onConflict: "site_id" }),
             supabase.from("installation").upsert({
               site_id: siteId,
               worker_id: workerId,
-              data: { delivery_confirmed: true, coordination_done: true, photos_uploaded: true, installation_phase_submitted: true }
+              data: { ...existingInstallationData, delivery_confirmed: true, coordination_done: true, photos_uploaded: true, installation_phase_submitted: true }
             }, { onConflict: "site_id" }),
             supabase.from("commissioning").upsert({
               site_id: siteId,
@@ -530,7 +539,7 @@ export function Overview() {
             supabase.from("assessment").upsert({
               site_id: siteId,
               worker_id: workerId,
-              data: { mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
+              data: { ...existingAssessmentData, mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
             }, { onConflict: "site_id" }),
             supabase.from("installation").upsert({
               site_id: siteId,
@@ -548,7 +557,7 @@ export function Overview() {
             supabase.from("assessment").upsert({
               site_id: siteId,
               worker_id: workerId,
-              data: { mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
+              data: { ...existingAssessmentData, mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
             }, { onConflict: "site_id" }),
             supabase.from("installation").upsert({
               site_id: siteId,
@@ -566,17 +575,41 @@ export function Overview() {
             supabase.from("assessment").upsert({
               site_id: siteId,
               worker_id: workerId,
-              data: {}
+              data: {
+                ...existingAssessmentData,
+                mom_uploaded: false,
+                media_uploaded: false,
+                factory_operations_done: false,
+                assessment_phase_submitted: false,
+                assessment_details_submitted: false,
+              }
             }, { onConflict: "site_id" }),
             supabase.from("installation").upsert({
               site_id: siteId,
               worker_id: workerId,
-              data: {}
+              data: {
+                ...existingInstallationData,
+                delivery_confirmed: false,
+                coordination_done: false,
+                photos_uploaded: false,
+                installation_phase_submitted: false,
+              }
             }, { onConflict: "site_id" }),
             supabase.from("commissioning").upsert({
               site_id: siteId,
               worker_id: workerId,
-              data: {}
+              data: {
+                ...existingCommissioningData,
+                coordination_done: false,
+                visit_done: false,
+                connection_done: false,
+                configure_done: false,
+                testing_done: false,
+                screenshots_uploaded: false,
+                certificate_sent: false,
+                final_mom_uploaded: false,
+                commissioning_phase_submitted: false,
+              }
             }, { onConflict: "site_id" })
           ]);
         }
