@@ -12,7 +12,7 @@ import { parseSiteMetadata, recordStatusActivityLog, serializeSiteMetadata } fro
 import { toast } from "sonner";
 import { InventoryPanel } from "@/components/inventory/InventoryPanel";
 import { OrderTab } from "@/components/business-consultant/OrderTab";
-import { getCanonicalStatus, getAssessmentPendingReasons, hasDeviceOrder } from "@/utils/status";
+import { getCanonicalStatus, getAssessmentPendingReasons, getDisplayPhaseProgress, hasDeviceOrder } from "@/utils/status";
 
 export const Route = createFileRoute("/business-consultant")({
   ssr: false,
@@ -223,23 +223,10 @@ function BusinessConsultantPage() {
       let iPct = iPctRaw;
       let cPct = cPctRaw;
 
-      if (derivedStatus === "Assessed") {
-        aPct = 100;
-        iPct = 0;
-        cPct = 0;
-      } else if (derivedStatus === "Installed" || derivedStatus === "Panel Dispatched") {
-        aPct = 100;
-        iPct = derivedStatus === "Installed" ? 100 : 0;
-        cPct = 0;
-      } else if (derivedStatus === "Commissioned" || derivedStatus === "Submitted" || derivedStatus === "Certification Pending") {
-        aPct = 100;
-        iPct = 100;
-        cPct = 100;
-      } else if (derivedStatus === "Not Started Yet" || derivedStatus === "Pending Assignment" || derivedStatus === "Dropped / Rejected") {
-        aPct = 0;
-        iPct = 0;
-        cPct = 0;
-      }
+      const displayProgress = getDisplayPhaseProgress(derivedStatus, { a: aPct, i: iPct, c: cPct });
+      aPct = displayProgress.a;
+      iPct = displayProgress.i;
+      cPct = displayProgress.c;
 
       const overall = Math.round((aPct + iPct + cPct) / 3);
 
@@ -263,16 +250,18 @@ function BusinessConsultantPage() {
       };
     });
 
-    setQueryError(null);
-    setSitesList(data);
-    setSitesWithProgress(sitesData);
+    const activeSitesData = sitesData.filter(s => s.derivedStatus !== "Submitted");
 
-    if (sitesData.length > 0) {
-      const currentStillExists = sitesData.find(s => s.id === selectedSiteId);
+    setQueryError(null);
+    setSitesList(activeSitesData);
+    setSitesWithProgress(activeSitesData);
+
+    if (activeSitesData.length > 0) {
+      const currentStillExists = activeSitesData.find(s => s.id === selectedSiteId);
       if (!currentStillExists) {
-        setSite(sitesData[0]);
-        setSelectedSiteId(sitesData[0].id);
-        setSelectedFactoryId(sitesData[0].id);
+        setSite(activeSitesData[0]);
+        setSelectedSiteId(activeSitesData[0].id);
+        setSelectedFactoryId(activeSitesData[0].id);
       } else {
         setSite(currentStillExists);
       }
@@ -988,6 +977,9 @@ function ConsultantDashboard({
   ];
 
   const filteredSites = sites.filter((s) => {
+    if (s.derivedStatus === "Submitted") {
+      return false;
+    }
     if (selectedKpi === "total") {
       return true;
     }
