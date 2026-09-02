@@ -357,6 +357,13 @@ export function Overview() {
       return;
     }
 
+    await recordStatusActivityLog(site.id, {
+      user_id: userId,
+      user_name: profile?.name || profile?.mobile || email || userId || "Unknown User",
+      from_status: getCanonicalStatus(site, aMap, iMap, cMap, rawMaterials),
+      to_status: "Assessed",
+    });
+
     setModalSubmittedPhases(prev => new Set([...prev, "assessment"]));
     setModalTab("installation");
     toast.success("Assessment phase submitted.");
@@ -556,6 +563,12 @@ export function Overview() {
 
   const renderStatusSelect = (row: any) => {
     const canonicalStatus = row.status;
+    const panelDispatchedLabel =
+      canonicalStatus === "Panel Dispatched" &&
+      ["shipped", "transit", "in transit", "delivered"].includes((row.logisticsStatus || "").trim().toLowerCase())
+        ? row.logisticsStatus
+        : "Pending Panel Dispatched";
+
     if (selectedKpi === "dispatched_actual") {
       const logisticsStatus = row.logisticsStatus || "Pending";
       return (
@@ -604,7 +617,7 @@ export function Overview() {
         >
           {canonicalStatus === "Panel Dispatched" && (
             <option value="Panel Dispatched" className="bg-surface text-text-primary">
-              Pending Panel Dispatched
+              {panelDispatchedLabel}
             </option>
           )}
           {FACTORY_STATUS_OPTIONS.map((status) => (

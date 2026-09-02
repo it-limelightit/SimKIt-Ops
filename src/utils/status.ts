@@ -175,18 +175,25 @@ export function getCanonicalStatus(
     return "Dropped / Rejected";
   }
 
-  // 2. Explicit manager metadata overrides phase and consultant_stage values.
+  // 2. Explicit manager metadata overrides phase values.
   if (meta.status === "Submitted") return "Submitted";
   if (meta.status === "Certification Pending") return "Certification Pending";
   if (meta.status === "Unsubmitted") return "Unsubmitted";
   if (meta.status === "Commissioned") return "Commissioned";
   if (meta.status === "Installed") return "Installed";
+
+  // 3. Billing / Completion is the consultant-side submitted state.
+  // It must outrank stale lower metadata such as Assessed.
+  if (site.consultant_stage === "Completion" || site.consultant_stage === "Billing") {
+    return "Submitted";
+  }
+
   if (meta.status === "Panel Dispatched" && isPanelDispatched) return "Panel Dispatched";
   if (meta.status === "Assessed" || meta.status === "In Assessment") return "Assessed";
   if (meta.status === "Not Started Yet" && !isPanelDispatched) return "Not Started Yet";
   if (meta.status === "Pending Assignment" && !isPanelDispatched) return hasWorker ? "Not Started Yet" : "Pending Assignment";
 
-  // 3. Completed phase submissions should advance stale lower-stage metadata.
+  // 4. Completed phase submissions should advance stale lower-stage metadata.
   if (realCP === 100 || isCommissioningSubmitted) {
     const isCertSent = !!cr?.data?.certificate_sent || !!ar?.data?.certificate_sent;
     if (isCertSent) return "Submitted";
@@ -195,11 +202,6 @@ export function getCanonicalStatus(
 
   if (realIP === 100 || isInstallationSubmitted) {
     return "Installed";
-  }
-
-  // 4. Billing / Completion check (Submitted) when no explicit manager override exists.
-  if (site.consultant_stage === "Completion" || site.consultant_stage === "Billing") {
-    return "Submitted";
   }
 
   // 5. Actual panel movement requires a submitted logistics order.
