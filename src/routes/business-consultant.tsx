@@ -36,6 +36,11 @@ function BusinessConsultantPage() {
     status: "Complete" | "Working" | "Pending";
     derivedStatus: string;
     assessmentPendingReasons: string[];
+    submitted: {
+      assessment: boolean;
+      installation: boolean;
+      commissioning: boolean;
+    };
   }>>([]);
   const [selectedSiteId, setSelectedSiteId] = useState<string>("");
   const [selectedFactoryId, setSelectedFactoryId] = useState<string>("");
@@ -205,6 +210,11 @@ function BusinessConsultantPage() {
       const aPctRaw = pctCount(aData, ASSESSMENT_KEYS);
       const iPctRaw = iData?.installation_phase_submitted ? 100 : pctCount(iData, INSTALLATION_KEYS);
       const cPctRaw = cData?.commissioning_phase_submitted ? 100 : pctCount(cData, COMMISSIONING_KEYS);
+      const submitted = {
+        assessment: !!aData?.assessment_phase_submitted || aPctRaw === 100,
+        installation: !!iData?.installation_phase_submitted || iPctRaw === 100,
+        commissioning: !!cData?.commissioning_phase_submitted || cPctRaw === 100,
+      };
       const assessmentPendingReasons = getAssessmentPendingReasons(aData, hasDeviceOrder(s, aData, materials));
 
       const derivedStatus = getCanonicalStatus(s, aMap, iMap, cMap, materials);
@@ -248,7 +258,8 @@ function BusinessConsultantPage() {
         overall,
         status,
         derivedStatus,
-        assessmentPendingReasons
+        assessmentPendingReasons,
+        submitted
       };
     });
 
@@ -447,9 +458,9 @@ function BusinessConsultantPage() {
     });
 
     const nextSubmitted = new Set<string>();
-    if ((site as any).aPct === 100) nextSubmitted.add("assessment");
-    if ((site as any).iPct === 100) nextSubmitted.add("installation");
-    if ((site as any).cPct === 100) nextSubmitted.add("commissioning");
+    if ((site as any).submitted?.assessment || (site as any).aPct === 100) nextSubmitted.add("assessment");
+    if ((site as any).submitted?.installation || (site as any).iPct === 100) nextSubmitted.add("installation");
+    if ((site as any).submitted?.commissioning || (site as any).cPct === 100) nextSubmitted.add("commissioning");
     setSubmittedPhases(nextSubmitted);
 
     const nextForwardTab =

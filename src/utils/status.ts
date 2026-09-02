@@ -131,6 +131,18 @@ export function getCanonicalStatus(
     const matchingMaterial = getSubmittedLogisticsOrder(site, materialsOrLogisticsStatus);
     logisticsStatus = matchingMaterial ? getLogisticsStatus(matchingMaterial) : "Pending";
   }
+  const isPanelDispatched = isActualDispatchLogisticsStatus(logisticsStatus);
+
+  // Dynamic progress calculations from submitted phase rows.
+  const ar = aMap.get(site.id);
+  const ir = iMap.get(site.id);
+  const cr = cMap.get(site.id);
+
+  const realAP = pctKeys(ar?.data, ASSESSMENT_KEYS);
+  const realIP = pctKeys(ir?.data, INSTALLATION_KEYS);
+  const realCP = pctKeys(cr?.data, COMMISSIONING_KEYS);
+  const isInstallationSubmitted = !!ir?.data?.installation_phase_submitted;
+  const isCommissioningSubmitted = !!cr?.data?.commissioning_phase_submitted;
 
   // 1. Drop/Reject check (Highest priority override)
   if (isSiteDropped(site) || meta.status === "Dropped / Rejected" || meta.status === "Reject") {
@@ -142,8 +154,18 @@ export function getCanonicalStatus(
     return "Submitted";
   }
 
-  // 3. Explicit Manager Metadata Override (High priority manual overrides)
-  const isPanelDispatched = isActualDispatchLogisticsStatus(logisticsStatus);
+  // 3. Completed phase submissions should advance stale lower-stage metadata.
+  if (realCP === 100 || isCommissioningSubmitted) {
+    const isCertSent = !!cr?.data?.certificate_sent || !!ar?.data?.certificate_sent;
+    if (isCertSent) return "Submitted";
+    return "Commissioned";
+  }
+
+  if (realIP === 100 || isInstallationSubmitted) {
+    return "Installed";
+  }
+
+  // 4. Explicit Manager Metadata Override
   if (meta.status === "Certification Pending") return "Certification Pending";
   if (meta.status === "Unsubmitted") return "Unsubmitted";
   if (meta.status === "Commissioned") return "Commissioned";
@@ -153,39 +175,18 @@ export function getCanonicalStatus(
   if (meta.status === "Not Started Yet" && !isPanelDispatched) return "Not Started Yet";
   if (meta.status === "Pending Assignment" && !isPanelDispatched) return hasWorker ? "Not Started Yet" : "Pending Assignment";
 
-  // 4. Dynamic progress calculations (Automated fallback based on form activity / logistics if no meta.status override exists)
-  const ar = aMap.get(site.id);
-  const ir = iMap.get(site.id);
-  const cr = cMap.get(site.id);
-
-  const realAP = pctKeys(ar?.data, ASSESSMENT_KEYS);
-  const realIP = pctKeys(ir?.data, INSTALLATION_KEYS);
-  const realCP = pctKeys(cr?.data, COMMISSIONING_KEYS);
-
-  // 5. Commissioned (C === 100)
-  if (realCP === 100) {
-    const isCertSent = !!cr?.data?.certificate_sent || !!ar?.data?.certificate_sent;
-    if (isCertSent) return "Submitted";
-    return "Commissioned";
-  }
-
-  // 6. Installed (I === 100)
-  if (realIP === 100) {
-    return "Installed";
-  }
-
-  // 7. Actual panel movement requires a submitted logistics order.
+  // 5. Actual panel movement requires a submitted logistics order.
   if (isPanelDispatched) {
     return "Panel Dispatched";
   }
 
-  // 8. Assessed once assessment is submitted or required assessment work is complete.
+  // 6. Assessed once assessment is submitted or required assessment work is complete.
   // MOM and device order are follow-up reasons, not blockers for this lifecycle bucket.
   if (realAP === 100 || !!ar?.data?.assessment_phase_submitted) {
     return "Assessed";
   }
 
-  // 9. Default: Not Started Yet / Pending Assignment
+  // 7. Default: Not Started Yet / Pending Assignment
   if (hasWorker) {
     return "Not Started Yet";
   }
