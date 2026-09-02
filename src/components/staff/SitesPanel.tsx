@@ -20,7 +20,20 @@ import {
   FileText,
 } from "lucide-react";
 import { parseSiteMetadata, recordStatusActivityLog, serializeSiteMetadata } from "@/lib/site-metadata";
-import { getCanonicalStatus, ASSESSMENT_KEYS, INSTALLATION_KEYS, COMMISSIONING_KEYS, pctKeys, getSiteWorkerIds, isSiteDropped, getAssessmentPendingReasons, hasDeviceOrder } from "@/utils/status";
+import {
+  getCanonicalStatus,
+  ASSESSMENT_KEYS,
+  INSTALLATION_KEYS,
+  COMMISSIONING_KEYS,
+  pctKeys,
+  getSiteWorkerIds,
+  isSiteDropped,
+  getAssessmentPendingReasons,
+  hasDeviceOrder,
+  getSubmittedLogisticsOrder,
+  getLogisticsStatus,
+  isActualDispatchLogisticsStatus,
+} from "@/utils/status";
 
 export { parseSiteMetadata, serializeSiteMetadata };
 
@@ -2278,6 +2291,13 @@ export function SitesPanel() {
                   const assessmentData = aMap.get(s.id)?.data;
                   const assessmentPendingReasons = getAssessmentPendingReasons(assessmentData, hasDeviceOrder(s, assessmentData, materials));
                   const assignedIds = getSiteWorkerIds(s);
+                  const matchingMaterial = getSubmittedLogisticsOrder(s, materials);
+                  const logisticsStatus = matchingMaterial ? getLogisticsStatus(matchingMaterial) : "";
+                  const panelDispatchedLabel =
+                    canonicalStatus === "Panel Dispatched" && isActualDispatchLogisticsStatus(logisticsStatus)
+                      ? logisticsStatus
+                      : "Pending Panel Dispatched";
+
                   return (
                     <tr
                       key={s.id}
@@ -2374,7 +2394,7 @@ export function SitesPanel() {
                             <option value="">— None —</option>
                             {canonicalStatus === "Panel Dispatched" && (
                               <option value="Panel Dispatched">
-                                Pending Panel Dispatched
+                                {panelDispatchedLabel}
                               </option>
                             )}
                             {FACTORY_STATUS_OPTIONS.map((status) => (
