@@ -1279,171 +1279,18 @@ export function SitesPanel() {
         updatePayload.assigned_at = null;
       }
 
-      const { error } = await supabase
+      const { data: updatedSite, error } = await supabase
         .from("sites")
         .update(updatePayload as never)
-        .eq("id", siteId);
+        .eq("id", siteId)
+        .select("id")
+        .maybeSingle();
 
       if (error) {
         toast.error(error.message);
+      } else if (!updatedSite) {
+        toast.error("Status could not be updated. Please refresh and try again.");
       } else {
-        const siteObj = sites.find((s: any) => s.id === siteId);
-        const workerIds = getSiteWorkerIds(siteObj);
-        const workerId = workerIds[0] || siteObj?.assigned_worker_id || null;
-        const [existingAssessmentRes, existingInstallationRes, existingCommissioningRes] = await Promise.all([
-          supabase.from("assessment").select("data").eq("site_id", siteId).maybeSingle(),
-          supabase.from("installation").select("data").eq("site_id", siteId).maybeSingle(),
-          supabase.from("commissioning").select("data").eq("site_id", siteId).maybeSingle(),
-        ]);
-        const existingAssessmentData = (existingAssessmentRes.data?.data ?? {}) as Record<string, any>;
-        const existingInstallationData = (existingInstallationRes.data?.data ?? {}) as Record<string, any>;
-        const existingCommissioningData = (existingCommissioningRes.data?.data ?? {}) as Record<string, any>;
-
-        if (metaStatus === "Dropped / Rejected") {
-          await Promise.all([
-            supabase.from("assessment").upsert({
-              site_id: siteId,
-              worker_id: null,
-              data: {}
-            }, { onConflict: "site_id" }),
-            supabase.from("installation").upsert({
-              site_id: siteId,
-              worker_id: null,
-              data: {}
-            }, { onConflict: "site_id" }),
-            supabase.from("commissioning").upsert({
-              site_id: siteId,
-              worker_id: null,
-              data: {}
-            }, { onConflict: "site_id" })
-          ]);
-        } else if (metaStatus === "Commissioned") {
-          await Promise.all([
-            supabase.from("assessment").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: { ...existingAssessmentData, mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
-            }, { onConflict: "site_id" }),
-            supabase.from("installation").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: { ...existingInstallationData, delivery_confirmed: true, coordination_done: true, photos_uploaded: true, installation_phase_submitted: true }
-            }, { onConflict: "site_id" }),
-            supabase.from("commissioning").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: {
-                ...existingCommissioningData,
-                coordination_done: true,
-                visit_done: true,
-                connection_done: true,
-                configure_done: true,
-                testing_done: true,
-                screenshots_uploaded: true,
-                certificate_sent: true,
-                final_mom_uploaded: true,
-                commissioning_phase_submitted: true
-              }
-            }, { onConflict: "site_id" })
-          ]);
-        } else if (metaStatus === "Installed") {
-          await Promise.all([
-            supabase.from("assessment").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: { ...existingAssessmentData, mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
-            }, { onConflict: "site_id" }),
-            supabase.from("installation").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: { ...existingInstallationData, delivery_confirmed: true, coordination_done: true, photos_uploaded: true, installation_phase_submitted: true }
-            }, { onConflict: "site_id" }),
-            supabase.from("commissioning").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: {}
-            }, { onConflict: "site_id" })
-          ]);
-        } else if (metaStatus === "Panel Dispatched") {
-          await Promise.all([
-            supabase.from("assessment").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: { ...existingAssessmentData, mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
-            }, { onConflict: "site_id" }),
-            supabase.from("installation").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: {}
-            }, { onConflict: "site_id" }),
-            supabase.from("commissioning").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: {}
-            }, { onConflict: "site_id" })
-          ]);
-        } else if (metaStatus === "Assessed") {
-          await Promise.all([
-            supabase.from("assessment").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: { ...existingAssessmentData, mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
-            }, { onConflict: "site_id" }),
-            supabase.from("installation").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: {}
-            }, { onConflict: "site_id" }),
-            supabase.from("commissioning").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: {}
-            }, { onConflict: "site_id" })
-          ]);
-        } else if (metaStatus === "Not Started Yet" || metaStatus === "Pending Assignment") {
-          await Promise.all([
-            supabase.from("assessment").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: {
-                ...existingAssessmentData,
-                mom_uploaded: false,
-                media_uploaded: false,
-                factory_operations_done: false,
-                assessment_phase_submitted: false,
-                assessment_details_submitted: false,
-              }
-            }, { onConflict: "site_id" }),
-            supabase.from("installation").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: {
-                ...existingInstallationData,
-                delivery_confirmed: false,
-                coordination_done: false,
-                photos_uploaded: false,
-                installation_phase_submitted: false,
-              }
-            }, { onConflict: "site_id" }),
-            supabase.from("commissioning").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: {
-                ...existingCommissioningData,
-                coordination_done: false,
-                visit_done: false,
-                connection_done: false,
-                configure_done: false,
-                testing_done: false,
-                screenshots_uploaded: false,
-                certificate_sent: false,
-                final_mom_uploaded: false,
-                commissioning_phase_submitted: false,
-              }
-            }, { onConflict: "site_id" })
-          ]);
-        }
-
         await recordStatusActivityLog(siteId, {
           user_id: userId,
           user_name: profile?.name || profile?.mobile || email || userId || "Unknown User",

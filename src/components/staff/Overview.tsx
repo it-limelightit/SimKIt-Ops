@@ -11,6 +11,7 @@ import {
   getSiteWorkerIds,
   getAssessmentPendingReasons,
   getSubmittedLogisticsOrder,
+  getDisplayPhaseProgress,
   hasDeviceOrder,
 } from "@/utils/status";
 import { toast } from "sonner";
@@ -113,6 +114,7 @@ export function Overview() {
   const [rawCommissionings, setRawCommissionings] = useState<any[]>([]);
   const [rawProfiles, setRawProfiles] = useState<any[]>([]);
   const [rawMaterials, setRawMaterials] = useState<any[]>([]);
+  const [rawActivityLogs, setRawActivityLogs] = useState<any[]>([]);
   const [workerIds, setWorkerIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
 
@@ -171,16 +173,36 @@ export function Overview() {
     const iData = i?.data as Record<string, any> | undefined;
     const cData = c?.data as Record<string, any> | undefined;
 
+    const canonicalStatus = getCanonicalStatus(
+      site,
+      new Map(rawAssessments.map((x) => [x.site_id, x])),
+      new Map(rawInstallations.map((x) => [x.site_id, x])),
+      new Map(rawCommissionings.map((x) => [x.site_id, x])),
+      rawMaterials,
+    );
+    let assessmentProgress = pctKeys(aData, ASSESSMENT_KEYS);
+    let installationProgress = pctKeys(iData, INSTALLATION_KEYS);
+    let commissioningProgress = pctKeys(cData, COMMISSIONING_KEYS);
+
+    const displayProgress = getDisplayPhaseProgress(canonicalStatus, {
+      a: assessmentProgress,
+      i: installationProgress,
+      c: commissioningProgress,
+    });
+    assessmentProgress = displayProgress.a;
+    installationProgress = displayProgress.i;
+    commissioningProgress = displayProgress.c;
+
     setModalProgress({
-      assessment: pctKeys(aData, ASSESSMENT_KEYS),
-      installation: pctKeys(iData, INSTALLATION_KEYS),
-      commissioning: pctKeys(cData, COMMISSIONING_KEYS),
+      assessment: assessmentProgress,
+      installation: installationProgress,
+      commissioning: commissioningProgress,
     });
 
     const nextSubmitted = new Set<string>();
-    if (pctKeys(aData, ASSESSMENT_KEYS) === 100) nextSubmitted.add("assessment");
-    if (iData?.installation_phase_submitted) nextSubmitted.add("installation");
-    if (cData?.commissioning_phase_submitted) nextSubmitted.add("commissioning");
+    if (assessmentProgress === 100) nextSubmitted.add("assessment");
+    if (installationProgress === 100 || iData?.installation_phase_submitted) nextSubmitted.add("installation");
+    if (commissioningProgress === 100 || cData?.commissioning_phase_submitted) nextSubmitted.add("commissioning");
     setModalSubmittedPhases(nextSubmitted);
 
     // Default tab to active phase from task_notes
@@ -190,7 +212,7 @@ export function Overview() {
     } else {
       setModalTab("assessment");
     }
-  }, [consultantSiteId, rawSites, rawAssessments, rawInstallations, rawCommissionings]);
+  }, [consultantSiteId, rawSites, rawAssessments, rawInstallations, rawCommissionings, rawMaterials]);
 
   const handleGenerateShareLink = async () => {
     if (!consultantSiteId) return;
@@ -353,7 +375,7 @@ export function Overview() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [sitesRes, assessmentsRes, installationsRes, commissioningsRes, profilesRes, materialsRes, rolesRes] = await Promise.all([
+      const [sitesRes, assessmentsRes, installationsRes, commissioningsRes, profilesRes, materialsRes, rolesRes, activityLogsRes] = await Promise.all([
         supabase
           .from("sites")
           .select("id,name,company_name,city,address,assigned_worker_id,assigned_at,appt_date,appt_time,created_at,task_notes,consultant_stage")
@@ -367,6 +389,13 @@ export function Overview() {
           .select("state,notes,submitted,material_name,created_at")
           .order("created_at", { ascending: false }),
         supabase.from("user_roles").select("user_id").eq("role", "worker"),
+        supabase
+          .from("activity_logs" as any)
+          .select("site_id,created_at")
+          .not("site_id", "is", null)
+          .neq("action", "login")
+          .order("created_at", { ascending: false })
+          .limit(1000),
       ]);
 
       setRawSites(sitesRes.data ?? []);
@@ -375,6 +404,7 @@ export function Overview() {
       setRawCommissionings(commissioningsRes.data ?? []);
       setRawProfiles(profilesRes.data ?? []);
       setRawMaterials(materialsRes.data ?? []);
+      setRawActivityLogs(activityLogsRes.data ?? []);
       const wIds = new Set((rolesRes.data ?? []).map((r: any) => r.user_id));
       setWorkerIds(wIds);
     } catch (err) {
@@ -448,172 +478,18 @@ export function Overview() {
         updatePayload.assigned_at = null;
       }
 
-      const { error } = await supabase
+      const { data: updatedSite, error } = await supabase
         .from("sites")
         .update(updatePayload as never)
-        .eq("id", siteId);
+        .eq("id", siteId)
+        .select("id")
+        .maybeSingle();
 
       if (error) {
         toast.error(error.message);
+      } else if (!updatedSite) {
+        toast.error("Status could not be updated. Please refresh and try again.");
       } else {
-        const siteObj = rawSites.find(s => s.id === siteId);
-        const workerIds = getSiteWorkerIds(siteObj);
-        const workerId = workerIds[0] || siteObj?.assigned_worker_id || null;
-        const [existingAssessmentRes, existingInstallationRes, existingCommissioningRes] = await Promise.all([
-          supabase.from("assessment").select("data").eq("site_id", siteId).maybeSingle(),
-          supabase.from("installation").select("data").eq("site_id", siteId).maybeSingle(),
-          supabase.from("commissioning").select("data").eq("site_id", siteId).maybeSingle(),
-        ]);
-        const existingAssessmentData = (existingAssessmentRes.data?.data ?? {}) as Record<string, any>;
-        const existingInstallationData = (existingInstallationRes.data?.data ?? {}) as Record<string, any>;
-        const existingCommissioningData = (existingCommissioningRes.data?.data ?? {}) as Record<string, any>;
-
-        if (metaStatus === "Dropped / Rejected") {
-          // Clear all phase ownership and progress when a company is dropped.
-          await Promise.all([
-            supabase.from("assessment").upsert({
-              site_id: siteId,
-              worker_id: null,
-              data: {}
-            }, { onConflict: "site_id" }),
-            supabase.from("installation").upsert({
-              site_id: siteId,
-              worker_id: null,
-              data: {}
-            }, { onConflict: "site_id" }),
-            supabase.from("commissioning").upsert({
-              site_id: siteId,
-              worker_id: null,
-              data: {}
-            }, { onConflict: "site_id" })
-          ]);
-        } else if (metaStatus === "Commissioned") {
-          await Promise.all([
-            supabase.from("assessment").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: { ...existingAssessmentData, mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
-            }, { onConflict: "site_id" }),
-            supabase.from("installation").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: { ...existingInstallationData, delivery_confirmed: true, coordination_done: true, photos_uploaded: true, installation_phase_submitted: true }
-            }, { onConflict: "site_id" }),
-            supabase.from("commissioning").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: {
-                ...existingCommissioningData,
-                coordination_done: true,
-                visit_done: true,
-                connection_done: true,
-                configure_done: true,
-                testing_done: true,
-                screenshots_uploaded: true,
-                certificate_sent: true,
-                final_mom_uploaded: true,
-                commissioning_phase_submitted: true
-              }
-            }, { onConflict: "site_id" })
-          ]);
-        } else if (metaStatus === "Installed") {
-          await Promise.all([
-            supabase.from("assessment").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: { ...existingAssessmentData, mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
-            }, { onConflict: "site_id" }),
-            supabase.from("installation").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: { ...existingInstallationData, delivery_confirmed: true, coordination_done: true, photos_uploaded: true, installation_phase_submitted: true }
-            }, { onConflict: "site_id" }),
-            supabase.from("commissioning").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: {}
-            }, { onConflict: "site_id" })
-          ]);
-        } else if (metaStatus === "Assessed") {
-          await Promise.all([
-            supabase.from("assessment").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: { ...existingAssessmentData, mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
-            }, { onConflict: "site_id" }),
-            supabase.from("installation").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: {}
-            }, { onConflict: "site_id" }),
-            supabase.from("commissioning").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: {}
-            }, { onConflict: "site_id" })
-          ]);
-        } else if (metaStatus === "Panel Dispatched") {
-          await Promise.all([
-            supabase.from("assessment").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: { ...existingAssessmentData, mom_uploaded: true, media_uploaded: true, factory_operations_done: true, assessment_phase_submitted: true }
-            }, { onConflict: "site_id" }),
-            supabase.from("installation").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: {}
-            }, { onConflict: "site_id" }),
-            supabase.from("commissioning").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: {}
-            }, { onConflict: "site_id" })
-          ]);
-        } else if (metaStatus === "Not Started Yet" || metaStatus === "Pending Assignment") {
-          await Promise.all([
-            supabase.from("assessment").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: {
-                ...existingAssessmentData,
-                mom_uploaded: false,
-                media_uploaded: false,
-                factory_operations_done: false,
-                assessment_phase_submitted: false,
-                assessment_details_submitted: false,
-              }
-            }, { onConflict: "site_id" }),
-            supabase.from("installation").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: {
-                ...existingInstallationData,
-                delivery_confirmed: false,
-                coordination_done: false,
-                photos_uploaded: false,
-                installation_phase_submitted: false,
-              }
-            }, { onConflict: "site_id" }),
-            supabase.from("commissioning").upsert({
-              site_id: siteId,
-              worker_id: workerId,
-              data: {
-                ...existingCommissioningData,
-                coordination_done: false,
-                visit_done: false,
-                connection_done: false,
-                configure_done: false,
-                testing_done: false,
-                screenshots_uploaded: false,
-                certificate_sent: false,
-                final_mom_uploaded: false,
-                commissioning_phase_submitted: false,
-              }
-            }, { onConflict: "site_id" })
-          ]);
-        }
-
         await recordStatusActivityLog(siteId, {
           user_id: userId,
           user_name: profile?.name || profile?.mobile || email || userId || "Unknown User",
@@ -784,6 +660,11 @@ export function Overview() {
   const aMap = new Map<string, any>(rawAssessments.map((r) => [r.site_id, r]));
   const iMap = new Map<string, any>(rawInstallations.map((r) => [r.site_id, r]));
   const cMap = new Map<string, any>(rawCommissionings.map((r) => [r.site_id, r]));
+  const activityUpdatedMap = new Map<string, string>();
+  rawActivityLogs.forEach((log) => {
+    if (!log.site_id || !log.created_at || activityUpdatedMap.has(log.site_id)) return;
+    activityUpdatedMap.set(log.site_id, log.created_at);
+  });
 
   const isSiteDropped = (row: SiteRow) => {
     const stage = (row.consultant_stage || row.meta.status || "").toLowerCase();
@@ -811,7 +692,12 @@ const allProcessedRows: SiteRow[] = rawSites.map((site) => {
   let aP = isFullyDone ? 100 : pctKeys(ar?.data, ASSESSMENT_KEYS);
   let iP = isFullyDone ? 100 : pctKeys(ir?.data, INSTALLATION_KEYS);
   let cP = isFullyDone ? 100 : pctKeys(cr?.data, COMMISSIONING_KEYS);
-  const updated = [ar?.updated_at, ir?.updated_at, cr?.updated_at].filter(Boolean).sort().pop() ?? null;
+  const phaseUpdated =
+    [ar?.updated_at, ir?.updated_at, cr?.updated_at, site.assigned_at]
+      .filter(Boolean)
+      .sort()
+      .pop() ?? null;
+  const updated = activityUpdatedMap.get(site.id) ?? phaseUpdated;
 
   const workerIds = getSiteWorkerIds(site);
 
@@ -837,23 +723,10 @@ const allProcessedRows: SiteRow[] = rawSites.map((site) => {
   const canonicalStatus = getCanonicalStatus(site, aMap, iMap, cMap, rawMaterials);
   const assessmentPendingReasons = getAssessmentPendingReasons(ar?.data, deviceOrderExists);
 
-  if (canonicalStatus === "Assessed") {
-    aP = 100;
-    iP = 0;
-    cP = 0;
-  } else if (canonicalStatus === "Installed" || canonicalStatus === "Panel Dispatched" || isLogisticsDispatched) {
-    aP = 100;
-    iP = canonicalStatus === "Installed" ? 100 : 0;
-    cP = 0;
-  } else if (canonicalStatus === "Commissioned" || canonicalStatus === "Submitted" || canonicalStatus === "Certification Pending") {
-    aP = 100;
-    iP = 100;
-    cP = 100;
-  } else if (canonicalStatus === "Not Started Yet" || canonicalStatus === "Pending Assignment" || canonicalStatus === "Dropped / Rejected") {
-    aP = 0;
-    iP = 0;
-    cP = 0;
-  }
+  const displayProgress = getDisplayPhaseProgress(canonicalStatus, { a: aP, i: iP, c: cP }, { isLogisticsDispatched });
+  aP = displayProgress.a;
+  iP = displayProgress.i;
+  cP = displayProgress.c;
 
   return {
     id: site.id,
@@ -985,7 +858,7 @@ const filteredByKpi = filteredForCounts.filter((row) => {
 
 // Apply My Tasks Filter
 const myTasksFiltered = isDualRole && showMyTasks && userId
-  ? filteredByKpi.filter((row) => row.workerIds.includes(userId))
+  ? filteredByKpi.filter((row) => row.workerIds.includes(userId) && row.status !== "Submitted")
   : filteredByKpi;
 
 // Apply search query
@@ -1015,6 +888,14 @@ const searchedRows = myTasksFiltered.filter((row) => {
 
 // Apply Sorting
 const sortedRows = [...searchedRows].sort((a, b) => {
+  if (sortField === "updated") {
+    const tA = a.progress.updated ? new Date(a.progress.updated).getTime() : 0;
+    const tB = b.progress.updated ? new Date(b.progress.updated).getTime() : 0;
+    const updatedComp = tA - tB;
+    if (updatedComp !== 0) return sortOrder === "asc" ? updatedComp : -updatedComp;
+    return a.name.localeCompare(b.name);
+  }
+
   if (selectedKpi === "dispatched_actual") {
     const logisticsRank = (status: string) => {
       const normalized = status.trim().toLowerCase();
@@ -1051,10 +932,6 @@ const sortedRows = [...searchedRows].sort((a, b) => {
     comp = a.name.localeCompare(b.name);
   } else if (sortField === "city") {
     comp = (a.city || "").localeCompare(b.city || "");
-  } else if (sortField === "updated") {
-    const tA = a.progress.updated ? new Date(a.progress.updated).getTime() : 0;
-    const tB = b.progress.updated ? new Date(b.progress.updated).getTime() : 0;
-    comp = tA - tB;
   }
   return sortOrder === "asc" ? comp : -comp;
 });
@@ -1104,6 +981,35 @@ const handleKpiClick = (kpiId: string) => {
   setShowMyTasks(false);
   setKpiSelected(true);
 };
+
+const handleLatestKpiClick = (kpiId: string) => {
+  setSelectedKpi(kpiId);
+  setShowMyTasks(false);
+  setKpiSelected(true);
+  setSortField("updated");
+  setSortOrder("desc");
+};
+
+const renderLatestKpiButton = (kpiId: string, kpiLabel: string) => (
+  <span
+    role="button"
+    tabIndex={0}
+    onClick={(e) => {
+      e.stopPropagation();
+      handleLatestKpiClick(kpiId);
+    }}
+    onKeyDown={(e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      e.stopPropagation();
+      handleLatestKpiClick(kpiId);
+    }}
+    className="rounded border border-border bg-surface-raised px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-text-secondary transition-colors hover:border-lime hover:text-text-primary"
+    title={`Show latest ${kpiLabel} activity`}
+  >
+    Latest Update
+  </span>
+);
 
 const formatDate = (dateStr: string | null) => {
   if (!dateStr) return "—";
@@ -2197,7 +2103,10 @@ return (
                       <div className={`p-2 rounded-xl border ${k.badgeStyle}`}>
                         <Icon size={16} strokeWidth={2.5} />
                       </div>
-                      <span className={`h-2 w-2 rounded-full ${k.dotStyle}`} />
+                      <div className="flex flex-col items-end gap-2">
+                        {renderLatestKpiButton(k.id, k.label)}
+                        <span className={`h-2 w-2 rounded-full ${k.dotStyle}`} />
+                      </div>
                     </div>
                     <div className="mt-4">
                       <div className="text-3xl font-extrabold text-text-primary tracking-tight font-mono">
@@ -2237,7 +2146,10 @@ return (
                           <div className={`p-2 rounded-xl border ${k.badgeStyle}`}>
                             <Icon size={16} strokeWidth={2.5} />
                           </div>
-                          <span className={`h-2 w-2 rounded-full ${k.dotStyle}`} />
+                          <div className="flex flex-col items-end gap-2">
+                            {renderLatestKpiButton(k.id, k.label)}
+                            <span className={`h-2 w-2 rounded-full ${k.dotStyle}`} />
+                          </div>
                         </div>
                         <div className="mt-4">
                           <div className="text-3xl font-extrabold text-text-primary tracking-tight font-mono">
@@ -2289,7 +2201,8 @@ return (
                             </div>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-col items-end gap-1.5">
+                          {renderLatestKpiButton(k.id, k.label)}
                           <div className="text-xl font-extrabold text-text-primary font-mono">
                             {k.value}
                           </div>
@@ -2339,7 +2252,8 @@ return (
                         </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-col items-end gap-1.5">
+                      {renderLatestKpiButton(k.id, k.label)}
                       <div className="text-xl font-extrabold text-text-primary font-mono">
                         {k.value}
                       </div>
@@ -2384,7 +2298,8 @@ return (
                         </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-col items-end gap-1.5">
+                      {renderLatestKpiButton(k.id, k.label)}
                       <div className="text-xl font-extrabold text-text-primary font-mono">
                         {k.value}
                       </div>
@@ -2448,7 +2363,10 @@ return (
                             <div className="text-2xl font-extrabold text-text-primary font-mono leading-none">
                               {k.value}
                             </div>
-                            <span className={`h-2.5 w-2.5 rounded-full ${k.dotStyle} shrink-0 mb-1`} />
+                            <div className="flex flex-col items-end gap-1.5">
+                              {renderLatestKpiButton(k.id, k.label)}
+                              <span className={`h-2.5 w-2.5 rounded-full ${k.dotStyle} shrink-0 mb-1`} />
+                            </div>
                           </div>
                         </button>
                       );
@@ -2463,7 +2381,7 @@ return (
 
       {/* My Tasks Section — shown by default before any KPI card is clicked */}
       {isDualRole && !kpiSelected && (() => {
-        const myRows = allProcessedRows.filter(r => r.workerIds.includes(userId ?? ""));
+        const myRows = allProcessedRows.filter(r => r.workerIds.includes(userId ?? "") && r.status !== "Submitted");
         return (
           <div className="border border-border rounded-xl bg-surface p-5 space-y-4 shadow-sm">
             <div className="flex items-center justify-between border-b border-border pb-3">
@@ -2641,6 +2559,11 @@ return (
                   paginatedRows.map((r) => {
                     const bcNames = r.workerIds.map((id) => profileNameMap.get(id) || "—").join(", ");
                     const canonicalStatus = r.status;
+                    const displayedProgress = getDisplayPhaseProgress(
+                      canonicalStatus,
+                      { a: r.progress.a, i: r.progress.i, c: r.progress.c },
+                      { isLogisticsDispatched: isDispatchedActual(r) },
+                    );
 
                     return (
                       <tr
@@ -2667,9 +2590,9 @@ return (
                         </td>
                         <td className="px-4 py-3.5">
                           <div className="flex flex-wrap gap-1.5">
-                            {renderProgressPill("A", r.progress.a)}
-                            {renderProgressPill("I", r.progress.i)}
-                            {renderProgressPill("C", r.progress.c)}
+                            {renderProgressPill("A", displayedProgress.a)}
+                            {renderProgressPill("I", displayedProgress.i)}
+                            {renderProgressPill("C", displayedProgress.c)}
                           </div>
                         </td>
                         <td className="px-4 py-3.5">

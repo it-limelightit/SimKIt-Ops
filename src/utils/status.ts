@@ -57,6 +57,32 @@ export function pctKeys(data: any, keys: string[]) {
   return Math.round((keys.filter((k) => !!data[k]).length / keys.length) * 100);
 }
 
+export type PhaseProgress = {
+  a: number;
+  i: number;
+  c: number;
+};
+
+export function getDisplayPhaseProgress(
+  status: string,
+  progress: PhaseProgress,
+  options: { isLogisticsDispatched?: boolean } = {},
+): PhaseProgress {
+  if (status === "Assessed" || status === "Panel Dispatched" || options.isLogisticsDispatched) {
+    return { a: 100, i: 0, c: 0 };
+  }
+  if (status === "Installed") {
+    return { a: 100, i: 100, c: 0 };
+  }
+  if (status === "Commissioned" || status === "Submitted" || status === "Certification Pending") {
+    return { a: 100, i: 100, c: 100 };
+  }
+  if (status === "Not Started Yet" || status === "Pending Assignment" || status === "Dropped / Rejected") {
+    return { a: 0, i: 0, c: 0 };
+  }
+  return progress;
+}
+
 export const getSiteWorkerIds = (s: any): string[] => {
   if (!s) return [];
   const meta = parseSiteMetadata(s.task_notes);
@@ -149,10 +175,16 @@ export function getCanonicalStatus(
     return "Dropped / Rejected";
   }
 
-  // 2. Billing / Completion check (Submitted)
-  if (meta.status === "Submitted" || site.consultant_stage === "Completion" || site.consultant_stage === "Billing") {
-    return "Submitted";
-  }
+  // 2. Explicit manager metadata overrides phase and consultant_stage values.
+  if (meta.status === "Submitted") return "Submitted";
+  if (meta.status === "Certification Pending") return "Certification Pending";
+  if (meta.status === "Unsubmitted") return "Unsubmitted";
+  if (meta.status === "Commissioned") return "Commissioned";
+  if (meta.status === "Installed") return "Installed";
+  if (meta.status === "Panel Dispatched" && isPanelDispatched) return "Panel Dispatched";
+  if (meta.status === "Assessed" || meta.status === "In Assessment") return "Assessed";
+  if (meta.status === "Not Started Yet" && !isPanelDispatched) return "Not Started Yet";
+  if (meta.status === "Pending Assignment" && !isPanelDispatched) return hasWorker ? "Not Started Yet" : "Pending Assignment";
 
   // 3. Completed phase submissions should advance stale lower-stage metadata.
   if (realCP === 100 || isCommissioningSubmitted) {
@@ -165,15 +197,10 @@ export function getCanonicalStatus(
     return "Installed";
   }
 
-  // 4. Explicit Manager Metadata Override
-  if (meta.status === "Certification Pending") return "Certification Pending";
-  if (meta.status === "Unsubmitted") return "Unsubmitted";
-  if (meta.status === "Commissioned") return "Commissioned";
-  if (meta.status === "Installed") return "Installed";
-  if (meta.status === "Panel Dispatched" && isPanelDispatched) return "Panel Dispatched";
-  if (meta.status === "Assessed" || meta.status === "In Assessment") return "Assessed";
-  if (meta.status === "Not Started Yet" && !isPanelDispatched) return "Not Started Yet";
-  if (meta.status === "Pending Assignment" && !isPanelDispatched) return hasWorker ? "Not Started Yet" : "Pending Assignment";
+  // 4. Billing / Completion check (Submitted) when no explicit manager override exists.
+  if (site.consultant_stage === "Completion" || site.consultant_stage === "Billing") {
+    return "Submitted";
+  }
 
   // 5. Actual panel movement requires a submitted logistics order.
   if (isPanelDispatched) {
