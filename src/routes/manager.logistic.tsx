@@ -219,7 +219,17 @@ function LogisticPageWithSeeder() {
         if (!meta.worker_ids.includes(jenilId)) {
           meta.worker_ids.push(jenilId);
         }
-        meta.status = "Assessed";
+        const manuallyFinalStatuses = new Set([
+          "Submitted",
+          "Unsubmitted",
+          "Certification Pending",
+          "Installed",
+          "Commissioned",
+          "Dropped / Rejected",
+        ]);
+        if (!manuallyFinalStatuses.has(meta.status)) {
+          meta.status = "Assessed";
+        }
 
         // Strip old metadata block and serialize new one
         let baseNotes = taskNotes;
@@ -247,7 +257,6 @@ function LogisticPageWithSeeder() {
             assigned_worker_id: jenilId,
             assigned_at: new Date().toISOString(),
             task_notes: newNotes,
-            consultant_stage: "Billing"
           } as any)
           .eq("id", matchedSite.id);
 

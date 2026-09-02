@@ -18,7 +18,7 @@ import { MediaUploader } from "@/components/MediaUploader";
 import { usePhaseData } from "@/lib/use-phase-data";
 import { advanceSiteVisitStatus } from "@/lib/site-metadata";
 
-type Props = { siteId: string; workerId: string; hiddenSections?: string[]; onSubmit?: () => void };
+type Props = { siteId: string; workerId: string; hiddenSections?: string[]; onSubmit?: () => void | Promise<void> };
 
 export function InstallationTab({ siteId, workerId, hiddenSections, onSubmit }: Props) {
   const { data, patch, save, loaded, lastSaved, saving } = usePhaseData<Record<string, any>>(
@@ -356,7 +356,7 @@ export function InstallationTab({ siteId, workerId, hiddenSections, onSubmit }: 
           onClick={async () => {
             const saved = await save({ ...data, installation_phase_submitted: true });
             if (!saved) return;
-            if (onSubmit) onSubmit();
+            if (onSubmit) await onSubmit();
           }} 
           className="w-full sm:w-auto text-base py-3 px-8"
         >

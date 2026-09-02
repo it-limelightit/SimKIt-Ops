@@ -81,6 +81,7 @@ type SiteRow = {
   workerIds: string[];
   meta: {
     status: string;
+    status_source: string;
     c1_name: string;
     c1_mobile: string;
     c1_email: string;
@@ -103,6 +104,14 @@ const FACTORY_STATUS_OPTIONS = [
   "Unsubmitted",
   "Dropped / Rejected",
 ] as const;
+
+const STATUS_REQUIRES_FIELD_ASSOCIATE = new Set([
+  "Assessed",
+  "Installed",
+  "Commissioned",
+  "Certification Pending",
+  "Submitted",
+]);
 
 export function Overview() {
   const navigate = useNavigate();
@@ -426,9 +435,16 @@ export function Overview() {
     newStatus: string,
     currentTaskNotes: string | null,
     currentStatus?: string,
+    currentWorkerIds: string[] = [],
   ) => {
     try {
       const meta = parseSiteMetadata(currentTaskNotes);
+      const assignedWorkerIds = currentWorkerIds.length > 0 ? currentWorkerIds : meta.worker_ids || [];
+
+      if (STATUS_REQUIRES_FIELD_ASSOCIATE.has(newStatus) && assignedWorkerIds.length === 0) {
+        toast.error("Please select a Field Associate before changing this status.");
+        return;
+      }
 
       let consultantStage: string | null = null;
       let metaStatus: string = "";
@@ -437,7 +453,6 @@ export function Overview() {
       if (newStatus === "Dropped / Rejected") {
         consultantStage = null;
         metaStatus = "Dropped / Rejected";
-        updatedWorkers = [];
       } else if (newStatus === "Submitted") {
         consultantStage = "Completion";
         metaStatus = "Submitted";
@@ -472,6 +487,7 @@ export function Overview() {
       const newNotes = serializeSiteMetadata(currentTaskNotes, {
         ...meta,
         status: metaStatus,
+        status_source: "manager",
         ...(updatedWorkers !== undefined ? { worker_ids: updatedWorkers } : {})
       });
 
@@ -611,7 +627,7 @@ export function Overview() {
           onClick={(e) => e.stopPropagation()} // Prevent row click navigation
           onChange={(e) => {
             e.stopPropagation(); // Prevent row click navigation
-            updateSiteStatus(row.id, e.target.value, row.task_notes, canonicalStatus);
+            updateSiteStatus(row.id, e.target.value, row.task_notes, canonicalStatus, row.workerIds);
           }}
           className={`rounded border px-2 py-0.5 text-[11px] font-semibold cursor-pointer outline-none transition-colors ${toneClass}`}
         >
@@ -757,6 +773,7 @@ const allProcessedRows: SiteRow[] = rawSites.map((site) => {
     company_name: site.company_name ?? null,
     meta: {
       status: meta.status || "",
+      status_source: meta.status_source || "",
       c1_name: meta.c1_name || "",
       c1_mobile: meta.c1_mobile || "",
       c1_email: meta.c1_email || "",
@@ -779,23 +796,27 @@ const filteredForCounts = allProcessedRows.filter((row) => {
 // Calculate counts based on current filters and canonical status partitioning
 const logisticsStatusKey = (r: SiteRow) => r.logisticsStatus.trim().toLowerCase();
 const isActualDispatchLogisticsStatus = (r: SiteRow) => ["shipped", "transit", "in transit", "delivered"].includes(logisticsStatusKey(r));
+const hasManualStatusSource = (r: SiteRow) => r.meta.status_source === "manager" || r.meta.status_source === "associate";
 
 const isPendingPanelDispatched = (r: SiteRow) => {
-  return r.hasDeviceOrder &&
+  return !hasManualStatusSource(r) &&
+    r.hasDeviceOrder &&
     r.status === "Assessed" &&
     ![
-    "Submitted",
-    "Unsubmitted",
-    "Certification Pending",
-    "Dropped / Rejected",
-    "Pending Assignment",
-    "Installed",
-    "Commissioned",
+      "Submitted",
+      "Unsubmitted",
+      "Certification Pending",
+      "Dropped / Rejected",
+      "Pending Assignment",
+      "Not Started Yet",
+      "Installed",
+      "Commissioned",
   ].includes(r.status) &&
     !isActualDispatchLogisticsStatus(r);
 };
 const isDispatchedActual = (r: SiteRow) => {
-  return r.hasLogisticsOrder &&
+  return !hasManualStatusSource(r) &&
+    r.hasLogisticsOrder &&
     isActualDispatchLogisticsStatus(r) &&
     ![
       "Installed",
@@ -804,6 +825,8 @@ const isDispatchedActual = (r: SiteRow) => {
       "Certification Pending",
       "Unsubmitted",
       "Dropped / Rejected",
+      "Pending Assignment",
+      "Not Started Yet",
     ].includes(r.status);
 };
 const assignedWorkflowRows = filteredForCounts.filter((r) => ![
@@ -812,7 +835,7 @@ const assignedWorkflowRows = filteredForCounts.filter((r) => ![
   "Certification Pending",
   "Dropped / Rejected",
   "Pending Assignment",
-].includes(r.status));
+].includes(r.status) && r.workerIds.length > 0);
 const activeAssignedRows = assignedWorkflowRows;
 const countTotal = filteredForCounts.length; // First card represents total companies count
 // Keep the top-level company buckets mutually exclusive for reconciliation.
@@ -824,13 +847,13 @@ const countPendingPortal = filteredForCounts.filter((r) => {
 }).length;
 const countUnsubmitted = filteredForCounts.filter((r) => r.status === "Unsubmitted").length;
 const countCertification = filteredForCounts.filter((r) => r.status === "Certification Pending").length;
-const countInstalled = activeAssignedRows.filter((r) => r.status === "Installed").length;
-const countCommissioned = activeAssignedRows.filter((r) => r.status === "Commissioned").length;
-const countPendingDispatched = activeAssignedRows.filter((r) => isPendingPanelDispatched(r)).length;
-const countDispatched = activeAssignedRows.filter((r) => isDispatchedActual(r)).length;
-const countAssessment = activeAssignedRows.filter((r) => r.status === "Assessed" || isPendingPanelDispatched(r) || isDispatchedActual(r)).length;
+const countInstalled = filteredForCounts.filter((r) => r.status === "Installed").length;
+const countCommissioned = filteredForCounts.filter((r) => r.status === "Commissioned").length;
+const countPendingDispatched = filteredForCounts.filter((r) => isPendingPanelDispatched(r)).length;
+const countDispatched = filteredForCounts.filter((r) => isDispatchedActual(r)).length;
+const countAssessment = filteredForCounts.filter((r) => r.status === "Assessed" || isPendingPanelDispatched(r) || isDispatchedActual(r)).length;
 const countDropped = filteredForCounts.filter((r) => r.status === "Dropped / Rejected").length;
-const countNotStarted = activeAssignedRows.filter((r) => r.status === "Not Started Yet" && !isPendingPanelDispatched(r) && !isDispatchedActual(r)).length;
+const countNotStarted = filteredForCounts.filter((r) => r.status === "Not Started Yet" && !isPendingPanelDispatched(r) && !isDispatchedActual(r)).length;
 const countAssignedBc = activeAssignedRows.length;
 
 // Apply selected KPI filter to table
@@ -855,9 +878,9 @@ const filteredByKpi = filteredForCounts.filter((row) => {
     case "assigned_bc":
       return assignedWorkflowRows.some((r) => r.id === row.id);
     case "not_started":
-      return row.workerIds.length > 0 && status === "Not Started Yet" && !isPendingPanelDispatched(row) && !isDispatchedActual(row);
+      return status === "Not Started Yet" && !isPendingPanelDispatched(row) && !isDispatchedActual(row);
     case "assessment":
-      return row.workerIds.length > 0 && (status === "Assessed" || isPendingPanelDispatched(row) || isDispatchedActual(row));
+      return status === "Assessed" || isPendingPanelDispatched(row) || isDispatchedActual(row);
     case "dispatched":
       return isPendingPanelDispatched(row);
     case "dispatched_actual":

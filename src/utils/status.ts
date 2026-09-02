@@ -68,6 +68,9 @@ export function getDisplayPhaseProgress(
   progress: PhaseProgress,
   options: { isLogisticsDispatched?: boolean } = {},
 ): PhaseProgress {
+  if (status === "Not Started Yet" || status === "Pending Assignment" || status === "Dropped / Rejected") {
+    return { a: 0, i: 0, c: 0 };
+  }
   if (status === "Assessed" || status === "Panel Dispatched" || options.isLogisticsDispatched) {
     return { a: 100, i: 0, c: 0 };
   }
@@ -76,9 +79,6 @@ export function getDisplayPhaseProgress(
   }
   if (status === "Commissioned" || status === "Submitted" || status === "Certification Pending") {
     return { a: 100, i: 100, c: 100 };
-  }
-  if (status === "Not Started Yet" || status === "Pending Assignment" || status === "Dropped / Rejected") {
-    return { a: 0, i: 0, c: 0 };
   }
   return progress;
 }
@@ -175,14 +175,33 @@ export function getCanonicalStatus(
     return "Dropped / Rejected";
   }
 
-  // 2. Explicit manager metadata overrides phase values.
+  // 2. Manual manager/associate status must win over older phase rows.
+  const latestStatusLog = Array.isArray(meta.activity_logs)
+    ? meta.activity_logs.find((log) => log?.type === "status_change")
+    : null;
+  const isLegacyManualOverride = !!meta.status && latestStatusLog?.to_status === meta.status;
+
+  if ((meta.status_source === "manager" || meta.status_source === "associate" || isLegacyManualOverride) && meta.status) {
+    if (meta.status === "In Assessment") return "Assessed";
+    return meta.status;
+  }
+
+  // 3. Explicit final metadata overrides lower phase values.
   if (meta.status === "Submitted") return "Submitted";
   if (meta.status === "Certification Pending") return "Certification Pending";
   if (meta.status === "Unsubmitted") return "Unsubmitted";
   if (meta.status === "Commissioned") return "Commissioned";
+
+  // Final commissioning submit must outrank stale lower statuses like Installed.
+  // Do not use realCP alone here; old auto-saved checklist data should not
+  // reclassify Installed companies unless the phase was explicitly submitted.
+  if (isCommissioningSubmitted) {
+    return "Commissioned";
+  }
+
   if (meta.status === "Installed") return "Installed";
 
-  // 3. Billing / Completion is the consultant-side submitted state.
+  // 4. Billing / Completion is the consultant-side submitted state.
   // It must outrank stale lower metadata such as Assessed.
   if (site.consultant_stage === "Completion" || site.consultant_stage === "Billing") {
     return "Submitted";
@@ -192,13 +211,6 @@ export function getCanonicalStatus(
   if (meta.status === "Assessed" || meta.status === "In Assessment") return "Assessed";
   if (meta.status === "Not Started Yet" && !isPanelDispatched) return "Not Started Yet";
   if (meta.status === "Pending Assignment" && !isPanelDispatched) return hasWorker ? "Not Started Yet" : "Pending Assignment";
-
-  // 4. Completed phase submissions should advance stale lower-stage metadata.
-  if (realCP === 100 || isCommissioningSubmitted) {
-    const isCertSent = !!cr?.data?.certificate_sent || !!ar?.data?.certificate_sent;
-    if (isCertSent) return "Submitted";
-    return "Commissioned";
-  }
 
   if (realIP === 100 || isInstallationSubmitted) {
     return "Installed";

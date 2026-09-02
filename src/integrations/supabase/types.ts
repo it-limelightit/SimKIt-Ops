@@ -443,6 +443,10 @@ export type Database = {
         Args: { _site_id: string; _stage: string }
         Returns: undefined
       }
+      set_consultant_site_status: {
+        Args: { _site_id: string; _task_notes: string }
+        Returns: undefined
+      }
     }
     Enums: {
       app_role: "worker" | "supervisor" | "owner"
