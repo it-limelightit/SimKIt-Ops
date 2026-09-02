@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { usePhaseData } from "@/lib/use-phase-data";
 import { advanceSiteVisitStatus } from "@/lib/site-metadata";
 
-type Props = { siteId: string; workerId: string; hiddenSections?: string[]; onSubmit?: () => void };
+type Props = { siteId: string; workerId: string; hiddenSections?: string[]; onSubmit?: () => void | Promise<void> };
 
 export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit }: Props) {
   const { data, patch, save, loaded, lastSaved, saving } = usePhaseData<Record<string, any>>(
@@ -31,6 +31,31 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit }:
     !!data.screenshots_uploaded && 
     !!data.certificate_sent && 
     !!data.final_mom_uploaded;
+
+  const buildCommissionedData = (base: Record<string, any> = data) => {
+    const submittedAt = nowIso();
+    return {
+      ...base,
+      coordination_done: true,
+      coordination_at: base.coordination_at || submittedAt,
+      visit_done: true,
+      visit_at: base.visit_at || submittedAt,
+      connection_done: true,
+      connection_at: base.connection_at || submittedAt,
+      configure_done: true,
+      configure_at: base.configure_at || submittedAt,
+      testing_done: true,
+      testing_at: base.testing_at || submittedAt,
+      screenshots_uploaded: true,
+      screenshots_uploaded_at: base.screenshots_uploaded_at || submittedAt,
+      certificate_sent: true,
+      certificate_sent_at: base.certificate_sent_at || submittedAt,
+      final_mom_uploaded: true,
+      final_mom_uploaded_at: base.final_mom_uploaded_at || submittedAt,
+      commissioning_phase_submitted: true,
+      commissioning_phase_submitted_at: base.commissioning_phase_submitted_at || submittedAt,
+    };
+  };
 
   const handleToggleCommissioned = async (checked: boolean) => {
     const patchObj: Record<string, any> = {
@@ -110,8 +135,9 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit }:
               toast.error("Please confirm commissioning before submitting.");
               return;
             }
-            await save({ ...data, commissioning_phase_submitted: true });
-            if (onSubmit) onSubmit();
+            const saved = await save(buildCommissionedData());
+            if (!saved) return;
+            if (onSubmit) await onSubmit();
           }} 
           className="w-full sm:w-auto text-base py-3 px-8"
         >

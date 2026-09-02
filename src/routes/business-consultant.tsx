@@ -6,7 +6,7 @@ import { Badge, Button, ProgressBar, Skeleton, Select, Label, Card, Input } from
 import { AssessmentTab } from "@/components/business-consultant/AssessmentTab";
 import { InstallationTab } from "@/components/business-consultant/InstallationTab";
 import { CommissioningTab } from "@/components/business-consultant/CommissioningTab";
-import { LogOut, Check, CheckCircle2, MapPin, Calendar, Clock, BookOpen, Boxes, Sun, Moon, User, Phone, Mail, Lock, Wrench, Building2, Layers, BarChart3, Activity, TrendingUp } from "lucide-react";
+import { LogOut, Check, CheckCircle2, CircleX, MapPin, Calendar, Clock, BookOpen, Boxes, Sun, Moon, User, Phone, Mail, Lock, Wrench, Building2, Layers, BarChart3, Activity, TrendingUp } from "lucide-react";
 import { parseTaskNotes } from "@/components/staff/TasksPanel";
 import { parseSiteMetadata, recordStatusActivityLog, serializeSiteMetadata } from "@/lib/site-metadata";
 import { toast } from "sonner";
@@ -50,7 +50,6 @@ function BusinessConsultantPage() {
   const [tab, setTab] = useState<"assessment" | "installation" | "commissioning">("assessment");
   const [progress, setProgress] = useState({ assessment: 0, installation: 0, commissioning: 0 });
   const [submittedPhases, setSubmittedPhases] = useState<Set<string>>(new Set());
-  const [thankYou, setThankYou] = useState(false);
   const [clientShareEmail, setClientShareEmail] = useState("");
   const [generatedLink, setGeneratedLink] = useState("");
   const [sendingEmail, setSendingEmail] = useState(false);
@@ -250,18 +249,16 @@ function BusinessConsultantPage() {
       };
     });
 
-    const activeSitesData = sitesData.filter(s => s.derivedStatus !== "Submitted");
-
     setQueryError(null);
-    setSitesList(activeSitesData);
-    setSitesWithProgress(activeSitesData);
+    setSitesList(sitesData);
+    setSitesWithProgress(sitesData);
 
-    if (activeSitesData.length > 0) {
-      const currentStillExists = activeSitesData.find(s => s.id === selectedSiteId);
+    if (sitesData.length > 0) {
+      const currentStillExists = sitesData.find(s => s.id === selectedSiteId);
       if (!currentStillExists) {
-        setSite(activeSitesData[0]);
-        setSelectedSiteId(activeSitesData[0].id);
-        setSelectedFactoryId(activeSitesData[0].id);
+        setSite(sitesData[0]);
+        setSelectedSiteId(sitesData[0].id);
+        setSelectedFactoryId(sitesData[0].id);
       } else {
         setSite(currentStillExists);
       }
@@ -383,6 +380,51 @@ function BusinessConsultantPage() {
     await fetchSites();
   };
 
+  const updateSiteCommissioned = async () => {
+    if (!site) return false;
+    const nextNotes = serializeSiteMetadata(site.task_notes, {
+      ...parseSiteMetadata(site.task_notes),
+      status: "Commissioned",
+      status_source: "associate",
+    });
+
+    const { error } = await supabase.rpc("set_consultant_site_status", {
+      _site_id: site.id,
+      _task_notes: nextNotes,
+    });
+
+    if (error) {
+      toast.error("Could not update the site status: " + error.message);
+      return false;
+    }
+
+    setSite({ ...site, task_notes: nextNotes, consultant_stage: null });
+    await fetchSites();
+    return true;
+  };
+
+  const updateSiteAssociateStatus = async (toStatus: "Assessed" | "Installed") => {
+    if (!site) return false;
+    const nextNotes = serializeSiteMetadata(site.task_notes, {
+      ...parseSiteMetadata(site.task_notes),
+      status: toStatus,
+      status_source: "associate",
+    });
+
+    const { error } = await supabase.rpc("set_consultant_site_status", {
+      _site_id: site.id,
+      _task_notes: nextNotes,
+    });
+
+    if (error) {
+      toast.error("Could not update the site status: " + error.message);
+      return false;
+    }
+
+    setSite({ ...site, task_notes: nextNotes, consultant_stage: null });
+    return true;
+  };
+
   const completeAssessmentAfterDeviceOrder = async () => {
     if (!site || !userId) return;
     const companyName = site.company_name || site.name;
@@ -426,12 +468,8 @@ function BusinessConsultantPage() {
       return;
     }
 
-    await recordStatusActivityLog(site.id, {
-      user_id: userId,
-      user_name: profile?.name || profile?.mobile || email || userId || "Unknown User",
-      from_status: displayedStatus,
-      to_status: "Assessed",
-    });
+    const statusSaved = await updateSiteAssociateStatus("Assessed");
+    if (!statusSaved) return;
     setSubmittedPhases(prev => new Set([...prev, "assessment"]));
     setTab("installation");
     toast.success("Assessment phase submitted.");
@@ -799,13 +837,9 @@ function BusinessConsultantPage() {
             <InstallationTab
               siteId={site.id}
               workerId={userId!}
-              onSubmit={() => {
-                void recordStatusActivityLog(site.id, {
-                  user_id: userId,
-                  user_name: profile?.name || profile?.mobile || email || userId || "Unknown User",
-                  from_status: displayedStatus,
-                  to_status: "Installed",
-                });
+              onSubmit={async () => {
+                const statusSaved = await updateSiteAssociateStatus("Installed");
+                if (!statusSaved) return;
                 setSubmittedPhases(prev => new Set([...prev, "installation"]));
                 setProgress(prev => ({ ...prev, installation: 100 }));
                 setTab("commissioning");
@@ -831,33 +865,22 @@ function BusinessConsultantPage() {
             <CommissioningTab
               siteId={site.id}
               workerId={userId!}
-              onSubmit={() => {
-                void updateConsultantStage("Billing").then(() => setThankYou(true));
+              onSubmit={async () => {
+                const saved = await updateSiteCommissioned();
+                if (saved) {
+                  setSubmittedPhases(prev => new Set([...prev, "commissioning"]));
+                  setProgress(prev => ({ ...prev, commissioning: 100 }));
+                  setSelectedKpi("commissioned");
+                  setView("dashboard");
+                  toast.success("Commissioned successfully.");
+                  void fetchSites();
+                }
               }}
             />
           )
         )}
       </main>
 
-      {thankYou && (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#08080F] px-6 text-center animate-in fade-in duration-300" style={{ background: "radial-gradient(circle at center, #1A2A00 0%, #08080F 70%)" }}>
-          <div className="flex h-24 w-24 items-center justify-center rounded-full bg-lime/20 text-lime animate-pulse mb-6">
-            <CheckCircle2 size={48} strokeWidth={1.5} />
-          </div>
-          <h2 className="text-5xl uppercase tracking-tight font-extrabold text-lime font-syne">
-            THANK YOU
-          </h2>
-          <p className="mt-4 text-lg text-text-primary max-w-md font-sans">
-            All phases have been successfully submitted. Your work on <strong>{site.name}</strong> is complete.
-          </p>
-          <p className="mt-2 text-sm text-text-secondary font-mono">
-            The site is now in Billing and is visible to your manager.
-          </p>
-          <Button className="mt-10" onClick={() => { setThankYou(false); setView("dashboard"); void fetchSites(); }}>
-            Go back to Dashboard
-          </Button>
-        </div>
-      )}
     </Shell>
   );
 }
@@ -906,7 +929,10 @@ function ConsultantDashboard({
   const countAssessed = sites.filter(s => s.derivedStatus === "Assessed").length;
   const countDeviceOrder = sites.filter(s => s.derivedStatus === "Panel Dispatched" || s.derivedStatus === "Device Order").length;
   const countInstalled = sites.filter(s => s.derivedStatus === "Installed").length;
-  const countCommissioned = sites.filter(s => s.derivedStatus === "Commissioned" || s.derivedStatus === "Submitted" || s.derivedStatus === "Billing" || s.derivedStatus === "Completion").length;
+  const countCommissioned = sites.filter(s => s.derivedStatus === "Commissioned").length;
+  const countSubmitted = sites.filter(s => s.derivedStatus === "Submitted").length;
+  const countDropped = sites.filter(s => s.derivedStatus === "Dropped / Rejected").length;
+  const countClosed = sites.filter(s => s.derivedStatus === "Submitted" || s.derivedStatus === "Dropped / Rejected").length;
 
   const avgOverallProgress = totalSites > 0 ? Math.round(sites.reduce((acc, s) => acc + (s.overall || 0), 0) / totalSites) : 0;
   const getShare = (count: number) => totalSites > 0 ? Math.round((count / totalSites) * 100) : 0;
@@ -968,18 +994,37 @@ function ConsultantDashboard({
       id: "commissioned",
       label: "Commissioned",
       value: countCommissioned,
-      desc: "Fully commissioned",
+      desc: "Commissioned only",
       icon: CheckCircle2,
       badgeStyle: "text-emerald-600 bg-emerald-50 border-emerald-200",
       activeBorder: "border-emerald-500 ring-2 ring-emerald-500/10 bg-surface scale-[1.02] shadow-md",
       dotStyle: "bg-emerald-500",
     },
+    {
+      id: "dropped",
+      label: "Dropped / Rejected",
+      value: countDropped,
+      desc: "Rejected assignments",
+      icon: CircleX,
+      badgeStyle: "text-red-600 bg-red-50 border-red-200",
+      activeBorder: "border-red-500 ring-2 ring-red-500/10 bg-surface scale-[1.02] shadow-md",
+      dotStyle: "bg-red-500",
+    },
   ];
 
+  const filterLabels: Record<string, string> = {
+    total: "All Assigned Sites",
+    not_started: "Not Started Yet",
+    assessed: "Assessed",
+    device_order: "Device Order",
+    installed: "Installed",
+    commissioned: "Commissioned",
+    submitted: "Submitted",
+    dropped: "Dropped / Rejected",
+    closed: "Submitted / Dropped",
+  };
+
   const filteredSites = sites.filter((s) => {
-    if (s.derivedStatus === "Submitted") {
-      return false;
-    }
     if (selectedKpi === "total") {
       return true;
     }
@@ -996,7 +1041,16 @@ function ConsultantDashboard({
       return s.derivedStatus === "Installed";
     }
     if (selectedKpi === "commissioned") {
-      return s.derivedStatus === "Commissioned" || s.derivedStatus === "Submitted" || s.derivedStatus === "Billing" || s.derivedStatus === "Completion";
+      return s.derivedStatus === "Commissioned";
+    }
+    if (selectedKpi === "submitted") {
+      return s.derivedStatus === "Submitted";
+    }
+    if (selectedKpi === "dropped") {
+      return s.derivedStatus === "Dropped / Rejected";
+    }
+    if (selectedKpi === "closed") {
+      return s.derivedStatus === "Submitted" || s.derivedStatus === "Dropped / Rejected";
     }
     return true;
   });
@@ -1019,7 +1073,7 @@ function ConsultantDashboard({
       </header>
 
       {/* KTA / KPI Status Cards Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3.5">
         {kpiCards.map((k) => {
           const active = selectedKpi === k.id;
           const Icon = k.icon;
@@ -1117,13 +1171,21 @@ function ConsultantDashboard({
       )}
 
       {/* Sites List Header */}
-      <div className="flex items-center justify-between border-b border-border pb-2 pt-2">
+      <div className="flex flex-col gap-3 border-b border-border pb-2 pt-2 sm:flex-row sm:items-center sm:justify-between">
         <span className="text-xs font-mono text-text-secondary uppercase tracking-wider font-bold">
-          {selectedKpi ? `${kpiCards.find(k => k.id === selectedKpi)?.label} (${filteredSites.length})` : `All Assigned Sites (${sites.length})`}
+          {selectedKpi ? `${filterLabels[selectedKpi] ?? "Filtered Sites"} (${filteredSites.length})` : `All Assigned Sites (${sites.length})`}
         </span>
-        {selectedKpi && (
-          <span className="text-[10px] text-text-dim font-mono">Filter applied: {selectedKpi}</span>
-        )}
+        <Select
+          value={selectedKpi || "total"}
+          onChange={(e) => setSelectedKpi(e.target.value)}
+          className="h-8 w-full py-1 text-xs sm:w-56"
+        >
+          <option value="total">All assigned ({sites.length})</option>
+          <option value="commissioned">Commissioned ({countCommissioned})</option>
+          <option value="submitted">Submitted ({countSubmitted})</option>
+          <option value="dropped">Dropped / Rejected ({countDropped})</option>
+          <option value="closed">Submitted / Dropped ({countClosed})</option>
+        </Select>
       </div>
 
       {sites.length === 0 ? (
@@ -1132,7 +1194,7 @@ function ConsultantDashboard({
         </div>
       ) : filteredSites.length === 0 ? (
         <div className="border border-border rounded-[10px] bg-surface px-6 py-12 text-center space-y-3">
-          <p className="text-text-secondary text-sm font-semibold">No sites currently in stage "{kpiCards.find(k => k.id === selectedKpi)?.label}".</p>
+          <p className="text-text-secondary text-sm font-semibold">No sites currently in stage "{filterLabels[selectedKpi] ?? "Filtered Sites"}".</p>
           <button
             onClick={() => setSelectedKpi("")}
             className="text-xs text-lime underline font-mono font-bold cursor-pointer"

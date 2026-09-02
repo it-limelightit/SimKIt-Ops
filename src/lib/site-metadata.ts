@@ -9,6 +9,7 @@ export type SiteMeta = {
   c2_mobile: string;
   c2_email: string;
   status: string;
+  status_source?: "manager" | "associate" | "system";
   create_drive_folder: boolean;
   drive_folder_name: string;
   drive_folder_link: string;

@@ -64,6 +64,14 @@ const FACTORY_STATUS_OPTIONS = [
   "Not Started Yet",
 ] as const;
 
+const STATUS_REQUIRES_FIELD_ASSOCIATE = new Set([
+  "Assessed",
+  "Installed",
+  "Commissioned",
+  "Certification Pending",
+  "Submitted",
+]);
+
 const CUSTOM_LIST_COLUMNS = [
   { key: "no", label: "NO.", weight: 0.45 },
   { key: "company", label: "COMPANY DETAILS", weight: 2.7 },
@@ -425,6 +433,7 @@ export function SitesPanel() {
       c2_mobile: form.c2_mobile,
       c2_email: form.c2_email,
       status: metaStatus,
+      status_source: "manager",
       create_drive_folder: form.create_drive_folder,
       drive_folder_name: form.name,
       drive_folder_link: form.create_drive_folder ? form.drive_folder_link : "",
@@ -569,6 +578,7 @@ export function SitesPanel() {
       c2_mobile: form.c2_mobile,
       c2_email: form.c2_email,
       status: metaStatus,
+      status_source: "manager",
       create_drive_folder: form.create_drive_folder,
       drive_folder_name: form.name,
       drive_folder_link: form.create_drive_folder ? form.drive_folder_link : "",
@@ -1232,9 +1242,16 @@ export function SitesPanel() {
     newStatus: string,
     currentTaskNotes: string | null,
     currentStatus?: string,
+    currentWorkerIds: string[] = [],
   ) => {
     try {
       const meta = parseSiteMetadata(currentTaskNotes);
+      const assignedWorkerIds = currentWorkerIds.length > 0 ? currentWorkerIds : meta.worker_ids || [];
+
+      if (STATUS_REQUIRES_FIELD_ASSOCIATE.has(newStatus) && assignedWorkerIds.length === 0) {
+        toast.error("Please select a Field Associate before changing this status.");
+        return;
+      }
       
       let consultantStage: string | null = null;
       let metaStatus: string = "";
@@ -1243,7 +1260,6 @@ export function SitesPanel() {
       if (newStatus === "Dropped / Rejected") {
         consultantStage = null;
         metaStatus = "Dropped / Rejected";
-        updatedWorkers = [];
       } else if (newStatus === "Submitted") {
         consultantStage = "Completion";
         metaStatus = "Submitted";
@@ -1279,6 +1295,7 @@ export function SitesPanel() {
       const newNotes = serializeSiteMetadata(currentTaskNotes, { 
         ...meta, 
         status: metaStatus,
+        status_source: "manager",
         ...(updatedWorkers !== undefined ? { worker_ids: updatedWorkers } : {})
       });
 
@@ -2368,7 +2385,7 @@ export function SitesPanel() {
                         <div className="flex flex-col gap-1">
                           <select
                             value={canonicalStatus || ""}
-                            onChange={(e) => updateSiteStatus(s.id, e.target.value, s.task_notes, canonicalStatus)}
+                            onChange={(e) => updateSiteStatus(s.id, e.target.value, s.task_notes, canonicalStatus, assignedIds)}
                             className={`appearance-none rounded-[4px] px-2 py-1 font-mono text-[10px] uppercase tracking-wider font-bold border outline-none cursor-pointer transition-all ${
                               canonicalStatus === "Submitted"
                                 ? "bg-mint-dim text-mint border-mint/20"
