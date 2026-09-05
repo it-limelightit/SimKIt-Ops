@@ -919,7 +919,7 @@ function ConsultantDashboard({
   sites,
   onSelectSite
 }: {
-  sites: Array<Site & { aPct: number; iPct: number; cPct: number; overall: number; status: "Complete" | "Working" | "Pending"; derivedStatus: string; assessmentPendingReasons: string[] }>;
+  sites: Array<Site & { aPct: number; iPct: number; cPct: number; overall: number; status: "Complete" | "Working" | "Pending"; derivedStatus: string; assessmentPendingReasons: string[]; submitted: { assessment: boolean; installation: boolean; commissioning: boolean } }>;
   onSelectSite: (siteId: string) => void;
 }) {
   const [selectedKpi, setSelectedKpi] = useState<string>("not_started");
@@ -929,8 +929,12 @@ function ConsultantDashboard({
   const countAssessed = sites.filter(s => s.derivedStatus === "Assessed").length;
   const countDeviceOrder = sites.filter(s => s.derivedStatus === "Panel Dispatched" || s.derivedStatus === "Device Order").length;
   const countInstalled = sites.filter(s => s.derivedStatus === "Installed").length;
-  const countCommissioned = sites.filter(s => s.derivedStatus === "Commissioned").length;
+  // Commissioned is a completed milestone and remains counted when the manager
+  // later moves the assignment to Certification Pending or Submitted.
+  const countCommissioned = sites.filter(s => s.submitted?.commissioning).length;
   const countSubmitted = sites.filter(s => s.derivedStatus === "Submitted").length;
+  const countCertification = sites.filter(s => s.derivedStatus === "Certification Pending").length;
+  const countUnsubmitted = sites.filter(s => s.derivedStatus === "Unsubmitted").length;
   const countDropped = sites.filter(s => s.derivedStatus === "Dropped / Rejected").length;
   const countClosed = sites.filter(s => s.derivedStatus === "Submitted" || s.derivedStatus === "Dropped / Rejected").length;
 
@@ -1020,6 +1024,8 @@ function ConsultantDashboard({
     installed: "Installed",
     commissioned: "Commissioned",
     submitted: "Submitted",
+    certification: "Certification Pending",
+    unsubmitted: "Unsubmitted",
     dropped: "Dropped / Rejected",
     closed: "Submitted / Dropped",
   };
@@ -1041,10 +1047,16 @@ function ConsultantDashboard({
       return s.derivedStatus === "Installed";
     }
     if (selectedKpi === "commissioned") {
-      return s.derivedStatus === "Commissioned";
+      return !!s.submitted?.commissioning;
     }
     if (selectedKpi === "submitted") {
       return s.derivedStatus === "Submitted";
+    }
+    if (selectedKpi === "certification") {
+      return s.derivedStatus === "Certification Pending";
+    }
+    if (selectedKpi === "unsubmitted") {
+      return s.derivedStatus === "Unsubmitted";
     }
     if (selectedKpi === "dropped") {
       return s.derivedStatus === "Dropped / Rejected";
@@ -1181,8 +1193,14 @@ function ConsultantDashboard({
           className="h-8 w-full py-1 text-xs sm:w-56"
         >
           <option value="total">All assigned ({sites.length})</option>
+          <option value="not_started">Not Started Yet ({countNotStarted})</option>
+          <option value="assessed">Assessed ({countAssessed})</option>
+          <option value="device_order">Device Order ({countDeviceOrder})</option>
+          <option value="installed">Installed ({countInstalled})</option>
           <option value="commissioned">Commissioned ({countCommissioned})</option>
           <option value="submitted">Submitted ({countSubmitted})</option>
+          <option value="certification">Certification Pending ({countCertification})</option>
+          <option value="unsubmitted">Unsubmitted ({countUnsubmitted})</option>
           <option value="dropped">Dropped / Rejected ({countDropped})</option>
           <option value="closed">Submitted / Dropped ({countClosed})</option>
         </Select>
