@@ -452,7 +452,7 @@ function LogisticPageWithSeeder() {
         </Button>
       </Card>
       
-      <InventoryPanel editable defaultFilterState="Pending" />
+      <InventoryPanel editable defaultFilterState="all" />
     </div>
   );
 }
