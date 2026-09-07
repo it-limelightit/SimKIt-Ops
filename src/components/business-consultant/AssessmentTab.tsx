@@ -359,19 +359,6 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit, requ
               return;
             }
 
-            if (shouldShow("Factory Operations")) {
-              const check = validateFactoryOperationsForm(data);
-              if (!check.isValid) {
-                toast.error(check.errorMsg || "Mandatory fields missing in Factory Operations Form.");
-                return;
-              }
-            }
-
-            if (shouldShow("Factory Operations") && !data.factory_operations_done) {
-              toast.error("Please complete the Factory Operations Form.");
-              return;
-            }
-
             if (onSubmit) onSubmit();
             if (requireDeviceOrderCompletion) return;
 

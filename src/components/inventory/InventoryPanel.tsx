@@ -36,6 +36,8 @@ import { toast } from "sonner";
 import { parseSiteMetadata } from "@/lib/site-metadata";
 import { useAuth } from "@/lib/auth-store";
 import { actorName, recordActivityLog } from "@/lib/activity-log";
+import { deductStockForOrder, isTruthy } from "@/lib/inventory-service";
+
 
 type Material = {
   id: string;
@@ -1375,18 +1377,18 @@ function OrderCard({
     }
   };
 
-  // Form State - Step 1 (Default unchecked)
-  const [ct1, setCt1] = useState(false);
-  const [ct2, setCt2] = useState(false);
-  const [ct3, setCt3] = useState(false);
-  const [proxy1, setProxy1] = useState(false);
-  const [proxy2, setProxy2] = useState(false);
-  const [encoder, setEncoder] = useState(false);
-  const [vibration, setVibration] = useState(false);
-  const [antenna, setAntenna] = useState(false);
-  const [towerLight, setTowerLight] = useState(false);
-  const [energyMeter, setEnergyMeter] = useState(false);
-  const [plc, setPlc] = useState(false);
+  // Form State - Step 1
+  const [ct1, setCt1] = useState(isTruthy(material.ct1));
+  const [ct2, setCt2] = useState(isTruthy(material.ct2));
+  const [ct3, setCt3] = useState(isTruthy(material.ct3));
+  const [proxy1, setProxy1] = useState(isTruthy(material.proxy1));
+  const [proxy2, setProxy2] = useState(isTruthy(material.proxy2));
+  const [encoder, setEncoder] = useState(isTruthy(material.encoder));
+  const [vibration, setVibration] = useState(isTruthy(material.vibration));
+  const [antenna, setAntenna] = useState(isTruthy(material.antenna));
+  const [towerLight, setTowerLight] = useState(isTruthy(material.tower_light));
+  const [energyMeter, setEnergyMeter] = useState(isTruthy(material.energy_meter));
+  const [plc, setPlc] = useState(isTruthy(material.plc));
 
   const [version, setVersion] = useState(material.version || "");
   const [otaKey, setOtaKey] = useState(material.ota_key || "");
@@ -1411,6 +1413,18 @@ function OrderCard({
 
   // Sync state with latest material values
   useEffect(() => {
+    setCt1(isTruthy(material.ct1));
+    setCt2(isTruthy(material.ct2));
+    setCt3(isTruthy(material.ct3));
+    setProxy1(isTruthy(material.proxy1));
+    setProxy2(isTruthy(material.proxy2));
+    setEncoder(isTruthy(material.encoder));
+    setVibration(isTruthy(material.vibration));
+    setAntenna(isTruthy(material.antenna));
+    setTowerLight(isTruthy(material.tower_light));
+    setEnergyMeter(isTruthy(material.energy_meter));
+    setPlc(isTruthy(material.plc));
+
     setCourierId(material.tracking_number || "");
     setState(initialNotes.logistics_status || "Pending");
     setCourierPartner(material.dispatch || "");
@@ -1427,6 +1441,7 @@ function OrderCard({
     setQuickCourierId(material.tracking_number || "");
     setQuickStatus(initialNotes.logistics_status || "Pending");
   }, [material, initialNotes]);
+
 
   // Handle Quick Save from outer card
   const handleSaveQuick = async (e: React.MouseEvent) => {
@@ -1473,7 +1488,30 @@ function OrderCard({
       })
       .eq("id", material.id);
 
+    if (!error && (quickStatus === "Packing" || quickStatus === "Transit" || quickStatus === "Delivered")) {
+      void deductStockForOrder({
+        orderId: material.id,
+        orderCreatedAt: material.created_at,
+        counts: {
+          datameter_box: material.quantity || 1,
+          ct1: isTruthy(material.ct1) ? 1 : 0,
+          ct2: isTruthy(material.ct2) ? 1 : 0,
+          ct3: isTruthy(material.ct3) ? 1 : 0,
+          proxy1: isTruthy(material.proxy1) ? 1 : 0,
+          proxy2: isTruthy(material.proxy2) ? 1 : 0,
+          vibration: isTruthy(material.vibration) ? 1 : 0,
+          encoder: isTruthy(material.encoder) ? 1 : 0,
+          tower_light: isTruthy(material.tower_light) ? 1 : 0,
+          antenna: isTruthy(material.antenna) ? 1 : 0,
+          energy_meter: isTruthy(material.energy_meter) ? 1 : 0,
+          plc: isTruthy(material.plc) ? 1 : 0,
+        },
+      });
+    }
+
+
     setQuickSaving(false);
+
     if (error) {
       toast.error("Failed to save quick updates: " + error.message);
     } else {
@@ -1595,7 +1633,30 @@ function OrderCard({
       })
       .eq("id", material.id);
 
+    if (!error && (state === "Packing" || state === "Transit" || state === "Delivered")) {
+      void deductStockForOrder({
+        orderId: material.id,
+        orderCreatedAt: material.created_at,
+        counts: {
+          datameter_box: material.quantity || 1,
+          ct1: ct1 ? 1 : 0,
+          ct2: ct2 ? 1 : 0,
+          ct3: ct3 ? 1 : 0,
+          proxy1: proxy1 ? 1 : 0,
+          proxy2: proxy2 ? 1 : 0,
+          vibration: vibration ? 1 : 0,
+          encoder: encoder ? 1 : 0,
+          tower_light: towerLight ? 1 : 0,
+          antenna: antenna ? 1 : 0,
+          energy_meter: energyMeter ? 1 : 0,
+          plc: plc ? 1 : 0,
+        },
+      });
+    }
+
+
     setSaving(false);
+
     if (error) {
       toast.error("Failed to save courier details: " + error.message);
     } else {
