@@ -30,7 +30,6 @@ import {
   Trash2,
   X,
   FileText,
-  LayoutGrid,
   Table2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -257,12 +256,37 @@ export function InventoryPanel({ editable = false, defaultFilterState = "all" }:
 
   return (
     <div className="space-y-7 animate-in fade-in duration-200">
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="font-mono text-[10px] uppercase tracking-widest text-lime/80 font-bold">
             Live Logistics Pipelines
           </p>
-          <h1 className="mt-2 text-4xl uppercase tracking-tight font-extrabold font-syne">Logistic</h1>
+          <div className="mt-2 flex flex-wrap items-center gap-4">
+            <button
+              type="button"
+              onClick={() => {
+                setViewMode("cards");
+                setFilterState("all");
+              }}
+              aria-pressed={viewMode === "cards"}
+              className="text-left text-4xl uppercase tracking-tight font-extrabold font-syne text-text-primary transition hover:text-violet focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet"
+            >
+              Logistic
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("table")}
+              aria-pressed={viewMode === "table"}
+              className={`inline-flex h-12 w-[260px] shrink-0 items-center justify-center gap-3 whitespace-nowrap rounded-[6px] px-3 text-4xl font-extrabold transition ${
+                viewMode === "table"
+                  ? "bg-lime text-background"
+                  : "border border-border bg-surface text-text-secondary hover:bg-surface-raised hover:text-text-primary"
+              }`}
+            >
+              <Table2 size={22} />
+              Device Info
+            </button>
+          </div>
           <p className="mt-2 text-sm text-text-secondary">
             Track client device orders, pack hardware packages, configure OTA settings, and log courier shipments.
           </p>
@@ -353,39 +377,6 @@ export function InventoryPanel({ editable = false, defaultFilterState = "all" }:
           </div>
 
           <div className="flex flex-col items-stretch gap-2 lg:items-end">
-            <div className="flex items-center justify-between gap-3 lg:justify-end">
-              <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-text-secondary">
-                View
-              </span>
-              <div className="inline-flex rounded-[8px] border border-border bg-surface p-1">
-                <button
-                  type="button"
-                  onClick={() => setViewMode("cards")}
-                  aria-pressed={viewMode === "cards"}
-                  className={`inline-flex h-9 items-center gap-2 rounded-[6px] px-3 text-xs font-bold transition ${
-                    viewMode === "cards"
-                      ? "bg-lime text-background"
-                      : "text-text-secondary hover:bg-surface-raised hover:text-text-primary"
-                  }`}
-                >
-                  <LayoutGrid size={14} />
-                  Cards
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewMode("table")}
-                  aria-pressed={viewMode === "table"}
-                  className={`inline-flex h-9 items-center gap-2 rounded-[6px] px-3 text-xs font-bold transition ${
-                    viewMode === "table"
-                      ? "bg-lime text-background"
-                      : "text-text-secondary hover:bg-surface-raised hover:text-text-primary"
-                  }`}
-                >
-                  <Table2 size={14} />
-                  Table
-                </button>
-              </div>
-            </div>
             <Select
               value={tableLocationFilter}
               onChange={(e) => setTableLocationFilter(e.target.value)}
@@ -782,7 +773,7 @@ function LogisticsTableView({
                       <TableCellValue sticky="company" strong>
                         {material.material_name}
                       </TableCellValue>
-                      <TableCellValue>{getLogisticsCity(material.location)}</TableCellValue>
+                      <TableCellValue>{material.location || "Address not available"}</TableCellValue>
                       <TableCellValue mono>{material.device_id || "-"}</TableCellValue>
                       <td className="overflow-hidden border-b border-border/70 px-3 py-3 align-top text-text-secondary">
                         <span className={`rounded-[5px] px-2 py-1 text-[10px] font-bold uppercase ${statusClass(status)}`}>
