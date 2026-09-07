@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { InventoryPanel } from "@/components/inventory/InventoryPanel";
 import { OrderTab } from "@/components/business-consultant/OrderTab";
 import { getCanonicalStatus, getAssessmentPendingReasons, getDisplayPhaseProgress, hasDeviceOrder } from "@/utils/status";
+import { notifyAfterNewFactoryFormSubmission } from "@/lib/factory-form-notification";
 
 export const Route = createFileRoute("/business-consultant")({
   ssr: false,
@@ -467,6 +468,15 @@ function BusinessConsultantPage() {
       toast.error("Device order saved, but assessment status could not be completed.");
       return;
     }
+
+    await notifyAfterNewFactoryFormSubmission(site.id, existingData, {
+      ...existingData,
+      assessment_phase_submitted: true,
+      assessment_details_submitted: true,
+      factory_form_submitted_at: existingData.factory_form_submitted_at || new Date().toISOString(),
+      device_order_completed: true,
+      device_order_completed_at: existingData.device_order_completed_at || new Date().toISOString(),
+    });
 
     const statusSaved = await updateSiteAssociateStatus("Assessed");
     if (!statusSaved) return;

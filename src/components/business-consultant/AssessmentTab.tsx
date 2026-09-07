@@ -20,6 +20,7 @@ import { usePhaseData } from "@/lib/use-phase-data";
 import { useAuth } from "@/lib/auth-store";
 import { advanceSiteVisitStatus, parseSiteMetadata, serializeSiteMetadata } from "@/lib/site-metadata";
 import { Plus, Trash2, Users, Wrench, AlertTriangle, ChevronDown, ChevronUp, Building2, Check, Mail, Clock } from "lucide-react";
+import { notifyAfterNewFactoryFormSubmission } from "@/lib/factory-form-notification";
 
 type Props = {
   siteId: string;
@@ -362,12 +363,14 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit, requ
             if (onSubmit) onSubmit();
             if (requireDeviceOrderCompletion) return;
 
-            await save({
+            const nextData = {
               ...data,
               assessment_phase_submitted: true,
               assessment_details_submitted: true,
               factory_form_submitted_at: new Date().toISOString(),
-            });
+            };
+            const saved = await save(nextData);
+            if (saved) await notifyAfterNewFactoryFormSubmission(siteId, data, nextData);
             toast.success("Assessment phase submitted.");
           }}
           className="w-full sm:w-auto text-base py-3 px-8"

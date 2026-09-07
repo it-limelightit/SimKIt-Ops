@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { Skeleton, Button, ProgressBar, Select, Label, Input, Card } from "@/components/ui-kit";
 import { useAuth } from "@/lib/auth-store";
 import { AssessmentTab } from "@/components/business-consultant/AssessmentTab";
+import { notifyAfterNewFactoryFormSubmission } from "@/lib/factory-form-notification";
 import { InstallationTab } from "@/components/business-consultant/InstallationTab";
 import { CommissioningTab } from "@/components/business-consultant/CommissioningTab";
 import { OrderTab } from "@/components/business-consultant/OrderTab";
@@ -365,6 +366,15 @@ export function Overview() {
       toast.error("Device order saved, but assessment status could not be completed.");
       return;
     }
+
+    await notifyAfterNewFactoryFormSubmission(site.id, existingData, {
+      ...existingData,
+      assessment_phase_submitted: true,
+      assessment_details_submitted: true,
+      factory_form_submitted_at: existingData.factory_form_submitted_at || new Date().toISOString(),
+      device_order_completed: true,
+      device_order_completed_at: existingData.device_order_completed_at || new Date().toISOString(),
+    });
 
     await recordStatusActivityLog(site.id, {
       user_id: userId,
