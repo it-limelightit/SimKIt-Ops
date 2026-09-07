@@ -815,20 +815,19 @@ const isPendingPanelDispatched = (r: SiteRow) => {
     !isActualDispatchLogisticsStatus(r);
 };
 const isDispatchedActual = (r: SiteRow) => {
-  return !hasManualStatusSource(r) &&
-    r.hasLogisticsOrder &&
-    isActualDispatchLogisticsStatus(r) &&
-    ![
+  if (r.hasLogisticsOrder && isActualDispatchLogisticsStatus(r)) {
+    return ![
       "Installed",
       "Commissioned",
       "Submitted",
       "Certification Pending",
       "Unsubmitted",
       "Dropped / Rejected",
-      "Pending Assignment",
-      "Not Started Yet",
     ].includes(r.status);
+  }
+  return r.status === "Panel Dispatched";
 };
+
 const assignedWorkflowRows = filteredForCounts.filter((r) => ![
   "Submitted",
   "Unsubmitted",
