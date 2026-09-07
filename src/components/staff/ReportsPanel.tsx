@@ -451,7 +451,7 @@ export function ReportsPanel() {
         .map((row) => makePhaseRow("installation", row, "Assessed", "Installed")),
       ...commissionings
         .filter((row) => row.data?.commissioning_phase_submitted)
-        .map((row) => makePhaseRow("commissioning", row, "Installed", "Submitted")),
+        .map((row) => makePhaseRow("commissioning", row, "Installed", "Commissioned")),
     ]
       .filter((row): row is ActivityRow => !!row)
       .filter((row) => !auditKeys.has(`${row.activityType}:${row.siteId}:${row.fromStatus}:${row.toStatus}`));

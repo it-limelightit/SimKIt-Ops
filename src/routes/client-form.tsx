@@ -3,6 +3,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { useState, useEffect } from "react";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { supabase } from "@/integrations/supabase/client";
+import { notifyAfterNewFactoryFormSubmission } from "@/lib/factory-form-notification";
 
 // Use admin client if service role key is set, otherwise fall back to standard client
 const db = process.env.SUPABASE_SERVICE_ROLE_KEY ? supabaseAdmin : supabase;
@@ -68,55 +69,6 @@ type ClientFormLookupResult = {
   assessmentData?: Record<string, any>;
 };
 
-function formatTelegramSubmittedAt(value?: string) {
-  const date = value ? new Date(value) : new Date();
-  const safeDate = Number.isNaN(date.getTime()) ? new Date() : date;
-
-  return safeDate.toLocaleString("en-IN", {
-    timeZone: "Asia/Kolkata",
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-async function notifyFactoryFormSubmittedOnTelegram(site: ClientFormSite | undefined, assessmentData: Record<string, any>) {
-  const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
-
-  if (!botToken || !chatId) {
-    console.warn("[Telegram] TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is not configured; skipping factory form notification.");
-    return;
-  }
-
-  const companyName = assessmentData.factory_op_name || site?.company_name || site?.name || "Unknown Company";
-  const simkitOpsLink = process.env.SIMKIT_OPS_LINK || "https://sim-k-it-ops.vercel.app/";
-  const message = [
-    "New factory form submitted",
-    "",
-    `Company: ${companyName}`,
-    `Date & Time: ${formatTelegramSubmittedAt(assessmentData.factory_form_submitted_at)}`,
-    `SIMKit Ops: ${simkitOpsLink}`,
-  ].join("\n");
-
-  const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text: message,
-      disable_web_page_preview: true,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Telegram API error: ${errorText}`);
-  }
-}
-
 // Server Function to fetch Site details and Assessment data by Token
 export const getClientFormSiteByTokenFn = createServerFn({ method: "POST" })
   .validator((data: unknown) => data as { token: string })
@@ -171,12 +123,8 @@ export const saveClientFormByTokenFn = createServerFn({ method: "POST" })
     const wasAlreadySubmitted = existingForm?.assessmentData?.assessment_phase_submitted === true;
     const isSubmittedNow = assessmentData.assessment_phase_submitted === true;
 
-    if (saveResult.success && isSubmittedNow && !wasAlreadySubmitted) {
-      try {
-        await notifyFactoryFormSubmittedOnTelegram(existingForm?.site, assessmentData);
-      } catch (telegramErr: any) {
-        console.error("Factory form saved, but Telegram notification failed:", telegramErr?.message || telegramErr);
-      }
+    if (saveResult.success && isSubmittedNow && !wasAlreadySubmitted && existingForm?.site?.id) {
+      await notifyAfterNewFactoryFormSubmission(existingForm.site.id, existingForm.assessmentData, assessmentData);
     }
 
     return saveResult;
