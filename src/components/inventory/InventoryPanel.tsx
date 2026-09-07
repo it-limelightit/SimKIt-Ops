@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Badge,
@@ -30,6 +30,8 @@ import {
   Trash2,
   X,
   FileText,
+  LayoutGrid,
+  Table2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { parseSiteMetadata } from "@/lib/site-metadata";
@@ -50,6 +52,7 @@ type Material = {
   updated_at: string;
   device_id: string | null;
   submitted: boolean | null;
+  industry: string | null;
   version: string | null;
   ota_key: string | null;
   ota_account: string | null;
@@ -67,6 +70,7 @@ type Material = {
   dispatch: string | null;
   energy_meter: string | null;
   plc: string | null;
+  flash_size: string | null;
   proxy_model: string | null;
   vibration_model: string | null;
   installation_date: string | null;
@@ -78,6 +82,9 @@ type InventoryPanelProps = {
   editable?: boolean;
   defaultFilterState?: string;
 };
+
+type ViewMode = "cards" | "table";
+type TableDateFilter = "all" | "thisMonth" | "lastMonth" | string;
 
 const CUSTOM_OPTION_VALUE = "__custom__";
 const DEFAULT_OTA_KEYS = [
@@ -124,11 +131,14 @@ export function InventoryPanel({ editable = false, defaultFilterState = "all" }:
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [filterState, setFilterState] = useState<string>(defaultFilterState);
+  const [viewMode, setViewMode] = useState<ViewMode>("cards");
+  const [tableDateFilter, setTableDateFilter] = useState<TableDateFilter>("all");
+  const [tableLocationFilter, setTableLocationFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [query, filterState]);
+  }, [query, filterState, tableDateFilter, tableLocationFilter, viewMode]);
 
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -174,42 +184,70 @@ export function InventoryPanel({ editable = false, defaultFilterState = "all" }:
     return m.state === "In transit" ? "Transit" : (m.state || "Pending");
   };
 
-  const filteredMaterials = useMemo(() => {
+  const scopedMaterials = useMemo(() => {
     return materials.filter((m) => {
-      const matchesQuery = `${m.material_name} ${m.device_id ?? ""}`
+      const notes = parseCourierNotes(m);
+      const matchesQuery = `${m.material_name} ${m.device_id ?? ""} ${m.location ?? ""} ${m.tracking_number ?? ""} ${notes.courier_partner} ${notes.courier_id}`
         .toLowerCase()
         .includes(query.toLowerCase());
 
-      const status = getLogisticsStatus(m);
-      let normalizedStatus = status;
-      if (status === "In transit" || status === "Transit" || status === "Shipped") {
-        normalizedStatus = "Transit";
-      }
-      const matchesState = filterState === "all" || normalizedStatus.toLowerCase() === filterState.toLowerCase();
+      const matchesDate = matchesTableDateFilter(getAnalysisDate(m), tableDateFilter);
+      const matchesLocation =
+        tableLocationFilter === "all" || getLogisticsCity(m.location) === tableLocationFilter;
 
-      return matchesQuery && matchesState;
+      return matchesQuery && matchesDate && matchesLocation;
     });
-  }, [materials, query, filterState]);
+  }, [materials, query, tableDateFilter, tableLocationFilter]);
+
+  const filteredMaterials = useMemo(() => {
+    return scopedMaterials.filter((m) => {
+      const status = getLogisticsStatus(m);
+      const normalizedStatus = normalizeLogisticsStatus(status);
+      return filterState === "all" || normalizedStatus.toLowerCase() === filterState.toLowerCase();
+    });
+  }, [scopedMaterials, filterState]);
+
+  const monthOptions = useMemo(() => {
+    const monthKeys = new Set<string>();
+    materials.forEach((m) => {
+      const key = getMonthKey(getAnalysisDate(m));
+      if (key) monthKeys.add(key);
+    });
+    return Array.from(monthKeys).sort((a, b) => b.localeCompare(a));
+  }, [materials]);
+
+  const locationOptions = useMemo(() => {
+    const locations = new Set<string>();
+    materials.forEach((m) => {
+      const normalized = getLogisticsCity(m.location);
+      if (normalized !== "Unassigned") locations.add(normalized);
+    });
+    return Array.from(locations).sort((a, b) => a.localeCompare(b));
+  }, [materials]);
+
+  const tableMaterials = useMemo(() => {
+    return [...filteredMaterials].sort((a, b) => compareDatesDesc(getAnalysisDate(a), getAnalysisDate(b)));
+  }, [filteredMaterials]);
 
   // Analytics Metrics (KTAs)
   const metrics = useMemo(() => {
-    const total = materials.length;
+    const total = scopedMaterials.length;
     let pending = 0;
     let packing = 0;
     let transit = 0;
     let delivered = 0;
 
-    materials.forEach((m) => {
-      const status = getLogisticsStatus(m);
+    scopedMaterials.forEach((m) => {
+      const status = normalizeLogisticsStatus(getLogisticsStatus(m));
       if (status === "Pending") pending++;
       else if (status === "Packing") packing++;
-      else if (status === "Transit" || status === "In transit" || status === "Shipped") transit++;
+      else if (status === "Transit") transit++;
       else if (status === "Delivered") delivered++;
       else pending++;
     });
 
     return { total, pending, packing, transit, delivered };
-  }, [materials]);
+  }, [scopedMaterials]);
 
   const ITEMS_PER_PAGE = 50;
   const totalItems = filteredMaterials.length;
@@ -275,28 +313,92 @@ export function InventoryPanel({ editable = false, defaultFilterState = "all" }:
         />
       </div>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-t border-border pt-4">
-        <div className="flex gap-2">
-          <Select
-            value={filterState}
-            onChange={(e) => setFilterState(e.target.value)}
-            className="text-xs"
-          >
-            <option value="all">All Statuses</option>
-            <option value="Pending">Pending / Not Prepared</option>
-            <option value="Packing">Packing</option>
-            <option value="Transit">In Transit</option>
-            <option value="Delivered">Delivered</option>
-          </Select>
-        </div>
-        <div className="relative sm:w-72">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" size={15} />
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search orders by client name..."
-            className="pl-9"
-          />
+      <div className="flex flex-col gap-3 border-t border-border pt-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Select
+              value={filterState}
+              onChange={(e) => setFilterState(e.target.value)}
+              className="text-xs sm:w-56"
+            >
+              <option value="all">All Statuses</option>
+              <option value="Pending">Pending / Not Prepared</option>
+              <option value="Packing">Packing</option>
+              <option value="Transit">In Transit</option>
+              <option value="Delivered">Delivered</option>
+            </Select>
+            <Select
+              value={tableDateFilter}
+              onChange={(e) => setTableDateFilter(e.target.value)}
+              className="text-xs sm:w-44"
+            >
+              <option value="all">All Months</option>
+              <option value="thisMonth">This Month</option>
+              <option value="lastMonth">Last Month</option>
+              {monthOptions.map((monthKey) => (
+                <option key={monthKey} value={monthKey}>
+                  {formatMonthLabel(monthKey)}
+                </option>
+              ))}
+            </Select>
+            <div className="relative sm:w-80">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" size={15} />
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search orders by client name..."
+                className="pl-9"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-col items-stretch gap-2 lg:items-end">
+            <div className="flex items-center justify-between gap-3 lg:justify-end">
+              <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-text-secondary">
+                View
+              </span>
+              <div className="inline-flex rounded-[8px] border border-border bg-surface p-1">
+                <button
+                  type="button"
+                  onClick={() => setViewMode("cards")}
+                  aria-pressed={viewMode === "cards"}
+                  className={`inline-flex h-9 items-center gap-2 rounded-[6px] px-3 text-xs font-bold transition ${
+                    viewMode === "cards"
+                      ? "bg-lime text-background"
+                      : "text-text-secondary hover:bg-surface-raised hover:text-text-primary"
+                  }`}
+                >
+                  <LayoutGrid size={14} />
+                  Cards
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("table")}
+                  aria-pressed={viewMode === "table"}
+                  className={`inline-flex h-9 items-center gap-2 rounded-[6px] px-3 text-xs font-bold transition ${
+                    viewMode === "table"
+                      ? "bg-lime text-background"
+                      : "text-text-secondary hover:bg-surface-raised hover:text-text-primary"
+                  }`}
+                >
+                  <Table2 size={14} />
+                  Table
+                </button>
+              </div>
+            </div>
+            <Select
+              value={tableLocationFilter}
+              onChange={(e) => setTableLocationFilter(e.target.value)}
+              className="w-full text-xs sm:w-52"
+            >
+              <option value="all">All Cities</option>
+              {locationOptions.map((location) => (
+                <option key={location} value={location}>
+                  {location}
+                </option>
+              ))}
+            </Select>
+          </div>
         </div>
       </div>
 
@@ -307,6 +409,11 @@ export function InventoryPanel({ editable = false, defaultFilterState = "all" }:
           ))}
         </div>
       ) : filteredMaterials.length ? (
+        viewMode === "table" ? (
+          <LogisticsTableView
+            materials={tableMaterials}
+          />
+        ) : (
         <div className="space-y-6">
           <div className="grid gap-4 md:grid-cols-2">
             {paginatedMaterials.map((m) => (
@@ -386,6 +493,7 @@ export function InventoryPanel({ editable = false, defaultFilterState = "all" }:
             </div>
           )}
         </div>
+        )
       ) : (
         <EmptyState icon={Boxes} text="No logistics orders found." />
       )}
@@ -435,6 +543,364 @@ function MetricCard({
         </div>
       </div>
     </button>
+  );
+}
+
+function parseCourierNotes(material: Material): CourierNotes {
+  try {
+    if (material.notes && material.notes.startsWith("{")) {
+      const parsed = JSON.parse(material.notes) as Partial<CourierNotes>;
+      return {
+        courier_partner: parsed.courier_partner || "",
+        packing_date: parsed.packing_date || "",
+        transit_date: parsed.transit_date || "",
+        arrived_date: parsed.arrived_date || "",
+        courier_id: parsed.courier_id || "",
+        logistics_status:
+          parsed.logistics_status || (material.state === "In transit" ? "Transit" : material.state || "Pending"),
+      };
+    }
+  } catch {
+    // Keep table analytics resilient when notes contain legacy free text.
+  }
+
+  return {
+    courier_partner: "",
+    packing_date: "",
+    transit_date: "",
+    arrived_date: "",
+    courier_id: "",
+    logistics_status: material.state === "In transit" ? "Transit" : material.state || "Pending",
+  };
+}
+
+function getMonthKey(value: string | null | undefined) {
+  const date = parseDate(value);
+  if (!date) return "";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function getRelativeMonthKey(offset: number) {
+  const date = new Date();
+  date.setMonth(date.getMonth() + offset);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function parseDate(value: string | null | undefined) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function compareDatesDesc(a: string | null | undefined, b: string | null | undefined) {
+  const first = parseDate(a)?.getTime() ?? 0;
+  const second = parseDate(b)?.getTime() ?? 0;
+  return second - first;
+}
+
+function addDaysToDate(value: string | null | undefined, days: number) {
+  const date = parseDate(value);
+  if (!date) return "";
+  date.setDate(date.getDate() + days);
+  return date.toISOString();
+}
+
+function formatDisplayDate(value: string | null | undefined) {
+  const date = parseDate(value);
+  if (!date) return "-";
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(date);
+}
+
+function formatMonthLabel(monthKey: string) {
+  const [year, month] = monthKey.split("-");
+  const date = new Date(Number(year), Number(month) - 1, 1);
+  return new Intl.DateTimeFormat("en-IN", { month: "short", year: "numeric" }).format(date);
+}
+
+function getLogisticsCity(location: string | null | undefined) {
+  const parts = (location || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (!parts.length) return "Unassigned";
+
+  const ignoredParts = new Set([
+    "india",
+    "gujarat",
+    "rajasthan",
+    "maharashtra",
+    "madhya pradesh",
+    "delhi",
+    "karnataka",
+    "telangana",
+    "tamil nadu",
+    "uttar pradesh",
+  ]);
+  const city = [...parts].reverse().find((part) => {
+    const cleaned = part.replace(/[0-9-]/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+    return cleaned && !ignoredParts.has(cleaned);
+  });
+  return city?.replace(/\s*[-/]?\s*\d{5,6}\s*$/, "").trim() || "Unassigned";
+}
+
+function boolLabel(value: string | null | undefined) {
+  if (value === "TRUE" || value === "true" || value === "1") return "Yes";
+  if (value === "FALSE" || value === "false" || value === "0") return "No";
+  return value || "-";
+}
+
+function normalizeLogisticsStatus(status: string) {
+  if (status === "In transit" || status === "Transit" || status === "Shipped") return "Transit";
+  if (status === "Packing") return "Packing";
+  if (status === "Delivered") return "Delivered";
+  return "Pending";
+}
+
+function isSensorChecked(value: string | null | undefined) {
+  return value === "TRUE" || value === "true" || value === "1" || value === "yes" || value === "Yes";
+}
+
+function getAnalysisDate(material: Material) {
+  const notes = parseCourierNotes(material);
+  const status = normalizeLogisticsStatus(notes.logistics_status || material.state || "Pending");
+
+  if (status === "Delivered") {
+    return addDaysToDate(material.created_at, 2) || notes.arrived_date || notes.transit_date || material.updated_at || material.created_at;
+  }
+
+  return notes.transit_date || notes.packing_date || material.updated_at || material.installation_date || material.created_at;
+}
+
+function matchesTableDateFilter(value: string | null | undefined, filter: TableDateFilter) {
+  if (filter === "all") return true;
+  const monthKey = getMonthKey(value);
+  if (!monthKey) return false;
+  if (filter === "thisMonth") return monthKey === getRelativeMonthKey(0);
+  if (filter === "lastMonth") return monthKey === getRelativeMonthKey(-1);
+  return monthKey === filter;
+}
+
+function LogisticsTableView({
+  materials,
+}: {
+  materials: Material[];
+}) {
+  return (
+    <div>
+      <Card className="rounded-[10px] border border-border bg-surface p-0">
+        <div className="flex flex-col gap-2 border-b border-border px-4 py-4 sm:px-5">
+          <div>
+            <h2 className="text-base font-extrabold text-text-primary">Logistics Analysis Table</h2>
+            <p className="mt-1 text-xs text-text-secondary">
+              Live device data grouped for date, delivery, location, courier, and hardware analysis.
+            </p>
+          </div>
+        </div>
+
+        {materials.length ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-[4040px] w-full table-fixed border-separate border-spacing-0 text-left text-xs">
+              <colgroup>
+                <col className="w-32" />
+                <col className="w-72" />
+                <col className="w-40" />
+                <col className="w-40" />
+                <col className="w-32" />
+                <col className="w-40" />
+                <col className="w-48" />
+                <col className="w-36" />
+                <col className="w-36" />
+                <col className="w-36" />
+                <col className="w-40" />
+                <col className="w-32" />
+                <col className="w-32" />
+                {Array.from({ length: 11 }, (_, index) => <col key={`boolean-column-${index}`} className="w-28" />)}
+                <col className="w-36" />
+                <col className="w-48" />
+                <col className="w-40" />
+                <col className="w-56" />
+                <col className="w-72" />
+              </colgroup>
+              <thead className="sticky top-0 z-20 bg-surface-raised text-[10px] uppercase tracking-widest text-text-secondary">
+                <tr>
+                  {[
+                    "Date",
+                    "Company",
+                    "Location",
+                    "Device ID",
+                    "Status",
+                    "Courier",
+                    "Tracking",
+                    "Packing",
+                    "Transit",
+                    "Delivered",
+                    "Industry",
+                    "Version",
+                    "Uplink",
+                    "CT1",
+                    "CT2",
+                    "CT3",
+                    "Proxy1",
+                    "Proxy2",
+                    "Encoder",
+                    "Vibration",
+                    "Antenna",
+                    "Tower",
+                    "Energy",
+                    "PLC",
+                    "Flash",
+                    "Vibration Model",
+                    "Proxy Model",
+                    "ICCID",
+                    "Remark",
+                  ].map((heading, index) => (
+                    <th
+                      key={heading}
+                      className={`whitespace-nowrap border-b border-border px-3 py-3 font-bold ${
+                        index === 0 ? "sticky left-0 z-30 w-32 min-w-32 border-r border-border bg-surface-raised" : ""
+                      } ${index === 1 ? "sticky left-32 z-30 w-72 min-w-72 border-r border-border bg-surface-raised" : ""}`}
+                    >
+                      {heading}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {materials.map((material) => {
+                  const notes = parseCourierNotes(material);
+                  const status = getStatusForRow(material);
+                  return (
+                    <tr
+                      key={material.id}
+                      className="group border-b border-border odd:bg-surface even:bg-surface-raised/25 hover:bg-lime/5"
+                    >
+                      <TableCellValue sticky="left">{formatDisplayDate(getAnalysisDate(material))}</TableCellValue>
+                      <TableCellValue sticky="company" strong>
+                        {material.material_name}
+                      </TableCellValue>
+                      <TableCellValue>{getLogisticsCity(material.location)}</TableCellValue>
+                      <TableCellValue mono>{material.device_id || "-"}</TableCellValue>
+                      <td className="overflow-hidden border-b border-border/70 px-3 py-3 align-top text-text-secondary">
+                        <span className={`rounded-[5px] px-2 py-1 text-[10px] font-bold uppercase ${statusClass(status)}`}>
+                          {status}
+                        </span>
+                      </td>
+                      <TableCellValue>{notes.courier_partner || "-"}</TableCellValue>
+                      <TableCellValue mono>{material.tracking_number || notes.courier_id || "-"}</TableCellValue>
+                      <TableCellValue>{formatDisplayDate(notes.packing_date)}</TableCellValue>
+                      <TableCellValue>{formatDisplayDate(notes.transit_date)}</TableCellValue>
+                      <TableCellValue>{formatDisplayDate(notes.arrived_date)}</TableCellValue>
+                      <TableCellValue>{material.industry || "-"}</TableCellValue>
+                      <TableCellValue>{material.version || "-"}</TableCellValue>
+                      <TableCellValue>{material.uplink || "-"}</TableCellValue>
+                      <SensorCell value={material.ct1} />
+                      <SensorCell value={material.ct2} />
+                      <SensorCell value={material.ct3} />
+                      <SensorCell value={material.proxy1} />
+                      <SensorCell value={material.proxy2} />
+                      <SensorCell value={material.encoder} />
+                      <SensorCell value={material.vibration} />
+                      <SensorCell value={material.antenna} />
+                      <SensorCell value={material.tower_light} />
+                      <SensorCell value={material.energy_meter} />
+                      <SensorCell value={material.plc} />
+                      <TableCellValue>{material.flash_size || "-"}</TableCellValue>
+                      <TableCellValue>{material.vibration_model || "-"}</TableCellValue>
+                      <TableCellValue>{material.proxy_model || "-"}</TableCellValue>
+                      <TableCellValue mono>{material.iccid || "-"}</TableCellValue>
+                      <TableCellValue>{material.remark || "-"}</TableCellValue>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="px-4 py-6">
+            <EmptyState icon={Table2} text="No logistics rows match these table filters." />
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function getStatusForRow(material: Material) {
+  return parseCourierNotes(material).logistics_status || material.state || "Pending";
+}
+
+function statusClass(status: string) {
+  if (status === "Delivered") return "bg-mint/15 text-mint";
+  if (status === "Packing") return "bg-warning/15 text-warning";
+  if (status === "Transit" || status === "In transit" || status === "Shipped") return "bg-violet/15 text-violet";
+  return "bg-coral/15 text-coral";
+}
+
+function TableCellValue({
+  children,
+  strong = false,
+  mono = false,
+  sticky,
+}: {
+  children: ReactNode;
+  strong?: boolean;
+  mono?: boolean;
+  sticky?: "left" | "company";
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <td
+      className={`overflow-hidden border-b border-border/70 px-3 py-3 align-top text-text-secondary ${
+        strong ? "font-semibold text-text-primary" : ""
+      } ${mono ? "font-mono text-[11px]" : ""} ${
+        sticky === "left"
+          ? "sticky left-0 z-20 w-32 min-w-32 max-w-32 border-r border-border/80 bg-surface whitespace-nowrap"
+          : sticky === "company"
+            ? "sticky left-32 z-20 w-72 min-w-72 max-w-72 border-r border-border/80 bg-surface"
+            : ""
+      }`}
+    >
+      <div
+        role="button"
+        tabIndex={0}
+        title="Click to expand this cell"
+        aria-label="Click to expand this cell"
+        onClick={() => setExpanded((current) => !current)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setExpanded((current) => !current);
+          }
+        }}
+        className={`cursor-pointer rounded-[3px] outline-none transition-colors hover:bg-lime/10 focus-visible:ring-1 focus-visible:ring-lime ${
+          expanded ? "whitespace-normal break-words leading-5" : "truncate whitespace-nowrap"
+        }`}
+      >
+        {children}
+      </div>
+    </td>
+  );
+}
+
+function SensorCell({ value }: { value: string | null | undefined }) {
+  const checked = isSensorChecked(value);
+  return (
+    <td className="border-b border-border/70 px-3 py-3 align-top text-center">
+      <span
+        title={checked ? "Enabled" : "Not enabled"}
+        aria-label={checked ? "Enabled" : "Not enabled"}
+        className={`inline-flex h-5 w-5 items-center justify-center rounded-[4px] border ${
+          checked ? "border-lime bg-lime text-background" : "border-border bg-surface-raised text-text-dim"
+        }`}
+      >
+        {checked ? "✓" : ""}
+      </span>
+    </td>
   );
 }
 
@@ -706,10 +1172,10 @@ function OrderCard({
         recipientMobile = "N/A";
       }
 
-      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
 
       const locationText = dynamicAddress || pdfMaterial.location || "Address not specified";
-      const wrapWidth = 160;
+      const wrapWidth = 106;
 
       // Wrap address text at base font size first to calculate line count
       doc.setFont("Helvetica", "normal");
@@ -717,23 +1183,23 @@ function OrderCard({
       let splitLocation = doc.splitTextToSize(locationText, wrapWidth);
       const addressLinesCount = splitLocation.length;
 
-      // Adjust typography and spacing so each label card fits beautifully within a half A4 page (max 130mm height)
-      let fontSizeTitle = 20;
-      let fontSizeHeader = 15;
-      let fontSizeContent = 11;
+      // Keep the address label compact enough to share a landscape page with the device checklist.
+      let fontSizeTitle = 22;
+      let fontSizeHeader = 16;
+      let fontSizeContent = 12;
       let lineSpacing = 7;
       let sectionSpacing = 8;
 
       if (addressLinesCount <= 2) {
-        fontSizeTitle = 22;
-        fontSizeHeader = 17;
-        fontSizeContent = 12;
+        fontSizeTitle = 24;
+        fontSizeHeader = 18;
+        fontSizeContent = 13;
         lineSpacing = 9;
         sectionSpacing = 11;
       } else if (addressLinesCount > 5) {
-        fontSizeTitle = 18;
-        fontSizeHeader = 14;
-        fontSizeContent = 10;
+        fontSizeTitle = 20;
+        fontSizeHeader = 15;
+        fontSizeContent = 11;
         lineSpacing = 6;
         sectionSpacing = 7;
       }
@@ -769,12 +1235,11 @@ function OrderCard({
       const fromAddr2Offset = fromAddr1Offset + lineSpacing;
       const fromMobileOffset = fromAddr2Offset + lineSpacing;
 
-      // The height of a single label (bottom of FROM section)
-      const totalBoxHeight = fromMobileOffset + sectionSpacing;
-
-      // Setup common dimensions
-      const startX = 15;
-      const width = 180;
+      // Both landscape cards use the same fixed dimensions and alignment.
+      const startX = 12;
+      const width = 132;
+      const cardHeight = 150;
+      const totalBoxHeight = cardHeight;
 
       // Helper function to render a single label
       const renderLabel = (startY: number) => {
@@ -829,32 +1294,91 @@ function OrderCard({
         doc.text("Mobile: +91 93130 48188", startX + 7, startY + fromMobileOffset);
       };
 
-      // Calculate vertical positioning to center each label in its respective half page
-      const halfPageHeight = 297 / 2; // 148.5 mm
-      const topStartY = Math.max(10, (halfPageHeight - totalBoxHeight) / 2);
-      const bottomStartY = halfPageHeight + Math.max(10, (halfPageHeight - totalBoxHeight) / 2);
+      const pageHeight = 210;
+      const labelStartY = Math.max(12, (pageHeight - totalBoxHeight) / 2);
+      renderLabel(labelStartY);
 
-      // Render Label 1 on the top half
-      renderLabel(topStartY);
-
-      // Draw a middle divider/dashed line for cutting
-      doc.setDrawColor(180, 180, 180);
+      // Use the right side for the selected device order and its sensor checklist.
+      const panelX = 153;
+      const panelY = labelStartY;
+      const panelWidth = width;
+      const panelHeight = cardHeight;
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(0.5);
+      doc.roundedRect(panelX, panelY, panelWidth, panelHeight, 4, 4, "D");
+      doc.setFont("Helvetica", "bold");
+      doc.setFontSize(15);
+      doc.text("DEVICE ORDER", panelX + 6, panelY + 11);
+      doc.setFontSize(10);
+      doc.text("SELECTED ITEM", panelX + 6, panelY + 18);
       doc.setLineWidth(0.3);
-      doc.setLineDashPattern([2, 2], 0);
-      doc.line(10, 148.5, 200, 148.5);
+      doc.line(panelX + 6, panelY + 22, panelX + panelWidth - 6, panelY + 22);
 
-      // Reset dash pattern back to solid for the second label
-      doc.setLineDashPattern([], 0);
+      const deviceInfo = [
+        ["Device", pdfMaterial.device_id || "N/A"],
+        ["Version", pdfMaterial.version || "N/A"],
+        ["Uplink", pdfMaterial.uplink || "N/A"],
+        ["ICCID", pdfMaterial.iccid || "N/A"],
+      ];
+      let infoY = panelY + 31;
+      deviceInfo.forEach(([label, value]) => {
+        doc.setFont("Helvetica", "bold");
+        doc.setFontSize(8.5);
+        doc.text(`${label}:`, panelX + 6, infoY);
+        doc.setFont("Helvetica", "normal");
+        doc.setFontSize(8.5);
+        const valueLines = doc.splitTextToSize(value, panelWidth - 28);
+        doc.text(valueLines, panelX + 25, infoY);
+        infoY += Math.max(7, valueLines.length * 4.5);
+      });
 
-      // Render Label 2 on the bottom half
-      renderLabel(bottomStartY);
+      const sensorItems = ([
+        ["CT 1 Clamp", isSensorChecked(pdfMaterial.ct1)],
+        ["CT 2 Clamp", isSensorChecked(pdfMaterial.ct2)],
+        ["CT 3 Clamp", isSensorChecked(pdfMaterial.ct3)],
+        ["Proxy 1", isSensorChecked(pdfMaterial.proxy1)],
+        ["Proxy 2", isSensorChecked(pdfMaterial.proxy2)],
+        ["Encoder", isSensorChecked(pdfMaterial.encoder)],
+        ["Vibration", isSensorChecked(pdfMaterial.vibration)],
+        ["Antenna", isSensorChecked(pdfMaterial.antenna)],
+        ["Tower Light", isSensorChecked(pdfMaterial.tower_light)],
+        ["Energy Meter", isSensorChecked(pdfMaterial.energy_meter)],
+        ["PLC", isSensorChecked(pdfMaterial.plc)],
+      ] as Array<[string, boolean]>).filter(([, checked]) => checked);
+      doc.setFont("Helvetica", "bold");
+      doc.setFontSize(10);
+      doc.text("ORDERED SENSORS", panelX + 6, infoY + 4);
+      const checklistStartY = infoY + 12;
+      const columnWidth = 43;
+      const rowHeight = 10;
+      sensorItems.forEach(([label, checked], index) => {
+        const column = index < 6 ? 0 : 1;
+        const row = index < 6 ? index : index - 6;
+        const itemX = panelX + 6 + column * columnWidth;
+        const itemY = checklistStartY + row * rowHeight;
+        doc.setDrawColor(0, 0, 0);
+        doc.rect(itemX, itemY - 4.5, 4.5, 4.5);
+        if (checked) {
+          doc.setLineWidth(0.6);
+          doc.line(itemX + 0.8, itemY - 2.2, itemX + 2, itemY - 1);
+          doc.line(itemX + 2, itemY - 1, itemX + 4, itemY - 4);
+        }
+        doc.setFont("Helvetica", "normal");
+        doc.setFontSize(8);
+        doc.text(label, itemX + 7, itemY - 1);
+      });
+      if (!sensorItems.length) {
+        doc.setFont("Helvetica", "normal");
+        doc.setFontSize(8);
+        doc.text("No sensors ordered", panelX + 6, checklistStartY);
+      }
 
       // Save Label PDF
       const safeName = (pdfMaterial.material_name || "company").toLowerCase().replace(/[^a-z0-9]/g, "_");
       const timestamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "");
       const fileName = `courier_label_${safeName}_${timestamp}.pdf`;
       doc.save(fileName);
-      toast.success("Courier address label downloaded!");
+      toast.success("Logistics PDF downloaded!");
     } catch (error: any) {
       toast.error("Failed to generate PDF label: " + error.message);
     }
@@ -927,7 +1451,7 @@ function OrderCard({
     let currentTransitDate = transitDate;
     let currentArrivedDate = arrivedDate;
 
-    const nowStr = new Date().toLocaleDateString("en-IN");
+    const nowStr = new Date().toISOString().split("T")[0];
     if (quickStatus === "Packing" && !currentPackingDate) {
       currentPackingDate = nowStr;
     } else if (quickStatus === "Transit" && !currentTransitDate) {
