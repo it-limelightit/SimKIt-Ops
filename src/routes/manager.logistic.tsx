@@ -5,7 +5,7 @@ import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button, Card } from "@/components/ui-kit";
 import { toast } from "sonner";
-import { Database, UserCheck, RefreshCw, Truck, Boxes } from "lucide-react";
+import { Database, UserCheck, RefreshCw, Truck, Boxes, Table2 } from "lucide-react";
 
 export const Route = createFileRoute("/manager/logistic")({
   ssr: false,
@@ -15,7 +15,7 @@ export const Route = createFileRoute("/manager/logistic")({
 
 function LogisticPageWithSeeder() {
   const [seeding, setSeeding] = useState(false);
-  const [activeTab, setActiveTab] = useState<"dispatch" | "inventory">("dispatch");
+  const [activeTab, setActiveTab] = useState<"dispatch" | "deviceInfo" | "inventory">("dispatch");
 
   const runSeeder = async (isAuto = false) => {
     setSeeding(true);
@@ -121,6 +121,17 @@ function LogisticPageWithSeeder() {
           Logistics Dispatching
         </button>
         <button
+          onClick={() => setActiveTab("deviceInfo")}
+          className={`px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-2 ${
+            activeTab === "deviceInfo"
+              ? "bg-violet text-white shadow-md"
+              : "bg-surface-raised/40 text-text-secondary hover:text-text-primary"
+          }`}
+        >
+          <Table2 size={15} />
+          Device Info
+        </button>
+        <button
           onClick={() => setActiveTab("inventory")}
           className={`px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-2 ${
             activeTab === "inventory"
@@ -162,7 +173,7 @@ function LogisticPageWithSeeder() {
             </Button>
           </Card>
           
-          <InventoryPanel editable defaultFilterState="all" />
+          <InventoryPanel editable defaultFilterState="all" viewMode={activeTab === "deviceInfo" ? "table" : "cards"} />
         </>
       )}
     </div>
