@@ -1,6 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
+type SiteNameData = {
+  name?: string | null;
+  company_name?: string | null;
+};
+
 function formatSubmittedAt(value?: string) {
   const date = value ? new Date(value) : new Date();
   const safeDate = Number.isNaN(date.getTime()) ? new Date() : date;
@@ -12,6 +17,31 @@ function formatSubmittedAt(value?: string) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+async function getSiteNameData(siteId: string): Promise<SiteNameData | null> {
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    console.warn("[Telegram] Supabase service role is not configured; sending notification without site lookup.");
+    return null;
+  }
+
+  try {
+    const { data: site, error } = await supabaseAdmin
+      .from("sites")
+      .select("name, company_name")
+      .eq("id", siteId)
+      .maybeSingle();
+
+    if (error) {
+      console.warn("[Telegram] Site lookup failed; sending notification without site lookup.", error);
+      return null;
+    }
+
+    return site;
+  } catch (error) {
+    console.warn("[Telegram] Site lookup failed; sending notification without site lookup.", error);
+    return null;
+  }
 }
 
 export const notifyFactoryFormSubmittedFn = createServerFn({ method: "POST" })
@@ -27,11 +57,7 @@ export const notifyFactoryFormSubmittedFn = createServerFn({ method: "POST" })
       return { success: false, skipped: true, error: "Telegram credentials are not configured" };
     }
 
-    const { data: site } = await supabaseAdmin
-      .from("sites")
-      .select("name, company_name")
-      .eq("id", data.siteId)
-      .maybeSingle();
+    const site = await getSiteNameData(data.siteId);
 
     const companyName = data.assessmentData.factory_op_name || site?.company_name || site?.name || "Unknown Company";
     const simkitOpsLink = process.env.SIMKIT_OPS_LINK || "https://sim-k-it-ops.vercel.app/";

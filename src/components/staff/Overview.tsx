@@ -806,11 +806,9 @@ const filteredForCounts = allProcessedRows.filter((row) => {
 // Calculate counts based on current filters and canonical status partitioning
 const logisticsStatusKey = (r: SiteRow) => r.logisticsStatus.trim().toLowerCase();
 const isActualDispatchLogisticsStatus = (r: SiteRow) => ["shipped", "transit", "in transit", "delivered"].includes(logisticsStatusKey(r));
-const hasManualStatusSource = (r: SiteRow) => r.meta.status_source === "manager" || r.meta.status_source === "associate";
 
 const isPendingPanelDispatched = (r: SiteRow) => {
-  return !hasManualStatusSource(r) &&
-    r.hasDeviceOrder &&
+  return r.hasDeviceOrder &&
     r.status === "Assessed" &&
     ![
       "Submitted",

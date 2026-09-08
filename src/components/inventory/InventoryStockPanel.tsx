@@ -20,8 +20,10 @@ import {
   Trash2,
   TrendingDown,
   SlidersHorizontal,
+  FileText,
 } from "lucide-react";
 import { toast } from "sonner";
+import logoUrl from "../../../image copy.png";
 import {
   InventoryStockItem,
   PREDEFINED_CATEGORIES,
@@ -31,6 +33,59 @@ import {
 
 const CUSTOM_OPTION_VALUE = "__custom__";
 
+type InventoryEntryNotes = {
+  inventory_entry_type?: string;
+  bulk_order_group_id?: string;
+  bulk_order_quantity?: number;
+  bulk_order_items?: BulkOrderDraft[];
+  bulk_order_price_source?: string;
+  bulk_order_note?: string | null;
+};
+
+type BulkOrderDraft = {
+  category: string;
+  sensorType: string | null;
+  quantity: number;
+  unitPrice: number;
+  priceSource: string;
+  note: string | null;
+};
+
+function parseInventoryEntryNotes(notes: string | null): InventoryEntryNotes {
+  if (!notes) return {};
+  try {
+    const parsed = JSON.parse(notes);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function isBulkOrderItem(item: InventoryStockItem) {
+  return item.actual_quantity < 0 || parseInventoryEntryNotes(item.notes).inventory_entry_type === "bulk_order";
+}
+
+function getInventoryItemLabel(item: InventoryStockItem) {
+  const notesData = parseInventoryEntryNotes(item.notes);
+  if (notesData.bulk_order_items?.length) return `Bulk Inventory Order (${notesData.bulk_order_items.length} items)`;
+  return item.sensor_type ? `${item.category} - ${item.sensor_type}` : item.category;
+}
+
+function getBulkOrderGroupId(item: InventoryStockItem) {
+  return parseInventoryEntryNotes(item.notes).bulk_order_group_id || item.id;
+}
+
+function formatDisplayDate(value: string | null | undefined) {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "-";
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(parsed);
+}
+
 export function InventoryStockPanel() {
   const [stock, setStock] = useState<InventoryStockItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,7 +94,12 @@ export function InventoryStockPanel() {
 
   // Form State
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isBulkOrderModalOpen, setIsBulkOrderModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingBulkOrderId, setEditingBulkOrderId] = useState<string | null>(null);
+  const [editingBulkOrderGroupId, setEditingBulkOrderGroupId] = useState<string | null>(null);
+  const [editingBulkOrderExtraIds, setEditingBulkOrderExtraIds] = useState<string[]>([]);
+  const [editingBulkDraftIndex, setEditingBulkDraftIndex] = useState<number | null>(null);
   
   const [category, setCategory] = useState(PREDEFINED_CATEGORIES[0]);
   const [customCategory, setCustomCategory] = useState("");
@@ -53,6 +113,16 @@ export function InventoryStockPanel() {
   );
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
+  const [bulkCategory, setBulkCategory] = useState(PREDEFINED_CATEGORIES[0]);
+  const [bulkCustomCategory, setBulkCustomCategory] = useState("");
+  const [bulkSensorType, setBulkSensorType] = useState("");
+  const [bulkCustomSensorType, setBulkCustomSensorType] = useState("");
+  const [bulkQuantity, setBulkQuantity] = useState<number | "">("");
+  const [bulkPriceChoice, setBulkPriceChoice] = useState("");
+  const [bulkCustomUnitPrice, setBulkCustomUnitPrice] = useState<number | "">("");
+  const [bulkOrderDate, setBulkOrderDate] = useState(new Date().toISOString().split("T")[0]);
+  const [bulkNotes, setBulkNotes] = useState("");
+  const [bulkOrderDrafts, setBulkOrderDrafts] = useState<BulkOrderDraft[]>([]);
 
   const fetchStock = useCallback(async () => {
     setLoading(true);
@@ -106,6 +176,76 @@ export function InventoryStockPanel() {
     setIsModalOpen(true);
   };
 
+  const resetBulkOrderForm = () => {
+    setEditingBulkOrderId(null);
+    setEditingBulkOrderGroupId(null);
+    setEditingBulkOrderExtraIds([]);
+    setEditingBulkDraftIndex(null);
+    setBulkCategory(PREDEFINED_CATEGORIES[0]);
+    setBulkCustomCategory("");
+    setBulkSensorType("");
+    setBulkCustomSensorType("");
+    setBulkQuantity("");
+    setBulkPriceChoice("");
+    setBulkCustomUnitPrice("");
+    setBulkOrderDate(new Date().toISOString().split("T")[0]);
+    setBulkNotes("");
+    setBulkOrderDrafts([]);
+  };
+
+  const handleOpenBulkOrderModal = () => {
+    resetBulkOrderForm();
+    setIsBulkOrderModalOpen(true);
+  };
+
+  const clearBulkLineForm = () => {
+    setEditingBulkDraftIndex(null);
+    setBulkCategory(PREDEFINED_CATEGORIES[0]);
+    setBulkCustomCategory("");
+    setBulkSensorType("");
+    setBulkCustomSensorType("");
+    setBulkQuantity("");
+    setBulkPriceChoice("");
+    setBulkCustomUnitPrice("");
+    setBulkNotes("");
+  };
+
+  const handleEditBulkItem = (item: InventoryStockItem) => {
+    const notesData = parseInventoryEntryNotes(item.notes);
+    const quantity = Math.abs(Number(notesData.bulk_order_quantity || item.actual_quantity || 0));
+    const draftItems = notesData.bulk_order_items?.length
+      ? notesData.bulk_order_items
+      : [
+          {
+            category: item.category,
+            sensorType: item.sensor_type || null,
+            quantity,
+            unitPrice: Number(item.unit_price) || 0,
+            priceSource: notesData.bulk_order_price_source || "current",
+            note: notesData.bulk_order_note || null,
+          },
+        ];
+    setEditingBulkOrderId(item.id);
+    setEditingBulkOrderGroupId(getBulkOrderGroupId(item));
+    setEditingBulkOrderExtraIds(
+      computedStock
+        .filter((row) => isBulkOrderItem(row) && getBulkOrderGroupId(row) === getBulkOrderGroupId(item) && row.id !== item.id)
+        .map((row) => row.id),
+    );
+    setEditingBulkDraftIndex(null);
+    setBulkOrderDate(item.entry_date || new Date().toISOString().split("T")[0]);
+    setBulkOrderDrafts(draftItems);
+    setBulkCategory(PREDEFINED_CATEGORIES[0]);
+    setBulkCustomCategory("");
+    setBulkSensorType("");
+    setBulkCustomSensorType("");
+    setBulkQuantity("");
+    setBulkPriceChoice("");
+    setBulkCustomUnitPrice("");
+    setBulkNotes("");
+    setIsBulkOrderModalOpen(true);
+  };
+
   const handleEditItem = (item: InventoryStockItem) => {
     setEditingId(item.id);
     
@@ -154,6 +294,27 @@ export function InventoryStockPanel() {
       void fetchStock();
     } catch (e: any) {
       toast.error("Failed to delete stock item: " + e.message);
+    }
+  };
+
+  const handleDeleteBulkOrder = async (item: InventoryStockItem) => {
+    const groupId = getBulkOrderGroupId(item);
+    const ids = computedStock
+      .filter((row) => isBulkOrderItem(row) && getBulkOrderGroupId(row) === groupId)
+      .map((row) => row.id);
+    const deleteIds = ids.length ? ids : [item.id];
+
+    if (!confirm("Are you sure you want to delete this bulk order?")) return;
+    try {
+      const { error } = await supabase
+        .from("inventory_stock" as any)
+        .delete()
+        .in("id", deleteIds);
+      if (error) throw error;
+      toast.success("Bulk order deleted");
+      void fetchStock();
+    } catch (e: any) {
+      toast.error("Failed to delete bulk order: " + e.message);
     }
   };
 
@@ -222,6 +383,15 @@ export function InventoryStockPanel() {
     }
   };
 
+  const getFinalBulkCategory = () =>
+    bulkCategory === CUSTOM_OPTION_VALUE ? bulkCustomCategory.trim() : bulkCategory;
+
+  const getFinalBulkSensorType = () => {
+    if (!(bulkCategory.startsWith("Proxy") || bulkCategory === "Vibration Sensor")) return null;
+    const finalSensorType = bulkSensorType === CUSTOM_OPTION_VALUE ? bulkCustomSensorType.trim() : bulkSensorType;
+    return finalSensorType || null;
+  };
+
   // Live Calculations (KTA Analytics)
   const computedStock = useMemo(() => {
     return stock.map((s) => ({
@@ -230,32 +400,82 @@ export function InventoryStockPanel() {
     }));
   }, [stock]);
 
-  const [statusFilter, setStatusFilter] = useState<"all" | "low" | "out">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "low" | "bulk">("all");
 
   const filteredStock = useMemo(() => {
     return computedStock.filter((item) => {
+      const isBulkOrder = isBulkOrderItem(item);
       const matchesSearch =
         item.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (item.sensor_type && item.sensor_type.toLowerCase().includes(searchQuery.toLowerCase()));
 
       const matchesCat = categoryFilter === "all" || item.category === categoryFilter;
 
-      let matchesStatus = true;
+      let matchesStatus = !isBulkOrder;
       if (statusFilter === "low") {
-        matchesStatus = item.actual_quantity <= item.min_quantity && item.actual_quantity > 0;
-      } else if (statusFilter === "out") {
-        matchesStatus = item.actual_quantity === 0;
+        matchesStatus = !isBulkOrder && item.actual_quantity <= item.min_quantity && item.actual_quantity > 0;
+      } else if (statusFilter === "bulk") {
+        matchesStatus = isBulkOrder;
       }
 
       return matchesSearch && matchesCat && matchesStatus;
     });
   }, [computedStock, searchQuery, categoryFilter, statusFilter]);
 
+  const displayStock = useMemo(() => {
+    const rows: InventoryStockItem[] = [];
+    const bulkGroups = new Map<string, InventoryStockItem[]>();
+
+    filteredStock.forEach((item) => {
+      if (!isBulkOrderItem(item)) {
+        rows.push(item);
+        return;
+      }
+      const groupId = getBulkOrderGroupId(item);
+      bulkGroups.set(groupId, [...(bulkGroups.get(groupId) || []), item]);
+    });
+
+    bulkGroups.forEach((items) => {
+      const first = items[0];
+      const draftItems = items.flatMap((item) => {
+        const notesData = parseInventoryEntryNotes(item.notes);
+        if (notesData.bulk_order_items?.length) return notesData.bulk_order_items;
+        return [{
+          category: item.category,
+          sensorType: item.sensor_type || null,
+          quantity: Math.abs(Number(notesData.bulk_order_quantity || item.actual_quantity || 0)),
+          unitPrice: Number(item.unit_price) || 0,
+          priceSource: notesData.bulk_order_price_source || "current",
+          note: notesData.bulk_order_note || null,
+        }];
+      });
+      const totalQuantity = draftItems.reduce((sum, draft) => sum + draft.quantity, 0);
+      const totalAmount = draftItems.reduce((sum, draft) => sum + draft.quantity * draft.unitPrice, 0);
+
+      rows.push({
+        ...first,
+        category: "Bulk Inventory Order",
+        sensor_type: `${draftItems.length} items`,
+        actual_quantity: -totalQuantity,
+        unit_price: totalQuantity > 0 ? totalAmount / totalQuantity : 0,
+        total_price: totalAmount,
+        notes: JSON.stringify({
+          inventory_entry_type: "bulk_order",
+          bulk_order_group_id: getBulkOrderGroupId(first),
+          bulk_order_quantity: totalQuantity,
+          bulk_order_items: draftItems,
+        } satisfies InventoryEntryNotes),
+      });
+    });
+
+    return rows.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }, [filteredStock]);
+
   const ktaMetrics = useMemo(() => {
     let totalItems = 0;
     let totalValuation = 0;
     let lowStockCount = 0;
-    let outOfStockCount = 0;
+    let bulkOrderQuantity = 0;
 
     // Filter items based on category and search query for accurate KTA totals
     const scopedForKta = computedStock.filter((item) => {
@@ -268,17 +488,369 @@ export function InventoryStockPanel() {
     });
 
     scopedForKta.forEach((item) => {
+      if (isBulkOrderItem(item)) {
+        bulkOrderQuantity += item.actual_quantity;
+        return;
+      }
       totalItems += item.actual_quantity;
       totalValuation += item.total_price;
-      if (item.actual_quantity === 0) {
-        outOfStockCount++;
-      } else if (item.actual_quantity <= item.min_quantity) {
+      if (item.actual_quantity <= item.min_quantity && item.actual_quantity > 0) {
         lowStockCount++;
       }
     });
 
-    return { totalItems, totalValuation, lowStockCount, outOfStockCount };
+    return { totalItems, totalValuation, lowStockCount, bulkOrderQuantity };
   }, [computedStock, searchQuery, categoryFilter]);
+
+  const availableBulkUnitPrices = useMemo(() => {
+    const finalCategory = getFinalBulkCategory();
+    const finalSensorType = getFinalBulkSensorType();
+    const prices = new Set<number>();
+
+    computedStock.forEach((item) => {
+      if (isBulkOrderItem(item)) return;
+      if (item.category !== finalCategory) return;
+      if ((item.sensor_type || null) !== finalSensorType) return;
+      const price = Number(item.unit_price);
+      if (price > 0) prices.add(price);
+    });
+
+    return Array.from(prices).sort((a, b) => b - a);
+  }, [computedStock, bulkCategory, bulkCustomCategory, bulkSensorType, bulkCustomSensorType]);
+
+  const selectedBulkUnitPrice = useMemo(() => {
+    if (bulkPriceChoice === CUSTOM_OPTION_VALUE) return Number(bulkCustomUnitPrice) || 0;
+    if (bulkPriceChoice) return Number(bulkPriceChoice) || 0;
+    return availableBulkUnitPrices[0] || 0;
+  }, [availableBulkUnitPrices, bulkCustomUnitPrice, bulkPriceChoice]);
+
+  const bulkOrderTotal = useMemo(() => {
+    const qty = Number(bulkQuantity) || 0;
+    return qty * selectedBulkUnitPrice;
+  }, [bulkQuantity, selectedBulkUnitPrice]);
+
+  const bulkDraftTotal = useMemo(
+    () => bulkOrderDrafts.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0),
+    [bulkOrderDrafts],
+  );
+
+  const bulkDraftQuantity = useMemo(
+    () => bulkOrderDrafts.reduce((sum, item) => sum + item.quantity, 0),
+    [bulkOrderDrafts],
+  );
+
+  const getCurrentQuantityForBulkDraft = (draft: BulkOrderDraft) => {
+    return computedStock.reduce((sum, stockItem) => {
+      if (isBulkOrderItem(stockItem)) return sum;
+      if (stockItem.category !== draft.category) return sum;
+      if ((stockItem.sensor_type || null) !== (draft.sensorType || null)) return sum;
+      return sum + Number(stockItem.actual_quantity || 0);
+    }, 0);
+  };
+
+  const downloadBulkOrderPdf = async (item: InventoryStockItem) => {
+    try {
+      const rootNotes = parseInventoryEntryNotes(item.notes);
+      const groupId = getBulkOrderGroupId(item);
+      const groupedRows = computedStock
+        .filter((row) => isBulkOrderItem(row) && getBulkOrderGroupId(row) === groupId);
+      const reportItems = rootNotes.bulk_order_items?.length
+        ? rootNotes.bulk_order_items
+        : (groupedRows.length ? groupedRows : [item]).map((row) => {
+            const notesData = parseInventoryEntryNotes(row.notes);
+            return {
+              category: row.category,
+              sensorType: row.sensor_type || null,
+              quantity: Math.abs(Number(notesData.bulk_order_quantity || row.actual_quantity || 0)),
+              unitPrice: Number(row.unit_price) || 0,
+              priceSource: notesData.bulk_order_price_source || "current",
+              note: notesData.bulk_order_note || null,
+            };
+          });
+      const [{ jsPDF }] = await Promise.all([import("jspdf")]);
+      const logoDataUrl = await fetch(logoUrl)
+        .then((response) => response.blob())
+        .then(
+          (blob) =>
+            new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(String(reader.result));
+              reader.onerror = reject;
+              reader.readAsDataURL(blob);
+            }),
+        );
+      const watermarkDataUrl = await new Promise<string>((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => {
+          const canvas = document.createElement("canvas");
+          canvas.width = 700;
+          canvas.height = 700;
+          const context = canvas.getContext("2d");
+          if (!context) {
+            reject(new Error("Could not prepare watermark."));
+            return;
+          }
+          context.clearRect(0, 0, canvas.width, canvas.height);
+          context.globalAlpha = 0.12;
+          context.drawImage(image, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL("image/png"));
+        };
+        image.onerror = () => reject(new Error("Could not load company watermark."));
+        image.src = logoDataUrl;
+      });
+
+      const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const navy: [number, number, number] = [23, 58, 91];
+      const ink: [number, number, number] = [31, 51, 71];
+      const muted: [number, number, number] = [102, 120, 138];
+      const border: [number, number, number] = [215, 224, 232];
+      const marginX = 45;
+      const tableWidth = pageWidth - marginX * 2;
+
+      doc.addImage(watermarkDataUrl, "PNG", pageWidth / 2 - 145, pageHeight / 2 - 145, 290, 290);
+      doc.addImage(logoDataUrl, "PNG", marginX, 26, 42, 42);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(14);
+      doc.setTextColor(...navy);
+      doc.text("LimelightIT Research Pvt. Ltd.", marginX + 52, 43);
+      doc.setFontSize(15);
+      doc.text("BULK INVENTORY ORDER", pageWidth / 2, 92, { align: "center" });
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8.5);
+      doc.setTextColor(...muted);
+      doc.text(`Order Date: ${formatDisplayDate(item.entry_date)}`, pageWidth - marginX, 55, { align: "right" });
+      doc.text(`Items: ${reportItems.length}`, pageWidth / 2, 110, { align: "center" });
+
+      const columns = [
+        { label: "Date", width: 58 },
+        { label: "Inventory Category", width: 158 },
+        { label: "Current Qty", width: 70 },
+        { label: "Wanted Qty", width: 62 },
+        { label: "Unit Price", width: 72 },
+        { label: "Total", width: 72 },
+      ];
+
+      let y = 128;
+      doc.setFillColor(...navy);
+      doc.roundedRect(marginX, y, tableWidth, 28, 3, 3, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8);
+      doc.setTextColor(255, 255, 255);
+      let x = marginX;
+      columns.forEach((column, index) => {
+        doc.text(column.label, x + 8, y + 18);
+        if (index > 0) doc.line(x, y, x, y + 28);
+        x += column.width;
+      });
+      y += 28;
+
+      reportItems.forEach((reportItem) => {
+        const requestedQuantity = Math.abs(Number(reportItem.quantity || 0));
+        const rowValues = [
+          formatDisplayDate(item.entry_date),
+          reportItem.sensorType ? `${reportItem.category} - ${reportItem.sensorType}` : reportItem.category,
+          String(getCurrentQuantityForBulkDraft(reportItem)),
+          `-${requestedQuantity}`,
+          Number(reportItem.unitPrice).toLocaleString("en-IN"),
+          (requestedQuantity * Number(reportItem.unitPrice)).toLocaleString("en-IN"),
+        ];
+        const rowHeight = 42;
+
+        if (y + rowHeight > pageHeight - 48) {
+          doc.addPage();
+          doc.addImage(watermarkDataUrl, "PNG", pageWidth / 2 - 145, pageHeight / 2 - 145, 290, 290);
+          y = 48;
+        }
+
+        doc.setDrawColor(...border);
+        doc.setLineWidth(0.55);
+        doc.line(marginX, y + rowHeight, marginX + tableWidth, y + rowHeight);
+        x = marginX;
+        columns.forEach((column, columnIndex) => {
+          if (columnIndex > 0) doc.line(x, y, x, y + rowHeight);
+          doc.setFont("helvetica", columnIndex === 1 ? "bold" : "normal");
+          doc.setFontSize(8.2);
+          doc.setTextColor(columnIndex === 1 ? navy[0] : ink[0], columnIndex === 1 ? navy[1] : ink[1], columnIndex === 1 ? navy[2] : ink[2]);
+          doc.text(doc.splitTextToSize(rowValues[columnIndex], column.width - 14).slice(0, 2), x + 8, y + 20);
+          x += column.width;
+        });
+        y += rowHeight;
+      });
+
+      const totalQuantity = reportItems.reduce((sum, reportItem) => {
+        return sum + Math.abs(Number(reportItem.quantity || 0));
+      }, 0);
+      const totalAmount = reportItems.reduce((sum, reportItem) => {
+        const requestedQuantity = Math.abs(Number(reportItem.quantity || 0));
+        return sum + requestedQuantity * Number(reportItem.unitPrice);
+      }, 0);
+
+      y += 18;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
+      doc.setTextColor(...navy);
+      doc.text(`Total Wanted Quantity: -${totalQuantity}`, marginX, y);
+      doc.text(`Total Amount: ${totalAmount.toLocaleString("en-IN")}`, pageWidth - marginX, y, { align: "right" });
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.setTextColor(...muted);
+      doc.text("Generated from SIMKit Ops inventory bulk order.", marginX, pageHeight - 22);
+      doc.text("Page 1 / 1", pageWidth - marginX, pageHeight - 22, { align: "right" });
+
+      doc.save(`bulk-inventory-order-report-${formatDisplayDate(item.entry_date).toLowerCase().replace(/[^a-z0-9]+/g, "-")}.pdf`);
+      toast.success("Bulk order PDF downloaded.");
+    } catch (e: any) {
+      toast.error("Failed to generate bulk order PDF: " + (e.message || e));
+    }
+  };
+
+  const addBulkDraftLine = () => {
+    const finalCategory = getFinalBulkCategory();
+    const finalSensorType = getFinalBulkSensorType();
+    const requestedQuantity = Number(bulkQuantity);
+
+    if (!finalCategory) {
+      toast.error("Please select an inventory category");
+      return false;
+    }
+    if (!requestedQuantity || requestedQuantity <= 0) {
+      toast.error("Please enter a valid bulk order quantity");
+      return false;
+    }
+    if (selectedBulkUnitPrice <= 0) {
+      toast.error("Please select current price or add custom price");
+      return false;
+    }
+
+    const nextDraft: BulkOrderDraft = {
+      category: finalCategory,
+      sensorType: finalSensorType,
+      quantity: requestedQuantity,
+      unitPrice: selectedBulkUnitPrice,
+      priceSource: bulkPriceChoice === CUSTOM_OPTION_VALUE ? "custom" : "current",
+      note: bulkNotes.trim() || null,
+    };
+
+    setBulkOrderDrafts((current) => {
+      if (editingBulkDraftIndex === null) return [...current, nextDraft];
+      return current.map((draft, index) => (index === editingBulkDraftIndex ? nextDraft : draft));
+    });
+    clearBulkLineForm();
+    return true;
+  };
+
+  const editBulkDraftLine = (draft: BulkOrderDraft, index: number) => {
+    setEditingBulkDraftIndex(index);
+    setBulkCategory(PREDEFINED_CATEGORIES.includes(draft.category) ? draft.category : CUSTOM_OPTION_VALUE);
+    setBulkCustomCategory(PREDEFINED_CATEGORIES.includes(draft.category) ? "" : draft.category);
+    setBulkSensorType(draft.sensorType || "");
+    setBulkCustomSensorType("");
+    setBulkQuantity(draft.quantity);
+    setBulkPriceChoice(CUSTOM_OPTION_VALUE);
+    setBulkCustomUnitPrice(draft.unitPrice);
+    setBulkNotes(draft.note || "");
+  };
+
+  const removeBulkDraftLine = (index: number) => {
+    setBulkOrderDrafts((current) => current.filter((_, itemIndex) => itemIndex !== index));
+    if (editingBulkDraftIndex === index) clearBulkLineForm();
+  };
+
+  const handleSaveBulkOrder = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    let draftsToSave = bulkOrderDrafts;
+    if (bulkQuantity !== "" || bulkNotes.trim() || bulkPriceChoice === CUSTOM_OPTION_VALUE) {
+      const finalCategory = getFinalBulkCategory();
+      const finalSensorType = getFinalBulkSensorType();
+      const requestedQuantity = Number(bulkQuantity);
+      if (!finalCategory) {
+        toast.error("Please select an inventory category");
+        return;
+      }
+      if (!requestedQuantity || requestedQuantity <= 0) {
+        toast.error("Please enter a valid bulk order quantity");
+        return;
+      }
+      if (selectedBulkUnitPrice <= 0) {
+        toast.error("Please select current price or add custom price");
+        return;
+      }
+
+      const currentDraft = {
+        category: finalCategory,
+        sensorType: finalSensorType,
+        quantity: requestedQuantity,
+        unitPrice: selectedBulkUnitPrice,
+        priceSource: bulkPriceChoice === CUSTOM_OPTION_VALUE ? "custom" : "current",
+        note: bulkNotes.trim() || null,
+      };
+
+      if (editingBulkOrderId) {
+        draftsToSave = [currentDraft];
+      } else if (editingBulkDraftIndex === null) {
+        draftsToSave = [...bulkOrderDrafts, currentDraft];
+      } else {
+        draftsToSave = bulkOrderDrafts.map((draft, index) => (index === editingBulkDraftIndex ? currentDraft : draft));
+      }
+    }
+
+    if (!draftsToSave.length) {
+      toast.error("Add at least one bulk order line");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const bulkOrderGroupId =
+        editingBulkOrderGroupId ||
+        editingBulkOrderId ||
+        (typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      const totalQuantity = draftsToSave.reduce((sum, draft) => sum + draft.quantity, 0);
+      const totalAmount = draftsToSave.reduce((sum, draft) => sum + draft.quantity * draft.unitPrice, 0);
+      const toPayload = () => ({
+        category: "Bulk Inventory Order",
+        sensor_type: null,
+        actual_quantity: -totalQuantity,
+        min_quantity: 0,
+        unit_price: totalQuantity > 0 ? totalAmount / totalQuantity : 0,
+        entry_date: bulkOrderDate,
+        notes: JSON.stringify({
+          inventory_entry_type: "bulk_order",
+          bulk_order_group_id: bulkOrderGroupId,
+          bulk_order_quantity: totalQuantity,
+          bulk_order_items: draftsToSave,
+        } satisfies InventoryEntryNotes),
+        updated_at: new Date().toISOString(),
+      });
+
+      const { error } = editingBulkOrderId
+        ? await supabase.from("inventory_stock" as any).update(toPayload()).eq("id", editingBulkOrderId)
+        : await supabase.from("inventory_stock" as any).insert(toPayload());
+
+      if (error) throw error;
+      if (editingBulkOrderExtraIds.length) {
+        const { error: cleanupError } = await supabase
+          .from("inventory_stock" as any)
+          .delete()
+          .in("id", editingBulkOrderExtraIds);
+        if (cleanupError) throw cleanupError;
+      }
+      toast.success(editingBulkOrderId ? "Bulk order updated successfully" : "Bulk order saved successfully");
+      setIsBulkOrderModalOpen(false);
+      resetBulkOrderForm();
+      void fetchStock();
+    } catch (e: any) {
+      toast.error("Failed to save bulk order: " + e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
 
 
   const autoCalculatedPrice = useMemo(() => {
@@ -351,19 +923,19 @@ export function InventoryStockPanel() {
         </Card>
 
         <Card
-          onClick={() => setStatusFilter(statusFilter === "out" ? "all" : "out")}
+          onClick={() => setStatusFilter(statusFilter === "bulk" ? "all" : "bulk")}
           className={`p-4 border cursor-pointer transition-all ${
-            statusFilter === "out"
+            statusFilter === "bulk"
               ? "border-rose-400 bg-rose-500/10 ring-1 ring-rose-400 shadow-md"
               : "border-border/70 bg-surface-raised/30 hover:border-rose-400/50"
           } flex items-center justify-between`}
         >
           <div className="space-y-1">
             <p className="text-xs text-text-secondary font-medium uppercase tracking-wider">
-              Out of Stock
+              Bulk Order
             </p>
             <p className="text-2xl font-extrabold text-rose-400">
-              {ktaMetrics.outOfStockCount} <span className="text-xs font-normal text-text-muted">items</span>
+              {ktaMetrics.bulkOrderQuantity} <span className="text-xs font-normal text-text-muted">want order</span>
             </p>
           </div>
           <div className="w-10 h-10 rounded-xl bg-rose-500/10 flex items-center justify-center text-rose-400">
@@ -414,6 +986,14 @@ export function InventoryStockPanel() {
           </Button>
 
           <Button
+            onClick={handleOpenBulkOrderModal}
+            className="h-9 px-4 text-xs bg-rose-500 hover:bg-rose-600 text-white font-extrabold flex items-center gap-1.5 cursor-pointer rounded-lg shadow-md ring-2 ring-rose-500/20 transition-all"
+          >
+            <Plus size={16} />
+            Bulk Order
+          </Button>
+
+          <Button
             onClick={handleOpenAddModal}
             className="h-9 px-4 text-xs bg-violet hover:bg-violet-dark text-white font-semibold flex items-center gap-1.5 cursor-pointer rounded-lg shadow-md transition-all"
           >
@@ -430,7 +1010,7 @@ export function InventoryStockPanel() {
             <RefreshCw size={24} className="animate-spin text-violet" />
             Loading live inventory stock database...
           </div>
-        ) : filteredStock.length === 0 ? (
+        ) : displayStock.length === 0 ? (
           <EmptyState
             icon={Boxes}
             title="No inventory items found"
@@ -452,15 +1032,20 @@ export function InventoryStockPanel() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/40 text-text-primary font-sans">
-                {filteredStock.map((item) => {
-                  const isLow = item.actual_quantity <= item.min_quantity && item.actual_quantity > 0;
-                  const isOut = item.actual_quantity === 0;
+                {displayStock.map((item) => {
+                  const isBulkOrder = isBulkOrderItem(item);
+                  const notesData = parseInventoryEntryNotes(item.notes);
+                  const requestedQuantity = Math.abs(Number(notesData.bulk_order_quantity || item.actual_quantity || 0));
+                  const isLow = !isBulkOrder && item.actual_quantity <= item.min_quantity && item.actual_quantity > 0;
+                  const isOut = !isBulkOrder && item.actual_quantity === 0;
 
                   return (
                     <tr
                       key={item.id}
                       className={`transition-colors ${
-                        isOut
+                        isBulkOrder
+                          ? "bg-rose-500/10 hover:bg-rose-500/15"
+                          : isOut
                           ? "bg-rose-500/10 hover:bg-rose-500/15"
                           : isLow
                           ? "bg-amber-500/10 hover:bg-amber-500/15"
@@ -487,9 +1072,9 @@ export function InventoryStockPanel() {
                         </div>
                       </td>
                       <td className={`p-3.5 text-center font-extrabold text-sm whitespace-nowrap ${
-                        isOut ? "text-rose-400 font-black" : isLow ? "text-amber-400 font-black" : ""
+                        isBulkOrder || isOut ? "text-rose-400 font-black" : isLow ? "text-amber-400 font-black" : ""
                       }`}>
-                        {item.actual_quantity}
+                        {isBulkOrder ? `-${requestedQuantity}` : item.actual_quantity}
                       </td>
                       <td className="p-3.5 text-center text-text-muted font-medium whitespace-nowrap">
                         {item.min_quantity}
@@ -498,10 +1083,14 @@ export function InventoryStockPanel() {
                         ₹{Number(item.unit_price).toLocaleString("en-IN")}
                       </td>
                       <td className="p-3.5 text-right font-mono font-extrabold text-emerald-400 whitespace-nowrap">
-                        ₹{item.total_price.toLocaleString("en-IN")}
+                        ₹{Math.abs(item.total_price).toLocaleString("en-IN")}
                       </td>
                       <td className="p-3.5 text-center whitespace-nowrap">
-                        {isOut ? (
+                        {isBulkOrder ? (
+                          <Badge className="bg-rose-600/30 text-rose-300 border border-rose-500/60 font-bold text-[10.5px] px-2.5 py-0.5 shadow-sm">
+                            Bulk Order
+                          </Badge>
+                        ) : isOut ? (
                           <Badge className="bg-rose-600/30 text-rose-300 border border-rose-500/60 font-bold text-[10.5px] px-2.5 py-0.5 shadow-sm">
                             🚨 Out of Stock
                           </Badge>
@@ -518,16 +1107,36 @@ export function InventoryStockPanel() {
 
                       <td className="p-3.5 text-center pr-4 whitespace-nowrap">
                         <div className="flex items-center justify-center gap-1.5">
+                          {isBulkOrder && (
+                            <>
+                              <button
+                                onClick={() => void downloadBulkOrderPdf(item)}
+                                title="Download Bulk Order Report"
+                                className="p-1.5 text-text-secondary hover:text-rose-300 hover:bg-rose-500/10 rounded transition-colors"
+                              >
+                                <FileText size={14} />
+                              </button>
+                              <button
+                                onClick={() => handleEditBulkItem(item)}
+                                title="Edit Bulk Order"
+                                className="p-1.5 text-text-secondary hover:text-violet hover:bg-violet/10 rounded transition-colors"
+                              >
+                                <Edit2 size={14} />
+                              </button>
+                            </>
+                          )}
+                          {!isBulkOrder && (
+                            <button
+                              onClick={() => handleEditItem(item)}
+                              title="Edit Stock Entry"
+                              className="p-1.5 text-text-secondary hover:text-violet hover:bg-violet/10 rounded transition-colors"
+                            >
+                              <Edit2 size={14} />
+                            </button>
+                          )}
                           <button
-                            onClick={() => handleEditItem(item)}
-                            title="Edit Stock Entry"
-                            className="p-1.5 text-text-secondary hover:text-violet hover:bg-violet/10 rounded transition-colors"
-                          >
-                            <Edit2 size={14} />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteItem(item.id, item.category)}
-                            title="Delete Stock Entry"
+                            onClick={() => isBulkOrder ? void handleDeleteBulkOrder(item) : handleDeleteItem(item.id, item.category)}
+                            title={isBulkOrder ? "Delete Bulk Order" : "Delete Stock Entry"}
                             className="p-1.5 text-text-secondary hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors"
                           >
                             <Trash2 size={14} />
@@ -542,6 +1151,274 @@ export function InventoryStockPanel() {
           </div>
         )}
       </Card>
+
+      {/* Bulk Order Modal Dialog */}
+      {isBulkOrderModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <Card className="w-full max-w-xl border border-border/80 bg-surface shadow-2xl rounded-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-5 border-b border-border/70 bg-surface-raised/40 flex items-center justify-between">
+              <h3 className="text-md font-bold text-text-primary flex items-center gap-2">
+                <AlertCircle size={18} className="text-rose-400" />
+                Bulk Inventory Order
+              </h3>
+              <button
+                onClick={() => setIsBulkOrderModalOpen(false)}
+                className="text-text-muted hover:text-text-primary transition-colors text-sm font-bold px-2 py-1"
+              >
+                X
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveBulkOrder} className="p-5 space-y-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <Label className="text-text-secondary font-semibold">
+                    Order Date <span className="text-rose-400">*</span>
+                  </Label>
+                  <Input
+                    type="date"
+                    value={bulkOrderDate}
+                    onChange={(e) => setBulkOrderDate(e.target.value)}
+                    className="bg-surface-raised/50 h-9"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-text-secondary font-semibold">
+                    Inventory Category <span className="text-rose-400">*</span>
+                  </Label>
+                  <Select
+                    value={bulkCategory}
+                    onChange={(e) => {
+                      setBulkCategory(e.target.value);
+                      setBulkSensorType("");
+                      setBulkPriceChoice("");
+                    }}
+                    className="bg-surface-raised/50 h-9"
+                  >
+                    {PREDEFINED_CATEGORIES.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                    <option value={CUSTOM_OPTION_VALUE}>+ Add Custom Category</option>
+                  </Select>
+
+                  {bulkCategory === CUSTOM_OPTION_VALUE && (
+                    <Input
+                      value={bulkCustomCategory}
+                      onChange={(e) => {
+                        setBulkCustomCategory(e.target.value);
+                        setBulkPriceChoice("");
+                      }}
+                      placeholder="Enter custom category name..."
+                      className="bg-surface-raised/50 h-9 mt-1.5"
+                      required
+                    />
+                  )}
+                </div>
+              </div>
+
+              {(bulkCategory.startsWith("Proxy") || bulkCategory === "Vibration Sensor") && (
+                <div className="space-y-1">
+                  <Label className="text-text-secondary font-semibold">
+                    {bulkCategory.startsWith("Proxy") ? "Proxy Model" : "Vibration Model"}
+                  </Label>
+                  <Select
+                    value={bulkSensorType}
+                    onChange={(e) => {
+                      setBulkSensorType(e.target.value);
+                      setBulkPriceChoice("");
+                    }}
+                    className="bg-surface-raised/50 h-9"
+                  >
+                    <option value="">Select model...</option>
+                    {(bulkCategory.startsWith("Proxy") ? PROXY_MODELS : VIBRATION_MODELS).map((model) => (
+                      <option key={model} value={model}>
+                        {model}
+                      </option>
+                    ))}
+                    <option value={CUSTOM_OPTION_VALUE}>+ Add Custom Model</option>
+                  </Select>
+
+                  {bulkSensorType === CUSTOM_OPTION_VALUE && (
+                    <Input
+                      value={bulkCustomSensorType}
+                      onChange={(e) => {
+                        setBulkCustomSensorType(e.target.value);
+                        setBulkPriceChoice("");
+                      }}
+                      placeholder="Enter custom model..."
+                      className="bg-surface-raised/50 h-9 mt-1.5"
+                    />
+                  )}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <Label className="text-text-secondary font-semibold">
+                    Wanted Quantity <span className="text-rose-400">*</span>
+                  </Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    value={bulkQuantity}
+                    onChange={(e) => setBulkQuantity(e.target.value === "" ? "" : Number(e.target.value))}
+                    placeholder="e.g. 10"
+                    className="bg-surface-raised/50 h-9"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-text-secondary font-semibold">
+                    Price <span className="text-rose-400">*</span>
+                  </Label>
+                  <Select
+                    value={bulkPriceChoice}
+                    onChange={(e) => setBulkPriceChoice(e.target.value)}
+                    className="bg-surface-raised/50 h-9"
+                  >
+                    {availableBulkUnitPrices.length ? (
+                      <option value="">
+                        Current Price - ₹{availableBulkUnitPrices[0].toLocaleString("en-IN")}
+                      </option>
+                    ) : (
+                      <option value="" disabled>
+                        No current price
+                      </option>
+                    )}
+                    {availableBulkUnitPrices.slice(1).map((price) => (
+                      <option key={price} value={String(price)}>
+                        ₹{price.toLocaleString("en-IN")}
+                      </option>
+                    ))}
+                    <option value={CUSTOM_OPTION_VALUE}>+ Add Custom Price</option>
+                  </Select>
+
+                  {bulkPriceChoice === CUSTOM_OPTION_VALUE && (
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={bulkCustomUnitPrice}
+                      onChange={(e) => setBulkCustomUnitPrice(e.target.value === "" ? "" : Number(e.target.value))}
+                      placeholder="Enter custom unit price..."
+                      className="bg-surface-raised/50 h-9 mt-1.5"
+                      required
+                    />
+                  )}
+                </div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-between">
+                <span className="text-xs font-semibold text-text-secondary">
+                  Bulk Order Value:
+                </span>
+                <span className="text-md font-extrabold text-rose-300 font-mono">
+                  -{Number(bulkQuantity) || 0} / ₹{bulkOrderTotal.toLocaleString("en-IN")}
+                </span>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-text-secondary font-semibold">Remark</Label>
+                <Input
+                  value={bulkNotes}
+                  onChange={(e) => setBulkNotes(e.target.value)}
+                  placeholder="Optional vendor, order, or requirement note..."
+                  className="bg-surface-raised/50 h-9"
+                />
+              </div>
+
+              <div className="flex justify-center">
+                <button
+                  type="button"
+                  onClick={addBulkDraftLine}
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-rose-500 text-white shadow-md transition hover:bg-rose-600"
+                  title={editingBulkDraftIndex === null ? "Add bulk order line" : "Update bulk order line"}
+                >
+                  <Plus size={19} />
+                </button>
+              </div>
+
+              {bulkOrderDrafts.length > 0 && (
+                <div className="overflow-x-auto rounded-lg border border-border/70">
+                  <table className="w-full text-left text-[11px]">
+                    <thead className="bg-surface-raised/60 text-text-secondary uppercase tracking-wider">
+                      <tr>
+                        <th className="px-3 py-2">Item</th>
+                        <th className="px-3 py-2 text-center">Qty</th>
+                        <th className="px-3 py-2 text-right">Unit Price</th>
+                        <th className="px-3 py-2 text-right">Total</th>
+                        <th className="px-3 py-2 text-center">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/50">
+                      {bulkOrderDrafts.map((draft, index) => (
+                        <tr key={`${draft.category}-${draft.sensorType || "item"}-${index}`}>
+                          <td className="px-3 py-2 font-bold text-text-primary">
+                            {draft.sensorType ? `${draft.category} - ${draft.sensorType}` : draft.category}
+                          </td>
+                          <td className="px-3 py-2 text-center font-mono text-rose-300">-{draft.quantity}</td>
+                          <td className="px-3 py-2 text-right font-mono">₹{draft.unitPrice.toLocaleString("en-IN")}</td>
+                          <td className="px-3 py-2 text-right font-mono font-bold">₹{(draft.quantity * draft.unitPrice).toLocaleString("en-IN")}</td>
+                          <td className="px-3 py-2">
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => editBulkDraftLine(draft, index)}
+                                className="p-1.5 text-text-secondary hover:text-violet hover:bg-violet/10 rounded"
+                                title="Edit line"
+                              >
+                                <Edit2 size={13} />
+                              </button>
+                              {!editingBulkOrderId && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeBulkDraftLine(index)}
+                                  className="p-1.5 text-text-secondary hover:text-rose-300 hover:bg-rose-500/10 rounded"
+                                  title="Remove line"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="flex items-center justify-between border-t border-border/70 px-3 py-2 text-[11px] font-mono">
+                    <span className="text-text-secondary">Total wanted: -{bulkDraftQuantity}</span>
+                    <span className="font-bold text-rose-300">₹{bulkDraftTotal.toLocaleString("en-IN")}</span>
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-3 border-t border-border/70 flex items-center justify-end gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsBulkOrderModalOpen(false)}
+                  className="h-9 px-4 text-xs cursor-pointer"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={saving}
+                  className="h-9 px-5 text-xs bg-rose-500 hover:bg-rose-600 text-white font-semibold flex items-center gap-1.5 cursor-pointer rounded-lg"
+                >
+                  {saving && <RefreshCw size={14} className="animate-spin" />}
+                  {editingBulkOrderId ? "Update Bulk Order" : "Save Bulk Order"}
+                </Button>
+              </div>
+            </form>
+          </Card>
+        </div>
+      )}
 
       {/* Add / Edit Inventory Modal Dialog */}
       {isModalOpen && (

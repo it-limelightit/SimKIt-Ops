@@ -30,7 +30,6 @@ import {
   Trash2,
   X,
   FileText,
-  Table2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { parseSiteMetadata } from "@/lib/site-metadata";
@@ -82,6 +81,7 @@ type Material = {
 type InventoryPanelProps = {
   editable?: boolean;
   defaultFilterState?: string;
+  viewMode?: ViewMode;
 };
 
 type ViewMode = "cards" | "table";
@@ -127,12 +127,11 @@ function uniqueDropdownOptions(options: string[]) {
   }, []);
 }
 
-export function InventoryPanel({ editable = false, defaultFilterState = "all" }: InventoryPanelProps) {
+export function InventoryPanel({ editable = false, defaultFilterState = "all", viewMode = "cards" }: InventoryPanelProps) {
   const [materials, setMaterials] = useState<Material[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [filterState, setFilterState] = useState<string>(defaultFilterState);
-  const [viewMode, setViewMode] = useState<ViewMode>("cards");
   const [tableDateFilter, setTableDateFilter] = useState<TableDateFilter>("all");
   const [tableLocationFilter, setTableLocationFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
@@ -264,30 +263,9 @@ export function InventoryPanel({ editable = false, defaultFilterState = "all" }:
             Live Logistics Pipelines
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-4">
-            <button
-              type="button"
-              onClick={() => {
-                setViewMode("cards");
-                setFilterState("all");
-              }}
-              aria-pressed={viewMode === "cards"}
-              className="text-left text-4xl uppercase tracking-tight font-extrabold font-syne text-text-primary transition hover:text-violet focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet"
-            >
+            <h1 className="text-left text-4xl uppercase tracking-tight font-extrabold font-syne text-text-primary">
               Logistic
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode("table")}
-              aria-pressed={viewMode === "table"}
-              className={`inline-flex h-12 w-[260px] shrink-0 items-center justify-center gap-3 whitespace-nowrap rounded-[6px] px-3 text-4xl font-extrabold transition ${
-                viewMode === "table"
-                  ? "bg-lime text-background"
-                  : "border border-border bg-surface text-text-secondary hover:bg-surface-raised hover:text-text-primary"
-              }`}
-            >
-              <Table2 size={22} />
-              Device Info
-            </button>
+            </h1>
           </div>
           <p className="mt-2 text-sm text-text-secondary">
             Track client device orders, pack hardware packages, configure OTA settings, and log courier shipments.
