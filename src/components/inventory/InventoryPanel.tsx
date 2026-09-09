@@ -30,6 +30,7 @@ import {
   Trash2,
   X,
   FileText,
+  Table2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { parseSiteMetadata } from "@/lib/site-metadata";
@@ -127,11 +128,13 @@ function uniqueDropdownOptions(options: string[]) {
   }, []);
 }
 
-export function InventoryPanel({ editable = false, defaultFilterState = "all", viewMode = "cards" }: InventoryPanelProps) {
+export function InventoryPanel({ editable = false, defaultFilterState = "all", viewMode: controlledViewMode }: InventoryPanelProps) {
   const [materials, setMaterials] = useState<Material[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [filterState, setFilterState] = useState<string>(defaultFilterState);
+  const [localViewMode, setLocalViewMode] = useState<ViewMode>("cards");
+  const viewMode = controlledViewMode ?? localViewMode;
   const [tableDateFilter, setTableDateFilter] = useState<TableDateFilter>("all");
   const [tableLocationFilter, setTableLocationFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
@@ -263,9 +266,17 @@ export function InventoryPanel({ editable = false, defaultFilterState = "all", v
             Live Logistics Pipelines
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-4">
-            <h1 className="text-left text-4xl uppercase tracking-tight font-extrabold font-syne text-text-primary">
+            <button
+              type="button"
+              onClick={() => {
+                setLocalViewMode("cards");
+                setFilterState("all");
+              }}
+              aria-pressed={viewMode === "cards"}
+              className="text-left text-4xl uppercase tracking-tight font-extrabold font-syne text-text-primary transition hover:text-violet focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet"
+            >
               Logistic
-            </h1>
+            </button>
           </div>
           <p className="mt-2 text-sm text-text-secondary">
             Track client device orders, pack hardware packages, configure OTA settings, and log courier shipments.
@@ -385,85 +396,85 @@ export function InventoryPanel({ editable = false, defaultFilterState = "all", v
             materials={tableMaterials}
           />
         ) : (
-        <div className="space-y-6">
-          <div className="grid gap-4 md:grid-cols-2">
-            {paginatedMaterials.map((m) => (
-              <OrderCard key={m.id} material={m} editable={editable} onReload={() => void load(true)} />
-            ))}
-          </div>
-
-          {/* Pagination Bar */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between border border-border bg-surface rounded-[10px] px-4 py-3 sm:px-6">
-              <div className="flex flex-1 justify-between sm:hidden">
-                <Button
-                  onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
-                  disabled={currentPage === 1}
-                  variant="secondary"
-                  className="text-xs"
-                >
-                  Previous
-                </Button>
-                <Button
-                  onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
-                  disabled={currentPage === totalPages}
-                  variant="secondary"
-                  className="text-xs"
-                >
-                  Next
-                </Button>
-              </div>
-              <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-xs text-text-secondary font-mono">
-                    Showing <span className="font-bold text-text-primary">{startIndex + 1}</span> to{" "}
-                    <span className="font-bold text-text-primary">
-                      {Math.min(startIndex + ITEMS_PER_PAGE, totalItems)}
-                    </span>{" "}
-                    of <span className="font-bold text-text-primary">{totalItems}</span> results
-                  </p>
-                </div>
-                <div>
-                  <nav className="isolate inline-flex -space-x-px rounded-[6px] shadow-sm gap-1" aria-label="Pagination">
-                    <Button
-                      onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
-                      disabled={currentPage === 1}
-                      variant="secondary"
-                      className="h-8 w-8 p-0 flex items-center justify-center border border-border bg-surface hover:bg-surface-raised"
-                    >
-                      &lt;
-                    </Button>
-
-                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
-                      const isActive = page === currentPage;
-                      return (
-                        <button
-                          key={page}
-                          onClick={() => setCurrentPage(page)}
-                          className={`inline-flex items-center justify-center text-xs font-mono font-bold h-8 w-8 rounded-[6px] transition-all cursor-pointer ${isActive
-                            ? "bg-lime text-background shadow-sm"
-                            : "border border-border bg-surface text-text-secondary hover:bg-surface-raised"
-                            }`}
-                        >
-                          {page}
-                        </button>
-                      );
-                    })}
-
-                    <Button
-                      onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
-                      disabled={currentPage === totalPages}
-                      variant="secondary"
-                      className="h-8 w-8 p-0 flex items-center justify-center border border-border bg-surface hover:bg-surface-raised"
-                    >
-                      &gt;
-                    </Button>
-                  </nav>
-                </div>
-              </div>
+          <div className="space-y-6">
+            <div className="grid gap-4 md:grid-cols-2">
+              {paginatedMaterials.map((m) => (
+                <OrderCard key={m.id} material={m} editable={editable} onReload={() => void load(true)} />
+              ))}
             </div>
-          )}
-        </div>
+
+            {/* Pagination Bar */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between border border-border bg-surface rounded-[10px] px-4 py-3 sm:px-6">
+                <div className="flex flex-1 justify-between sm:hidden">
+                  <Button
+                    onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                    disabled={currentPage === 1}
+                    variant="secondary"
+                    className="text-xs"
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                    disabled={currentPage === totalPages}
+                    variant="secondary"
+                    className="text-xs"
+                  >
+                    Next
+                  </Button>
+                </div>
+                <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-xs text-text-secondary font-mono">
+                      Showing <span className="font-bold text-text-primary">{startIndex + 1}</span> to{" "}
+                      <span className="font-bold text-text-primary">
+                        {Math.min(startIndex + ITEMS_PER_PAGE, totalItems)}
+                      </span>{" "}
+                      of <span className="font-bold text-text-primary">{totalItems}</span> results
+                    </p>
+                  </div>
+                  <div>
+                    <nav className="isolate inline-flex -space-x-px rounded-[6px] shadow-sm gap-1" aria-label="Pagination">
+                      <Button
+                        onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                        disabled={currentPage === 1}
+                        variant="secondary"
+                        className="h-8 w-8 p-0 flex items-center justify-center border border-border bg-surface hover:bg-surface-raised"
+                      >
+                        &lt;
+                      </Button>
+
+                      {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+                        const isActive = page === currentPage;
+                        return (
+                          <button
+                            key={page}
+                            onClick={() => setCurrentPage(page)}
+                            className={`inline-flex items-center justify-center text-xs font-mono font-bold h-8 w-8 rounded-[6px] transition-all cursor-pointer ${isActive
+                              ? "bg-lime text-background shadow-sm"
+                              : "border border-border bg-surface text-text-secondary hover:bg-surface-raised"
+                              }`}
+                          >
+                            {page}
+                          </button>
+                        );
+                      })}
+
+                      <Button
+                        onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                        disabled={currentPage === totalPages}
+                        variant="secondary"
+                        className="h-8 w-8 p-0 flex items-center justify-center border border-border bg-surface hover:bg-surface-raised"
+                      >
+                        &gt;
+                      </Button>
+                    </nav>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         )
       ) : (
         <EmptyState icon={Boxes} text="No logistics orders found." />
@@ -500,9 +511,8 @@ function MetricCard({
     <button
       type="button"
       onClick={onClick}
-      className={`flex items-center gap-3 rounded-[9px] border bg-surface px-4 py-3 text-left transition-all hover:border-lime/60 hover:bg-surface-hover ${
-        active ? "border-lime ring-2 ring-lime/15" : "border-border"
-      }`}
+      className={`flex items-center gap-3 rounded-[9px] border bg-surface px-4 py-3 text-left transition-all hover:border-lime/60 hover:bg-surface-hover ${active ? "border-lime ring-2 ring-lime/15" : "border-border"
+        }`}
     >
       <div className={`rounded-[6px] p-2 ${bgClass}`}>
         <Icon size={18} />
@@ -627,9 +637,10 @@ function boolLabel(value: string | null | undefined) {
 function normalizeLogisticsStatus(status: string) {
   if (status === "In transit" || status === "Transit" || status === "Shipped") return "Transit";
   if (status === "Packing") return "Packing";
-  if (status === "Delivered") return "Delivered";
+  if (status === "Delivered" || status === "delivered") return "Delivered";
   return "Pending";
 }
+
 
 function isSensorChecked(value: string | null | undefined) {
   return value === "TRUE" || value === "true" || value === "1" || value === "yes" || value === "Yes";
@@ -731,9 +742,8 @@ function LogisticsTableView({
                   ].map((heading, index) => (
                     <th
                       key={heading}
-                      className={`whitespace-nowrap border-b border-border px-3 py-3 font-bold ${
-                        index === 0 ? "sticky left-0 z-30 w-32 min-w-32 border-r border-border bg-surface-raised" : ""
-                      } ${index === 1 ? "sticky left-32 z-30 w-72 min-w-72 border-r border-border bg-surface-raised" : ""}`}
+                      className={`whitespace-nowrap border-b border-border px-3 py-3 font-bold ${index === 0 ? "sticky left-0 z-30 w-32 min-w-32 border-r border-border bg-surface-raised" : ""
+                        } ${index === 1 ? "sticky left-32 z-30 w-72 min-w-72 border-r border-border bg-surface-raised" : ""}`}
                     >
                       {heading}
                     </th>
@@ -826,15 +836,13 @@ function TableCellValue({
 
   return (
     <td
-      className={`overflow-hidden border-b border-border/70 px-3 py-3 align-top text-text-secondary ${
-        strong ? "font-semibold text-text-primary" : ""
-      } ${mono ? "font-mono text-[11px]" : ""} ${
-        sticky === "left"
+      className={`overflow-hidden border-b border-border/70 px-3 py-3 align-top text-text-secondary ${strong ? "font-semibold text-text-primary" : ""
+        } ${mono ? "font-mono text-[11px]" : ""} ${sticky === "left"
           ? "sticky left-0 z-20 w-32 min-w-32 max-w-32 border-r border-border/80 bg-surface whitespace-nowrap"
           : sticky === "company"
             ? "sticky left-32 z-20 w-72 min-w-72 max-w-72 border-r border-border/80 bg-surface"
             : ""
-      }`}
+        }`}
     >
       <div
         role="button"
@@ -848,9 +856,8 @@ function TableCellValue({
             setExpanded((current) => !current);
           }
         }}
-        className={`cursor-pointer rounded-[3px] outline-none transition-colors hover:bg-lime/10 focus-visible:ring-1 focus-visible:ring-lime ${
-          expanded ? "whitespace-normal break-words leading-5" : "truncate whitespace-nowrap"
-        }`}
+        className={`cursor-pointer rounded-[3px] outline-none transition-colors hover:bg-lime/10 focus-visible:ring-1 focus-visible:ring-lime ${expanded ? "whitespace-normal break-words leading-5" : "truncate whitespace-nowrap"
+          }`}
       >
         {children}
       </div>
@@ -865,9 +872,8 @@ function SensorCell({ value }: { value: string | null | undefined }) {
       <span
         title={checked ? "Enabled" : "Not enabled"}
         aria-label={checked ? "Enabled" : "Not enabled"}
-        className={`inline-flex h-5 w-5 items-center justify-center rounded-[4px] border ${
-          checked ? "border-lime bg-lime text-background" : "border-border bg-surface-raised text-text-dim"
-        }`}
+        className={`inline-flex h-5 w-5 items-center justify-center rounded-[4px] border ${checked ? "border-lime bg-lime text-background" : "border-border bg-surface-raised text-text-dim"
+          }`}
       >
         {checked ? "✓" : ""}
       </span>
@@ -1729,7 +1735,7 @@ function OrderCard({
   if (material.tower_light === "TRUE") checklistItems.push({ label: "Tower Light", checked: towerLight, onChange: setTowerLight, id: `pack-twr-${material.id}` });
   if (material.energy_meter === "TRUE") checklistItems.push({ label: "Energy Meter", checked: energyMeter, onChange: setEnergyMeter, id: `pack-en-${material.id}` });
   if (material.plc === "TRUE") checklistItems.push({ label: "PLC", checked: plc, onChange: setPlc, id: `pack-plc-${material.id}` });
- 
+
   // Quick fill all checkboxes
   const handleQuickFill = () => {
     if (material.ct1 === "TRUE") setCt1(true);
@@ -1892,11 +1898,11 @@ function OrderCard({
 
       {/* 2. Central Screen Modal Popup Box */}
       {expanded && (
-        <div 
+        <div
           onClick={() => setExpanded(false)}
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200"
         >
-          <div 
+          <div
             onClick={(e) => e.stopPropagation()}
             className="relative w-full max-w-2xl bg-surface border border-border/80 rounded-[16px] shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200"
           >
@@ -2060,9 +2066,9 @@ function OrderCard({
                       </div>
 
                       <div className="flex justify-between items-center pt-4 border-t border-border/50">
-                        <Button 
-                          type="button" 
-                          variant="ghost" 
+                        <Button
+                          type="button"
+                          variant="ghost"
                           onClick={() => setExpanded(false)}
                           className="px-4 py-2 border border-border bg-surface text-text-secondary hover:text-text-primary h-9 shrink-0 cursor-pointer"
                         >
