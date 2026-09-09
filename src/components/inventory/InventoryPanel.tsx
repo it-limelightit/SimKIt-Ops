@@ -83,6 +83,7 @@ type InventoryPanelProps = {
   editable?: boolean;
   defaultFilterState?: string;
   viewMode?: ViewMode;
+  showLogisticsKtas?: boolean;
 };
 
 type ViewMode = "cards" | "table";
@@ -128,7 +129,12 @@ function uniqueDropdownOptions(options: string[]) {
   }, []);
 }
 
-export function InventoryPanel({ editable = false, defaultFilterState = "all", viewMode: controlledViewMode }: InventoryPanelProps) {
+export function InventoryPanel({
+  editable = false,
+  defaultFilterState = "all",
+  viewMode: controlledViewMode,
+  showLogisticsKtas = true,
+}: InventoryPanelProps) {
   const [materials, setMaterials] = useState<Material[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
@@ -263,7 +269,7 @@ export function InventoryPanel({ editable = false, defaultFilterState = "all", v
       <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="font-mono text-[10px] uppercase tracking-widest text-lime/80 font-bold">
-            Live Logistics Pipelines
+            {viewMode === "table" ? "Device Information" : "Live Logistics Pipelines"}
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-4">
             <button
@@ -279,54 +285,59 @@ export function InventoryPanel({ editable = false, defaultFilterState = "all", v
             </button>
           </div>
           <p className="mt-2 text-sm text-text-secondary">
-            Track client device orders, pack hardware packages, configure OTA settings, and log courier shipments.
+            {viewMode === "table"
+              ? "Review dispatched device managers by DM name, dispatch date, and city."
+              : "Track client device orders, pack hardware packages, configure OTA settings, and log courier shipments."}
           </p>
         </div>
       </header>
 
-      {/* Logistics Business Analytics KTAs */}
-      <div className="grid gap-3 grid-cols-2 sm:grid-cols-5">
-        <MetricCard
-          icon={Boxes}
-          label="Total Orders"
-          value={metrics.total}
-          tone="info"
-          active={filterState === "all"}
-          onClick={() => setFilterState("all")}
-        />
-        <MetricCard
-          icon={AlertCircle}
-          label="Pending Packing"
-          value={metrics.pending}
-          tone="danger"
-          active={filterState === "Pending"}
-          onClick={() => setFilterState("Pending")}
-        />
-        <MetricCard
-          icon={Package}
-          label="In Packing"
-          value={metrics.packing}
-          tone="warning"
-          active={filterState === "Packing"}
-          onClick={() => setFilterState("Packing")}
-        />
-        <MetricCard
-          icon={Truck}
-          label="Shipped / Transit"
-          value={metrics.transit}
-          tone="info"
-          active={filterState === "Transit"}
-          onClick={() => setFilterState("Transit")}
-        />
-        <MetricCard
-          icon={PackageCheck}
-          label="Delivered"
-          value={metrics.delivered}
-          tone="success"
-          active={filterState === "Delivered"}
-          onClick={() => setFilterState("Delivered")}
-        />
-      </div>
+      {showLogisticsKtas ? (
+        <div className="grid gap-3 grid-cols-2 sm:grid-cols-5">
+          <MetricCard
+            icon={Boxes}
+            label="Total Orders"
+            value={metrics.total}
+            tone="info"
+            active={filterState === "all"}
+            onClick={() => setFilterState("all")}
+          />
+          <MetricCard
+            icon={AlertCircle}
+            label="Pending Packing"
+            value={metrics.pending}
+            tone="danger"
+            active={filterState === "Pending"}
+            onClick={() => setFilterState("Pending")}
+          />
+          <MetricCard
+            icon={Package}
+            label="In Packing"
+            value={metrics.packing}
+            tone="warning"
+            active={filterState === "Packing"}
+            onClick={() => setFilterState("Packing")}
+          />
+          <MetricCard
+            icon={Truck}
+            label="Shipped / Transit"
+            value={metrics.transit}
+            tone="info"
+            active={filterState === "Transit"}
+            onClick={() => setFilterState("Transit")}
+          />
+          <MetricCard
+            icon={PackageCheck}
+            label="Delivered"
+            value={metrics.delivered}
+            tone="success"
+            active={filterState === "Delivered"}
+            onClick={() => setFilterState("Delivered")}
+          />
+        </div>
+      ) : (
+        <DeviceOverviewKta materials={materials} />
+      )}
 
       <div className="flex flex-col gap-3 border-t border-border pt-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -525,6 +536,105 @@ function MetricCard({
       </div>
     </button>
   );
+}
+
+type DeviceOverviewDateFilter = "all" | "today" | "yesterday" | "thisMonth" | "lastMonth";
+
+function DeviceOverviewKta({ materials }: { materials: Material[] }) {
+  const [dateFilter, setDateFilter] = useState<DeviceOverviewDateFilter>("today");
+  const [cityFilter, setCityFilter] = useState("all");
+  const [dmFilter, setDmFilter] = useState("all");
+
+  const cityOptions = useMemo(
+    () => Array.from(new Set(materials.map((material) => getLogisticsCity(material.location))))
+      .filter((city) => city !== "Unassigned")
+      .sort((a, b) => a.localeCompare(b)),
+    [materials],
+  );
+
+  const filteredMaterials = useMemo(() => materials.filter((material) => {
+    const dispatchDate = getDispatchDate(material);
+    const matchesDate = matchesDeviceOverviewDate(dispatchDate, dateFilter);
+    const matchesCity = cityFilter === "all" || getLogisticsCity(material.location) === cityFilter;
+    const matchesDm = dmFilter === "all" || material.material_name === dmFilter;
+    return matchesDate && matchesCity && matchesDm;
+  }), [materials, dateFilter, cityFilter, dmFilter]);
+
+  const dmCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    filteredMaterials.forEach((material) => {
+      const name = material.material_name?.trim() || "Unnamed DM";
+      counts.set(name, (counts.get(name) || 0) + 1);
+    });
+    return Array.from(counts.entries()).sort(([a], [b]) => a.localeCompare(b));
+  }, [filteredMaterials]);
+
+  return (
+    <section className="space-y-4 border-y border-border py-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className="font-mono text-[10px] uppercase tracking-widest text-lime/80 font-bold">Device Overview KTA</p>
+          <h2 className="mt-1 text-lg font-extrabold text-text-primary">Dispatched DM overview</h2>
+        </div>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <Select value={dateFilter} onChange={(event) => setDateFilter(event.target.value as DeviceOverviewDateFilter)} className="text-xs sm:w-48">
+            <option value="today">Today dispatched</option>
+            <option value="yesterday">Yesterday dispatched</option>
+            <option value="thisMonth">This month dispatched</option>
+            <option value="lastMonth">Last month dispatched</option>
+            <option value="all">All dispatched</option>
+          </Select>
+          <Select value={cityFilter} onChange={(event) => setCityFilter(event.target.value)} className="text-xs sm:w-44">
+            <option value="all">All cities</option>
+            {cityOptions.map((city) => <option key={city} value={city}>{city}</option>)}
+          </Select>
+          <Select value={dmFilter} onChange={(event) => setDmFilter(event.target.value)} className="text-xs sm:w-48">
+            <option value="all">All DM names</option>
+            {Array.from(new Set(materials.map((material) => material.material_name).filter(Boolean))).sort().map((name) => (
+              <option key={name} value={name}>{name}</option>
+            ))}
+          </Select>
+        </div>
+      </div>
+
+      {dmCounts.length ? (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {dmCounts.map(([name, count]) => (
+            <MetricCard
+              key={name}
+              icon={Cpu}
+              label={name}
+              value={count}
+              tone="info"
+              active={dmFilter === name}
+              onClick={() => setDmFilter(dmFilter === name ? "all" : name)}
+            />
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-text-secondary">No dispatched device managers match the selected filters.</p>
+      )}
+    </section>
+  );
+}
+
+function getDispatchDate(material: Material) {
+  const notes = parseCourierNotes(material);
+  return notes.transit_date || notes.arrived_date || notes.packing_date || material.updated_at || material.created_at;
+}
+
+function matchesDeviceOverviewDate(value: string | null | undefined, filter: DeviceOverviewDateFilter) {
+  if (filter === "all") return true;
+  const date = parseDate(value);
+  if (!date) return false;
+  const today = new Date();
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const dayDifference = Math.round((startOfToday.getTime() - target.getTime()) / 86400000);
+  if (filter === "today") return dayDifference === 0;
+  if (filter === "yesterday") return dayDifference === 1;
+  if (filter === "thisMonth") return date.getFullYear() === today.getFullYear() && date.getMonth() === today.getMonth();
+  return getMonthKey(value) === getRelativeMonthKey(-1);
 }
 
 function parseCourierNotes(material: Material): CourierNotes {

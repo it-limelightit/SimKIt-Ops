@@ -8,6 +8,7 @@ import {
   Label,
   Select,
   EmptyState,
+  Checkbox,
 } from "@/components/ui-kit";
 import {
   Boxes,
@@ -36,6 +37,7 @@ import {
 } from "@/lib/inventory-bom-service";
 
 const CUSTOM_OPTION_VALUE = "__custom__";
+const GST_RATE = 0.18;
 
 type InventoryEntryNotes = {
   inventory_entry_type?: string;
@@ -44,6 +46,10 @@ type InventoryEntryNotes = {
   bulk_order_items?: BulkOrderDraft[];
   bulk_order_price_source?: string;
   bulk_order_note?: string | null;
+  stock_note?: string | null;
+  gst_included?: boolean;
+  entered_unit_price?: number;
+  effective_unit_price?: number;
 };
 
 type BulkOrderDraft = {
@@ -61,6 +67,9 @@ type BulkOrderPlan = {
   order_date: string;
   created_at: string;
 };
+
+type InventoryStatus = "AVAILABLE" | "LOW STOCK" | "OUT OF STOCK";
+type StatusFilter = "all" | "out" | "low" | "available";
 
 function parseInventoryEntryNotes(notes: string | null): InventoryEntryNotes {
   if (!notes) return {};
@@ -86,6 +95,31 @@ function getBulkOrderGroupId(item: InventoryStockItem) {
   return parseInventoryEntryNotes(item.notes).bulk_order_group_id || item.id;
 }
 
+function getStockRemark(notes: string | null) {
+  if (!notes) return "";
+  const notesData = parseInventoryEntryNotes(notes);
+  if (typeof notesData.stock_note === "string") return notesData.stock_note;
+  if (notesData.inventory_entry_type || typeof notesData.gst_included === "boolean") return "";
+  return notes;
+}
+
+function getStockGstIncluded(notes: string | null) {
+  return parseInventoryEntryNotes(notes).gst_included !== false;
+}
+
+function getEnteredUnitPrice(item: InventoryStockItem) {
+  const enteredUnitPrice = Number(parseInventoryEntryNotes(item.notes).entered_unit_price);
+  return enteredUnitPrice > 0 ? enteredUnitPrice : Number(item.unit_price) || 0;
+}
+
+function getEffectiveUnitPrice(enteredUnitPrice: number, gstIncluded: boolean) {
+  return gstIncluded ? enteredUnitPrice : Number((enteredUnitPrice / (1 + GST_RATE)).toFixed(2));
+}
+
+function formatGstStatus(gstIncluded: boolean) {
+  return gstIncluded ? "GST Incl." : "Without GST";
+}
+
 function formatDisplayDate(value: string | null | undefined) {
   if (!value) return "-";
   const parsed = new Date(value);
@@ -95,6 +129,29 @@ function formatDisplayDate(value: string | null | undefined) {
     month: "short",
     year: "numeric",
   }).format(parsed);
+}
+
+function getTodayDateValue() {
+  return new Date().toISOString().split("T")[0];
+}
+
+function getInventoryStatus(quantity: number, minQuantity: number): InventoryStatus {
+  if (quantity <= 0) return "OUT OF STOCK";
+  if (quantity <= minQuantity) return "LOW STOCK";
+  return "AVAILABLE";
+}
+
+function getStatusPriority(status: InventoryStatus) {
+  if (status === "OUT OF STOCK") return 0;
+  if (status === "LOW STOCK") return 1;
+  return 2;
+}
+
+function matchesStatusFilter(status: InventoryStatus, filter: StatusFilter) {
+  if (filter === "all") return true;
+  if (filter === "out") return status === "OUT OF STOCK";
+  if (filter === "low") return status === "LOW STOCK";
+  return status === "AVAILABLE";
 }
 
 export function InventoryStockPanel() {
@@ -119,6 +176,7 @@ export function InventoryStockPanel() {
   const [actualQuantity, setActualQuantity] = useState<number | "">("");
   const [minQuantity, setMinQuantity] = useState<number | "">("");
   const [unitPrice, setUnitPrice] = useState<number | "">("");
+  const [unitPriceIncludesGst, setUnitPriceIncludesGst] = useState(true);
   const [entryDate, setEntryDate] = useState(
     new Date().toISOString().split("T")[0]
   );
@@ -131,14 +189,12 @@ export function InventoryStockPanel() {
   const [bulkQuantity, setBulkQuantity] = useState<number | "">("");
   const [bulkPriceChoice, setBulkPriceChoice] = useState("");
   const [bulkCustomUnitPrice, setBulkCustomUnitPrice] = useState<number | "">("");
-  const [bulkOrderDate, setBulkOrderDate] = useState(new Date().toISOString().split("T")[0]);
   const [bulkNotes, setBulkNotes] = useState("");
   const [bulkOrderDrafts, setBulkOrderDrafts] = useState<BulkOrderDraft[]>([]);
 
   // BOM planning state is intentionally separate from physical stock and bulk orders.
   const [bomItems, setBomItems] = useState<InventoryBomItem[]>([]);
   const [bomUsageLogs, setBomUsageLogs] = useState<Array<{ stock_id: string | null; quantity_changed: number; change_type: string }>>([]);
-  const [plannedKitQuantity, setPlannedKitQuantity] = useState<number | "">(0);
   const [bulkOrderDeviceQuantity, setBulkOrderDeviceQuantity] = useState<number | "">(0);
   const [savedBulkOrderPlan, setSavedBulkOrderPlan] = useState<BulkOrderPlan | null>(null);
   const [bomLoading, setBomLoading] = useState(false);
@@ -201,7 +257,6 @@ export function InventoryStockPanel() {
       const plan = data as unknown as BulkOrderPlan;
       setSavedBulkOrderPlan(plan);
       setBulkOrderDeviceQuantity(plan.device_quantity);
-      setBulkOrderDate(plan.order_date);
     }
   }, []);
 
@@ -242,19 +297,19 @@ export function InventoryStockPanel() {
       .filter((item): item is { category: string; sensorType: string | null; quantity: number } => Boolean(item));
 
     return calculateInventoryBom(bomItems, {
-      plannedKitQuantity: Number(plannedKitQuantity) || 0,
+      bulkOrderDeviceQuantity: Number(bulkOrderDeviceQuantity) || 0,
       currentStock: stock
         .filter((item) => !isBulkOrderItem(item))
         .map((item) => ({
           category: item.category,
           sensor_type: item.sensor_type,
-          // actual_quantity is already reduced by dispatch; add the audit usage back
-          // so the calculator receives Excel's Total Available value.
+          // actual_quantity is already reduced by dispatch; add audit usage back
+          // so the BOM balance can subtract usage consistently.
           actual_quantity: item.actual_quantity + (usageByStockId.get(item.id) || 0),
         })),
       usage,
     });
-  }, [bomItems, bomUsageLogs, plannedKitQuantity, stock]);
+  }, [bomItems, bomUsageLogs, bulkOrderDeviceQuantity, stock]);
 
   const resetBomForm = () => {
     setEditingBomId(null);
@@ -301,10 +356,8 @@ export function InventoryStockPanel() {
   const handleEditBomItem = (item: InventoryBomItem) => {
     setEditingBomId(item.id);
     setBomCategory(item.category);
-    setBomSensorType(item.sensor_type || "");
     setBomQuantityPerKit(item.quantity_per_kit);
     setBomUnit(item.unit);
-    setBomRequiredByDefault(item.required_by_default);
     setIsBomModalOpen(true);
   };
 
@@ -328,6 +381,7 @@ export function InventoryStockPanel() {
     setActualQuantity("");
     setMinQuantity("");
     setUnitPrice("");
+    setUnitPriceIncludesGst(true);
     setEntryDate(new Date().toISOString().split("T")[0]);
     setNotes("");
   };
@@ -349,7 +403,6 @@ export function InventoryStockPanel() {
     setBulkQuantity("");
     setBulkPriceChoice("");
     setBulkCustomUnitPrice("");
-    setBulkOrderDate(new Date().toISOString().split("T")[0]);
     setBulkNotes("");
     setBulkOrderDrafts([]);
   };
@@ -394,7 +447,6 @@ export function InventoryStockPanel() {
         .map((row) => row.id),
     );
     setEditingBulkDraftIndex(null);
-    setBulkOrderDate(item.entry_date || new Date().toISOString().split("T")[0]);
     setBulkOrderDrafts(draftItems);
     setBulkCategory(PREDEFINED_CATEGORIES[0]);
     setBulkCustomCategory("");
@@ -410,13 +462,8 @@ export function InventoryStockPanel() {
   const handleEditItem = (item: InventoryStockItem) => {
     setEditingId(item.id);
     
-    if (PREDEFINED_CATEGORIES.includes(item.category)) {
-      setCategory(item.category);
-      setCustomCategory("");
-    } else {
-      setCategory(CUSTOM_OPTION_VALUE);
-      setCustomCategory(item.category);
-    }
+    setCategory(item.category);
+    setCustomCategory("");
 
     if (item.sensor_type) {
       const isProxy = item.category.startsWith("Proxy");
@@ -437,9 +484,10 @@ export function InventoryStockPanel() {
 
     setActualQuantity(item.actual_quantity);
     setMinQuantity(item.min_quantity);
-    setUnitPrice(item.unit_price);
+    setUnitPrice(getEnteredUnitPrice(item));
+    setUnitPriceIncludesGst(getStockGstIncluded(item.notes));
     setEntryDate(item.entry_date || new Date().toISOString().split("T")[0]);
-    setNotes(item.notes || "");
+    setNotes(getStockRemark(item.notes));
     setIsModalOpen(true);
   };
 
@@ -481,7 +529,7 @@ export function InventoryStockPanel() {
 
   const handleSaveItem = async (e: React.FormEvent) => {
     e.preventDefault();
-    const finalCategory = category === CUSTOM_OPTION_VALUE ? customCategory.trim() : category;
+    const finalCategory = category.trim();
     
     let finalSensorType: string | null = null;
     if (category.startsWith("Proxy") || category === "Vibration Sensor") {
@@ -504,6 +552,8 @@ export function InventoryStockPanel() {
       toast.error("Please enter a valid unit price");
       return;
     }
+    const enteredUnitPrice = Number(unitPrice);
+    const effectiveUnitPrice = getEffectiveUnitPrice(enteredUnitPrice, unitPriceIncludesGst);
 
     setSaving(true);
     try {
@@ -512,9 +562,14 @@ export function InventoryStockPanel() {
         sensor_type: finalSensorType,
         actual_quantity: Number(actualQuantity),
         min_quantity: Number(minQuantity),
-        unit_price: Number(unitPrice),
+        unit_price: effectiveUnitPrice,
         entry_date: entryDate,
-        notes: notes.trim() || null,
+        notes: JSON.stringify({
+          stock_note: notes.trim() || null,
+          gst_included: unitPriceIncludesGst,
+          entered_unit_price: enteredUnitPrice,
+          effective_unit_price: effectiveUnitPrice,
+        } satisfies InventoryEntryNotes),
         updated_at: new Date().toISOString(),
       };
 
@@ -561,25 +616,19 @@ export function InventoryStockPanel() {
     }));
   }, [stock]);
 
-  const [statusFilter, setStatusFilter] = useState<"all" | "low">("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
   const filteredStock = useMemo(() => {
     return computedStock.filter((item) => {
-      const isBulkOrder = isBulkOrderItem(item);
       const matchesSearch =
         item.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (item.sensor_type && item.sensor_type.toLowerCase().includes(searchQuery.toLowerCase()));
 
       const matchesCat = categoryFilter === "all" || item.category === categoryFilter;
 
-      let matchesStatus = !isBulkOrder;
-      if (statusFilter === "low") {
-        matchesStatus = !isBulkOrder && item.actual_quantity <= item.min_quantity && item.actual_quantity > 0;
-      }
-
-      return matchesSearch && matchesCat && matchesStatus;
+      return matchesSearch && matchesCat;
     });
-  }, [computedStock, searchQuery, categoryFilter, statusFilter]);
+  }, [computedStock, searchQuery, categoryFilter]);
 
   const displayStock = useMemo(() => {
     const rows: InventoryStockItem[] = [];
@@ -645,18 +694,45 @@ export function InventoryStockPanel() {
     displayStock.filter((item) => !isBulkOrderItem(item) && !matchedStockIds.has(item.id)).forEach((item) => {
       rows.push({ bom: null, stock: item });
     });
-    return rows;
-  }, [bomCalculations, displayStock]);
+    return rows
+      .filter(({ bom, stock: stockItem }) => {
+        const itemName = bom?.category || stockItem?.category || "";
+        const sensorType = bom?.sensor_type || stockItem?.sensor_type || "";
+        const stockQuantity = stockItem?.actual_quantity ?? (bom ? bom.in_stock_quantity : 0);
+        const minQuantity = stockItem?.min_quantity ?? bom?.min_quantity ?? 0;
+        const status = getInventoryStatus(stockQuantity, minQuantity);
+        const matchesSearch =
+          itemName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          sensorType.toLowerCase().includes(searchQuery.toLowerCase());
+        const matchesCat = categoryFilter === "all" || itemName === categoryFilter;
+        return matchesSearch && matchesCat && matchesStatusFilter(status, statusFilter);
+      })
+      .sort((left, right) => {
+        const leftQty = left.stock?.actual_quantity ?? (left.bom ? left.bom.in_stock_quantity : 0);
+        const rightQty = right.stock?.actual_quantity ?? (right.bom ? right.bom.in_stock_quantity : 0);
+        const leftMin = left.stock?.min_quantity ?? left.bom?.min_quantity ?? 0;
+        const rightMin = right.stock?.min_quantity ?? right.bom?.min_quantity ?? 0;
+        const statusDelta =
+          getStatusPriority(getInventoryStatus(leftQty, leftMin)) -
+          getStatusPriority(getInventoryStatus(rightQty, rightMin));
+        if (statusDelta !== 0) return statusDelta;
+        const leftDate = new Date(left.stock?.updated_at || left.stock?.created_at || left.bom?.updated_at || left.bom?.created_at || 0).getTime();
+        const rightDate = new Date(right.stock?.updated_at || right.stock?.created_at || right.bom?.updated_at || right.bom?.created_at || 0).getTime();
+        return rightDate - leftDate;
+      });
+  }, [bomCalculations, displayStock, searchQuery, categoryFilter, statusFilter]);
 
   const ktaMetrics = useMemo(() => {
     let totalValuation = 0;
     let lowStockCount = 0;
+    let outOfStockCount = 0;
     let bulkOrderQuantity = 0;
     const materialStock = computedStock.filter((item) => !isBulkOrderItem(item));
 
     materialStock.forEach((item) => {
       totalValuation += item.total_price;
       if (item.actual_quantity <= item.min_quantity && item.actual_quantity > 0) lowStockCount++;
+      if (item.actual_quantity <= 0) outOfStockCount++;
     });
     computedStock.forEach((item) => {
       if (isBulkOrderItem(item)) {
@@ -677,7 +753,7 @@ export function InventoryStockPanel() {
         }))
       : 0;
 
-    return { totalItems: completeDmCount, totalValuation, lowStockCount, bulkOrderQuantity };
+    return { totalItems: completeDmCount, totalValuation, lowStockCount, outOfStockCount, bulkOrderQuantity };
   }, [bomItems, computedStock]);
 
   const availableBulkUnitPrices = useMemo(() => {
@@ -720,19 +796,16 @@ export function InventoryStockPanel() {
   const handleSaveBulkOrderPlan = async () => {
     const deviceQuantity = Number(bulkOrderDeviceQuantity);
     if (!Number.isInteger(deviceQuantity) || deviceQuantity <= 0) {
-      toast.error("Enter a valid bulk order device quantity");
-      return;
-    }
-    if (!bulkOrderDate) {
-      toast.error("Select a bulk order date");
+      toast.error("Enter a valid bulk order Data Meter quantity");
       return;
     }
 
     setSaving(true);
     try {
+      const orderDate = getTodayDateValue();
       const { data, error } = await supabase
         .from("inventory_bulk_order_plans" as any)
-        .insert({ device_quantity: deviceQuantity, order_date: bulkOrderDate })
+        .insert({ device_quantity: deviceQuantity, order_date: orderDate })
         .select("id, device_quantity, order_date, created_at")
         .single();
       if (error) throw error;
@@ -748,11 +821,12 @@ export function InventoryStockPanel() {
   const downloadBulkOrderPlanPdf = async () => {
     const deviceQuantity = Number(bulkOrderDeviceQuantity);
     if (!Number.isInteger(deviceQuantity) || deviceQuantity <= 0) {
-      toast.error("Enter a valid bulk order device quantity first");
+      toast.error("Enter a valid bulk order Data Meter quantity first");
       return;
     }
 
     try {
+      const orderDate = savedBulkOrderPlan?.order_date || getTodayDateValue();
       const reportItems = bomCalculations
         .filter((bom) => bom.required_by_default && bom.quantity_per_kit > 0)
         .map((bom) => {
@@ -761,7 +835,7 @@ export function InventoryStockPanel() {
             stockItem.category.trim().toLowerCase() === bom.category.trim().toLowerCase() &&
             (stockItem.sensor_type || "").trim().toLowerCase() === (bom.sensor_type || "").trim().toLowerCase(),
           );
-          const quantity = bom.quantity_per_kit * deviceQuantity;
+          const quantity = bom.bulk_order_quantity;
           const unitPrice = Number(item?.unit_price) || 0;
           return {
             category: bom.sensor_type ? `${bom.category} - ${bom.sensor_type}` : bom.category,
@@ -813,8 +887,8 @@ export function InventoryStockPanel() {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(8.5);
       doc.setTextColor(...muted);
-      doc.text(`Order Date: ${formatDisplayDate(bulkOrderDate)}`, pageWidth - margin, 55, { align: "right" });
-      doc.text(`Planned Data Meters: ${deviceQuantity}`, pageWidth / 2, 110, { align: "center" });
+      doc.text(`Last Update: ${formatDisplayDate(orderDate)}`, pageWidth - margin, 55, { align: "right" });
+      doc.text(`Bulk Order DMs: ${deviceQuantity}`, pageWidth / 2, 110, { align: "center" });
 
       let y = 128;
       doc.setFillColor(...navy);
@@ -864,16 +938,169 @@ export function InventoryStockPanel() {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(9);
       doc.setTextColor(...navy);
-      doc.text(`Total Bulk Order Quantity: ${totalQuantity}`, margin, y);
+      doc.text(`Total Bulk Order Component Quantity: ${totalQuantity}`, margin, y);
       doc.text(`Total Amount: Rs. ${totalAmount.toLocaleString("en-IN")}`, pageWidth - margin, y, { align: "right" });
       doc.setFont("helvetica", "normal");
       doc.setFontSize(7);
       doc.setTextColor(...muted);
       doc.text("Generated from SIMKit Ops inventory BOM planning.", margin, pageHeight - 22);
-      doc.save(`data-meter-bulk-order-${bulkOrderDate}.pdf`);
+      doc.save(`data-meter-bulk-order-${orderDate}.pdf`);
       toast.success("Bulk order report downloaded.");
     } catch (e: any) {
       toast.error("Failed to generate bulk order report: " + (e.message || e));
+    }
+  };
+
+  const downloadInventoryReportPdf = async () => {
+    if (!combinedInventoryRows.length) {
+      toast.error("No inventory rows available for report");
+      return;
+    }
+
+    try {
+      const reportDate =
+        savedBulkOrderPlan?.order_date ||
+        combinedInventoryRows
+          .map(({ stock: stockItem, bom }) => stockItem?.updated_at || stockItem?.created_at || bom?.updated_at || bom?.created_at)
+          .filter((value): value is string => Boolean(value))
+          .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ||
+        getTodayDateValue();
+      const rows = combinedInventoryRows.map(({ bom, stock: stockItem }) => {
+        const component = bom?.category || stockItem?.category || "-";
+        const sensorType = bom?.sensor_type || stockItem?.sensor_type || "";
+        const stockQuantity = stockItem?.actual_quantity ?? (bom ? bom.in_stock_quantity : 0);
+        const minQuantity = stockItem?.min_quantity ?? bom?.min_quantity ?? 0;
+        const status = getInventoryStatus(stockQuantity, minQuantity);
+        const bulkOrderQuantity = bom?.bulk_order_quantity ?? 0;
+        const gstStatus = stockItem ? formatGstStatus(getStockGstIncluded(stockItem.notes)) : "-";
+        const unitPrice = Number(stockItem?.unit_price) || 0;
+        const stockValue = stockItem ? Math.max(0, Number(stockItem.actual_quantity)) * unitPrice : 0;
+        return {
+          component: sensorType ? `${component} - ${sensorType}` : component,
+          qtyPerKit: bom ? `${bom.quantity_per_kit} ${bom.unit}` : "-",
+          inStock: stockQuantity,
+          minQuantity,
+          bulkOrderQuantity,
+          shortage: bom ? bom.shortage_quantity : 0,
+          status,
+          gstStatus,
+          unitPrice,
+          stockValue,
+        };
+      });
+
+      const [{ jsPDF }] = await Promise.all([import("jspdf")]);
+      const logoDataUrl = await fetch(logoUrl)
+        .then((response) => response.blob())
+        .then((blob) => new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        }));
+      const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 36;
+      const tableWidth = pageWidth - margin * 2;
+      const navy: [number, number, number] = [23, 58, 91];
+      const ink: [number, number, number] = [31, 51, 71];
+      const muted: [number, number, number] = [102, 120, 138];
+      const border: [number, number, number] = [215, 224, 232];
+      const columns = [
+        { label: "Component", width: 180 },
+        { label: "Qty / Kit", width: 70 },
+        { label: "In Stock", width: 60 },
+        { label: "Min", width: 55 },
+        { label: "Bulk Order", width: 75 },
+        { label: "Shortage", width: 70 },
+        { label: "Status", width: 90 },
+        { label: "GST", width: 65 },
+        { label: "Unit Price", width: 75 },
+        { label: "Stock Value", width: 85 },
+      ];
+      const columnScale = tableWidth / columns.reduce((sum, column) => sum + column.width, 0);
+      const scaledColumns = columns.map((column) => ({ ...column, width: column.width * columnScale }));
+
+      doc.addImage(logoDataUrl, "PNG", margin, 24, 36, 36);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      doc.setTextColor(...navy);
+      doc.text("LimelightIT Research Pvt. Ltd.", margin + 46, 40);
+      doc.setFontSize(15);
+      doc.text("INVENTORY STOCK REPORT", pageWidth / 2, 84, { align: "center" });
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8.5);
+      doc.setTextColor(...muted);
+      doc.text(`Last Update: ${formatDisplayDate(reportDate)}`, pageWidth - margin, 40, { align: "right" });
+      doc.text(`Bulk Order DMs: ${Number(bulkOrderDeviceQuantity) || 0}`, pageWidth / 2, 102, { align: "center" });
+
+      let y = 120;
+      const drawHeader = () => {
+        doc.setFillColor(...navy);
+        doc.roundedRect(margin, y, tableWidth, 26, 3, 3, "F");
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(7.2);
+        doc.setTextColor(255, 255, 255);
+        let x = margin;
+        scaledColumns.forEach((column, index) => {
+          doc.text(column.label, x + 6, y + 17);
+          if (index > 0) doc.line(x, y, x, y + 26);
+          x += column.width;
+        });
+        y += 26;
+      };
+
+      drawHeader();
+      rows.forEach((item) => {
+        const rowHeight = 34;
+        if (y + rowHeight > pageHeight - 38) {
+          doc.addPage();
+          y = 38;
+          drawHeader();
+        }
+        const values = [
+          item.component,
+          item.qtyPerKit,
+          String(item.inStock),
+          String(item.minQuantity),
+          String(item.bulkOrderQuantity),
+          String(item.shortage),
+          item.status,
+          item.gstStatus,
+          `Rs. ${item.unitPrice.toLocaleString("en-IN")}`,
+          `Rs. ${item.stockValue.toLocaleString("en-IN")}`,
+        ];
+        doc.setDrawColor(...border);
+        doc.setLineWidth(0.5);
+        doc.line(margin, y + rowHeight, margin + tableWidth, y + rowHeight);
+        let x = margin;
+        scaledColumns.forEach((column, index) => {
+          if (index > 0) doc.line(x, y, x, y + rowHeight);
+          doc.setFont("helvetica", index === 0 || index === 6 ? "bold" : "normal");
+          doc.setFontSize(7.5);
+          doc.setTextColor(...ink);
+          doc.text(doc.splitTextToSize(values[index], column.width - 10).slice(0, 2), x + 6, y + 20);
+          x += column.width;
+        });
+        y += rowHeight;
+      });
+
+      const totalStockValue = rows.reduce((sum, item) => sum + item.stockValue, 0);
+      y += 14;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
+      doc.setTextColor(...navy);
+      doc.text(`Rows: ${rows.length}`, margin, y);
+      doc.text(`Total Stock Value: Rs. ${totalStockValue.toLocaleString("en-IN")}`, pageWidth - margin, y, { align: "right" });
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.setTextColor(...muted);
+      doc.text("Generated from SIMKit Ops inventory stock.", margin, pageHeight - 18);
+      doc.save(`inventory-stock-report-${getTodayDateValue()}.pdf`);
+      toast.success("Inventory report downloaded.");
+    } catch (e: any) {
+      toast.error("Failed to generate inventory report: " + (e.message || e));
     }
   };
 
@@ -958,7 +1185,7 @@ export function InventoryStockPanel() {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(8.5);
       doc.setTextColor(...muted);
-      doc.text(`Order Date: ${formatDisplayDate(item.entry_date)}`, pageWidth - marginX, 55, { align: "right" });
+      doc.text(`Last Update: ${formatDisplayDate(item.entry_date)}`, pageWidth - marginX, 55, { align: "right" });
       doc.text(`Items: ${reportItems.length}`, pageWidth / 2, 110, { align: "center" });
 
       const columns = [
@@ -1151,13 +1378,14 @@ export function InventoryStockPanel() {
           : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
       const totalQuantity = draftsToSave.reduce((sum, draft) => sum + draft.quantity, 0);
       const totalAmount = draftsToSave.reduce((sum, draft) => sum + draft.quantity * draft.unitPrice, 0);
+      const orderDate = getTodayDateValue();
       const toPayload = () => ({
         category: "Bulk Inventory Order",
         sensor_type: null,
         actual_quantity: -totalQuantity,
         min_quantity: 0,
         unit_price: totalQuantity > 0 ? totalAmount / totalQuantity : 0,
-        entry_date: bulkOrderDate,
+        entry_date: orderDate,
         notes: JSON.stringify({
           inventory_entry_type: "bulk_order",
           bulk_order_group_id: bulkOrderGroupId,
@@ -1191,11 +1419,14 @@ export function InventoryStockPanel() {
   };
 
 
+  const effectiveUnitPrice = useMemo(() => {
+    return getEffectiveUnitPrice(Number(unitPrice) || 0, unitPriceIncludesGst);
+  }, [unitPrice, unitPriceIncludesGst]);
+
   const autoCalculatedPrice = useMemo(() => {
     const qty = Number(actualQuantity) || 0;
-    const price = Number(unitPrice) || 0;
-    return qty * price;
-  }, [actualQuantity, unitPrice]);
+    return qty * effectiveUnitPrice;
+  }, [actualQuantity, effectiveUnitPrice]);
 
   return (
     <div className="space-y-6">
@@ -1269,25 +1500,16 @@ export function InventoryStockPanel() {
               <AlertCircle size={20} />
             </div>
           </div>
-          <div className="mt-2 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
-            <div className="min-w-0">
-              <Input
-                type="number"
-                min="0"
-                value={bulkOrderDeviceQuantity}
-                onChange={(e) => setBulkOrderDeviceQuantity(e.target.value === "" ? "" : Number(e.target.value))}
-                className="h-9 w-full min-w-0 bg-surface-raised/50 text-xl font-extrabold text-rose-400"
-                aria-label="Bulk order Data Meter quantity"
-              />
-              <p className="mt-1 text-[10px] text-text-muted">Required component quantity</p>
-            </div>
+          <div className="mt-2">
             <Input
-              type="date"
-              value={bulkOrderDate}
-              onChange={(e) => setBulkOrderDate(e.target.value)}
-              className="h-9 w-full min-w-0 bg-surface-raised/50 text-[10px]"
-              aria-label="Bulk order date"
+              type="number"
+              min="0"
+              value={bulkOrderDeviceQuantity}
+              onChange={(e) => setBulkOrderDeviceQuantity(e.target.value === "" ? "" : Number(e.target.value))}
+              className="h-9 w-full min-w-0 bg-surface-raised/50 text-xl font-extrabold text-rose-400"
+              aria-label="Bulk order Data Meter quantity"
             />
+            <p className="mt-1 text-[10px] text-text-muted">Data Meters in this bulk order</p>
           </div>
           <div className="mt-2 flex items-center justify-between gap-2">
             <span className="min-w-0 truncate text-[10px] text-text-muted">
@@ -1346,9 +1568,31 @@ export function InventoryStockPanel() {
               ))}
             </Select>
           </div>
+
+          <Select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+            className="bg-surface-raised/40 text-xs h-9 w-full sm:w-44"
+            aria-label="Filter by stock status"
+          >
+            <option value="all">All Status</option>
+            <option value="out">Out of Stock ({ktaMetrics.outOfStockCount})</option>
+            <option value="low">Low Stock ({ktaMetrics.lowStockCount})</option>
+            <option value="available">Available</option>
+          </Select>
         </div>
 
         <div className="flex items-center justify-end gap-2 w-full lg:w-auto shrink-0">
+          <Button
+            type="button"
+            onClick={() => void downloadInventoryReportPdf()}
+            variant="outline"
+            className="h-9 px-3 text-xs flex items-center gap-1 cursor-pointer"
+            title="Download full inventory PDF report"
+          >
+            <FileText size={14} />
+            Report
+          </Button>
           <Button
             onClick={fetchStock}
             variant="outline"
@@ -1371,28 +1615,16 @@ export function InventoryStockPanel() {
         <div className="p-4 border-b border-border/70 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-bold text-text-primary">Data Meter BOM Planning</h2>
-            <p className="text-xs text-text-secondary mt-1">Plan new Data Meters and see which required components may need purchasing. This does not create a bulk order.</p>
+            <p className="text-xs text-text-secondary mt-1">Enter the bulk order Data Meter quantity and see component demand, current stock, and shortages.</p>
           </div>
           <Button type="button" onClick={() => { resetBomForm(); setIsBomModalOpen(true); }} className="h-9 px-3 text-xs bg-violet hover:bg-violet-dark text-white flex items-center gap-1.5">
             <Plus size={14} /> Add DM Component
           </Button>
         </div>
 
-        <div className="m-4 p-4 border border-violet/30 bg-violet/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-violet">Production Plan</p>
-            <p className="text-xs text-text-secondary mt-1">Enter only the number of new Data Meters you plan to build.</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Label className="text-xs text-text-secondary whitespace-nowrap">New DMs to build</Label>
-            <Input type="number" min="0" value={plannedKitQuantity} onChange={(e) => setPlannedKitQuantity(e.target.value === "" ? "" : Number(e.target.value))} className="h-9 w-28 bg-surface-raised/50" aria-label="Planned Data Meter quantity" />
-          </div>
-        </div>
-
-        <div className="px-4 py-3 border-b border-border/70 bg-violet/5 text-[11px] text-text-secondary grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-          <span><strong className="text-text-primary">Total Available:</strong> stock before logged usage</span>
-          <span><strong className="text-text-primary">Used Qty:</strong> stock consumed by dispatched orders</span>
-          <span><strong className="text-text-primary">Required for Plan:</strong> quantity needed for required components only</span>
+        <div className="px-4 py-3 border-b border-border/70 bg-violet/5 text-[11px] text-text-secondary grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <span><strong className="text-text-primary">In Stock:</strong> live physical stock after dispatch deductions</span>
+          <span><strong className="text-text-primary">Shortage:</strong> component quantity missing from stock for the entered order</span>
         </div>
 
         {isBomModalOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -1424,23 +1656,18 @@ export function InventoryStockPanel() {
           ) : combinedInventoryRows.length === 0 ? (
             <div className="p-8 text-center text-xs text-text-muted">Add inventory items or BOM components to populate this table.</div>
           ) : (
-            <table className="w-full text-left text-xs border-collapse min-w-[1450px]">
+            <table className="w-full text-left text-xs border-collapse min-w-[1040px]">
               <thead className="bg-surface-raised/40 text-text-secondary uppercase tracking-wider text-[10px]">
                 <tr>
                   <th className="p-3">Entry Date</th>
-                  <th className="p-3">Bulk Order Date</th>
                   <th className="p-3">Component</th>
                   <th className="p-3 text-center">Qty / Kit</th>
-                  <th className="p-3 text-center">Total Available</th>
                   <th className="p-3 text-center">In Stock</th>
                   <th className="p-3 text-center">Min Threshold</th>
-                  <th className="p-3 text-center">Used Qty</th>
-                  <th className="p-3 text-center">Required for Plan</th>
                   <th className="p-3 text-center">Bulk Order</th>
-                  <th className="p-3 text-center">Balance</th>
                   <th className="p-3 text-center">Shortage</th>
-                  <th className="p-3 text-center">Order Qty</th>
                   <th className="p-3 text-center">Status</th>
+                  <th className="p-3 text-center">GST</th>
                   <th className="p-3 text-right">Unit Price</th>
                   <th className="p-3 text-right">Stock Value</th>
                   <th className="p-3 text-center">Actions</th>
@@ -1449,25 +1676,30 @@ export function InventoryStockPanel() {
               <tbody className="divide-y divide-border/40">
                 {combinedInventoryRows.map(({ bom, stock: stockItem }) => {
                   const itemName = bom?.category || stockItem?.category || "-";
-                  const stockQuantity = stockItem?.actual_quantity ?? (bom ? bom.balance_quantity : 0);
+                  const stockQuantity = stockItem?.actual_quantity ?? (bom ? bom.in_stock_quantity : 0);
                   const minQuantity = stockItem?.min_quantity ?? bom?.min_quantity ?? 0;
-                  const status = bom?.status || (stockQuantity <= 0 ? "OUT OF STOCK" : stockQuantity <= minQuantity ? "LOW STOCK" : "AVAILABLE");
+                  const status = getInventoryStatus(stockQuantity, minQuantity);
+                  const gstStatus = stockItem ? formatGstStatus(getStockGstIncluded(stockItem.notes)) : "-";
                   return (
-                    <tr key={`${bom?.id || "stock"}-${stockItem?.id || itemName}`} className="hover:bg-surface-raised/20">
+                    <tr
+                      key={`${bom?.id || "stock"}-${stockItem?.id || itemName}`}
+                      className={`border-l-4 transition-colors ${
+                        status === "OUT OF STOCK"
+                          ? "border-rose-500 bg-rose-500/10 hover:bg-rose-500/15"
+                          : status === "LOW STOCK"
+                          ? "border-amber-400 bg-amber-500/10 hover:bg-amber-500/15"
+                          : "border-transparent hover:bg-surface-raised/20"
+                      }`}
+                    >
                       <td className="p-3 whitespace-nowrap text-text-secondary font-mono">{stockItem?.entry_date ? formatDisplayDate(stockItem.entry_date) : "-"}</td>
-                      <td className="p-3 whitespace-nowrap text-text-secondary font-mono">{bom && Number(bulkOrderDeviceQuantity) > 0 ? formatDisplayDate(bulkOrderDate) : "-"}</td>
                       <td className="p-3 font-semibold text-text-primary">{itemName}{(bom?.sensor_type || stockItem?.sensor_type) ? <span className="block text-[10px] text-violet">{bom?.sensor_type || stockItem?.sensor_type}</span> : null}</td>
                       <td className="p-3 text-center font-mono">{bom ? `${bom.quantity_per_kit} ${bom.unit}` : "-"}</td>
-                      <td className="p-3 text-center font-mono">{bom ? bom.current_quantity : "-"}</td>
                       <td className="p-3 text-center font-mono font-bold">{stockQuantity}</td>
                       <td className="p-3 text-center font-mono">{minQuantity}</td>
-                      <td className="p-3 text-center font-mono text-amber-300">{bom ? bom.actual_used_quantity : "-"}</td>
-                      <td className="p-3 text-center font-mono">{bom ? bom.required_for_plan : "-"}</td>
-                      <td className="p-3 text-center font-mono font-bold text-rose-300">{bom ? (bom.required_by_default ? bom.quantity_per_kit * (Number(bulkOrderDeviceQuantity) || 0) : 0) : "-"}</td>
-                      <td className={`p-3 text-center font-mono font-bold ${bom && bom.balance_quantity <= 0 ? "text-rose-400" : "text-emerald-400"}`}>{bom ? bom.balance_quantity : "-"}</td>
+                      <td className="p-3 text-center font-mono font-bold text-rose-300">{bom ? bom.bulk_order_quantity : "-"}</td>
                       <td className="p-3 text-center font-mono text-rose-300">{bom ? bom.shortage_quantity : "-"}</td>
-                      <td className="p-3 text-center font-mono font-bold text-rose-300">{bom ? bom.order_quantity : "-"}</td>
-                      <td className="p-3 text-center whitespace-nowrap"><Badge className={status === "AVAILABLE" ? "text-emerald-400" : status === "OPTIONAL" ? "text-sky-300" : status === "LOW STOCK" ? "text-amber-300" : "text-rose-300"}>{status}</Badge></td>
+                      <td className="p-3 text-center whitespace-nowrap"><Badge className={status === "AVAILABLE" ? "text-emerald-400" : status === "LOW STOCK" ? "text-amber-300" : "text-rose-300"}>{status}</Badge></td>
+                      <td className="p-3 text-center whitespace-nowrap text-text-secondary">{gstStatus}</td>
                       <td className="p-3 text-right font-mono">{stockItem ? `₹${Number(stockItem.unit_price).toLocaleString("en-IN")}` : "-"}</td>
                       <td className="p-3 text-right font-mono font-bold text-emerald-400">{stockItem ? `₹${(Math.max(0, Number(stockItem.actual_quantity)) * Number(stockItem.unit_price)).toLocaleString("en-IN")}` : "-"}</td>
                       <td className="p-3"><div className="flex justify-center gap-1">
@@ -1649,19 +1881,6 @@ export function InventoryStockPanel() {
 
             <form onSubmit={handleSaveBulkOrder} className="p-5 space-y-4 text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <Label className="text-text-secondary font-semibold">
-                    Order Date <span className="text-rose-400">*</span>
-                  </Label>
-                  <Input
-                    type="date"
-                    value={bulkOrderDate}
-                    onChange={(e) => setBulkOrderDate(e.target.value)}
-                    className="bg-surface-raised/50 h-9"
-                    required
-                  />
-                </div>
-
                 <div className="space-y-1">
                   <Label className="text-text-secondary font-semibold">
                     Inventory Category <span className="text-rose-400">*</span>
@@ -1931,36 +2150,29 @@ export function InventoryStockPanel() {
                   />
                 </div>
 
-                {/* Category Dropdown */}
+                {/* Category Input */}
                 <div className="space-y-1">
                   <Label className="text-text-secondary font-semibold">
                     Item Category <span className="text-rose-400">*</span>
                   </Label>
-                  <Select
+                  <Input
                     value={category}
                     onChange={(e) => {
                       setCategory(e.target.value);
                       setSensorType("");
                     }}
+                    list="inventory-category-options"
+                    placeholder="Select or rename category..."
                     className="bg-surface-raised/50 h-9"
-                  >
+                    required
+                  />
+                  <datalist id="inventory-category-options">
                     {PREDEFINED_CATEGORIES.map((cat) => (
                       <option key={cat} value={cat}>
                         {cat}
                       </option>
                     ))}
-                    <option value={CUSTOM_OPTION_VALUE}>+ Add Custom Category</option>
-                  </Select>
-
-                  {category === CUSTOM_OPTION_VALUE && (
-                    <Input
-                      value={customCategory}
-                      onChange={(e) => setCustomCategory(e.target.value)}
-                      placeholder="Enter custom category name..."
-                      className="bg-surface-raised/50 h-9 mt-1.5"
-                      required
-                    />
-                  )}
+                  </datalist>
                 </div>
               </div>
 
@@ -2081,6 +2293,18 @@ export function InventoryStockPanel() {
                     className="bg-surface-raised/50 h-9"
                     required
                   />
+                  <div className="flex flex-col gap-1 pt-1">
+                    <Checkbox
+                      checked={unitPriceIncludesGst}
+                      onCheckedChange={setUnitPriceIncludesGst}
+                      label="Price includes GST"
+                    />
+                    <p className="text-[10px] text-text-muted">
+                      {unitPriceIncludesGst
+                        ? "Stored as entered."
+                        : `Stored without GST: ₹${effectiveUnitPrice.toLocaleString("en-IN")}`}
+                    </p>
+                  </div>
                 </div>
               </div>
 
