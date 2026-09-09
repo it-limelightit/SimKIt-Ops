@@ -108,6 +108,17 @@ function getExcelReportProgress(row: SiteRow) {
   return row.progress;
 }
 
+function getKpiReportStatus(row: SiteRow, selectedKpi: string) {
+  const logisticsStatus = row.logisticsStatus.trim().toLowerCase();
+  if (selectedKpi === "dispatched_actual") {
+    return logisticsStatus === "delivered" ? "Delivered" : "Dispatched";
+  }
+  if (selectedKpi === "dispatched") {
+    return "Pending Panel Dispatched";
+  }
+  return row.status;
+}
+
 const FACTORY_STATUS_OPTIONS = [
   "Pending Assignment",
   "Not Started Yet",
@@ -1100,7 +1111,7 @@ const exportCsv = async () => {
         company: r.company_name || r.name || "N/A",
         city: r.city || "N/A",
         fieldAssociate: bcNames || "Unassigned",
-        status: r.status || "N/A",
+        status: getKpiReportStatus(r, selectedKpi) || "N/A",
         assessment: (reportProgress.a || 0) / 100,
         installation: (reportProgress.i || 0) / 100,
         commissioning: (reportProgress.c || 0) / 100,
@@ -1701,12 +1712,7 @@ const exportPdf = async () => {
       const x = pageMarginX;
       const h = cardHeight;
       const w = cardWidth;
-      const reportStatus = selectedKpi === "dispatched_actual" &&
-        r.logisticsStatus.trim().toLowerCase() === "delivered"
-        ? "Delivered"
-        : selectedKpi === "dispatched"
-          ? "Pending Panel Dispatched"
-          : r.status;
+      const reportStatus = getKpiReportStatus(r, selectedKpi);
       const tone = statusTone(reportStatus);
       const reportProgress = getReportProgress(r);
       const bcNames = r.workerIds.map((id) => profileNameMap.get(id) || "N/A").join(", ") || "Unassigned";

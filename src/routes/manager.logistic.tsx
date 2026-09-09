@@ -149,7 +149,7 @@ function LogisticPageWithSeeder() {
       ) : (
         <>
           {/* Premium Debug/Data Seeding panel */}
-          <Card className="border border-border/80 bg-surface-raised/20 p-5 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+          {activeTab === "dispatch" && <Card className="border border-border/80 bg-surface-raised/20 p-5 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="space-y-1">
               <h3 className="text-md font-bold text-text-primary flex items-center gap-2">
                 <Database size={16} className="text-violet" />
@@ -171,7 +171,7 @@ function LogisticPageWithSeeder() {
               )}
               {seeding ? "Syncing..." : "Sync Logistics Data"}
             </Button>
-          </Card>
+          </Card>}
           
           <InventoryPanel
             editable

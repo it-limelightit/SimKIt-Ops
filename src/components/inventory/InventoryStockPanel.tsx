@@ -8,7 +8,6 @@ import {
   Label,
   Select,
   EmptyState,
-  Checkbox,
 } from "@/components/ui-kit";
 import {
   Boxes,
@@ -103,21 +102,16 @@ function getStockRemark(notes: string | null) {
   return notes;
 }
 
-function getStockGstIncluded(notes: string | null) {
-  return parseInventoryEntryNotes(notes).gst_included !== false;
+function getUnitValueWithGst(unitValue: number) {
+  return Number((unitValue * (1 + GST_RATE)).toFixed(2));
 }
 
-function getEnteredUnitPrice(item: InventoryStockItem) {
-  const enteredUnitPrice = Number(parseInventoryEntryNotes(item.notes).entered_unit_price);
-  return enteredUnitPrice > 0 ? enteredUnitPrice : Number(item.unit_price) || 0;
+function getUnitValueWithoutGst(unitValueWithGst: number) {
+  return Number((unitValueWithGst / (1 + GST_RATE)).toFixed(2));
 }
 
-function getEffectiveUnitPrice(enteredUnitPrice: number, gstIncluded: boolean) {
-  return gstIncluded ? enteredUnitPrice : Number((enteredUnitPrice / (1 + GST_RATE)).toFixed(2));
-}
-
-function formatGstStatus(gstIncluded: boolean) {
-  return gstIncluded ? "GST Incl." : "Without GST";
+function getInventoryRowKey(bomId: string | null | undefined, stockId: string | null | undefined) {
+  return stockId ? `stock:${stockId}` : `bom:${bomId || "unmatched"}`;
 }
 
 function formatDisplayDate(value: string | null | undefined) {
@@ -176,7 +170,7 @@ export function InventoryStockPanel() {
   const [actualQuantity, setActualQuantity] = useState<number | "">("");
   const [minQuantity, setMinQuantity] = useState<number | "">("");
   const [unitPrice, setUnitPrice] = useState<number | "">("");
-  const [unitPriceIncludesGst, setUnitPriceIncludesGst] = useState(true);
+  const [unitPriceWithGst, setUnitPriceWithGst] = useState<number | "">("");
   const [entryDate, setEntryDate] = useState(
     new Date().toISOString().split("T")[0]
   );
@@ -381,7 +375,7 @@ export function InventoryStockPanel() {
     setActualQuantity("");
     setMinQuantity("");
     setUnitPrice("");
-    setUnitPriceIncludesGst(true);
+    setUnitPriceWithGst("");
     setEntryDate(new Date().toISOString().split("T")[0]);
     setNotes("");
   };
@@ -484,8 +478,9 @@ export function InventoryStockPanel() {
 
     setActualQuantity(item.actual_quantity);
     setMinQuantity(item.min_quantity);
-    setUnitPrice(getEnteredUnitPrice(item));
-    setUnitPriceIncludesGst(getStockGstIncluded(item.notes));
+    const unitValue = Number(item.unit_price) || 0;
+    setUnitPrice(unitValue);
+    setUnitPriceWithGst(getUnitValueWithGst(unitValue));
     setEntryDate(item.entry_date || new Date().toISOString().split("T")[0]);
     setNotes(getStockRemark(item.notes));
     setIsModalOpen(true);
@@ -552,8 +547,7 @@ export function InventoryStockPanel() {
       toast.error("Please enter a valid unit price");
       return;
     }
-    const enteredUnitPrice = Number(unitPrice);
-    const effectiveUnitPrice = getEffectiveUnitPrice(enteredUnitPrice, unitPriceIncludesGst);
+    const unitValue = Number(unitPrice);
 
     setSaving(true);
     try {
@@ -562,13 +556,10 @@ export function InventoryStockPanel() {
         sensor_type: finalSensorType,
         actual_quantity: Number(actualQuantity),
         min_quantity: Number(minQuantity),
-        unit_price: effectiveUnitPrice,
+        unit_price: unitValue,
         entry_date: entryDate,
         notes: JSON.stringify({
           stock_note: notes.trim() || null,
-          gst_included: unitPriceIncludesGst,
-          entered_unit_price: enteredUnitPrice,
-          effective_unit_price: effectiveUnitPrice,
         } satisfies InventoryEntryNotes),
         updated_at: new Date().toISOString(),
       };
@@ -599,6 +590,28 @@ export function InventoryStockPanel() {
     }
   };
 
+  const handleUnitValueChange = (value: string) => {
+    if (value === "") {
+      setUnitPrice("");
+      setUnitPriceWithGst("");
+      return;
+    }
+    const unitValue = Number(value);
+    setUnitPrice(unitValue);
+    setUnitPriceWithGst(getUnitValueWithGst(unitValue));
+  };
+
+  const handleUnitValueWithGstChange = (value: string) => {
+    if (value === "") {
+      setUnitPrice("");
+      setUnitPriceWithGst("");
+      return;
+    }
+    const unitValueWithGst = Number(value);
+    setUnitPriceWithGst(unitValueWithGst);
+    setUnitPrice(getUnitValueWithoutGst(unitValueWithGst));
+  };
+
   const getFinalBulkCategory = () =>
     bulkCategory === CUSTOM_OPTION_VALUE ? bulkCustomCategory.trim() : bulkCategory;
 
@@ -617,6 +630,7 @@ export function InventoryStockPanel() {
   }, [stock]);
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [selectedInventoryRowKeys, setSelectedInventoryRowKeys] = useState<Set<string>>(new Set());
 
   const filteredStock = useMemo(() => {
     return computedStock.filter((item) => {
@@ -723,6 +737,7 @@ export function InventoryStockPanel() {
   }, [bomCalculations, displayStock, searchQuery, categoryFilter, statusFilter]);
 
   const ktaMetrics = useMemo(() => {
+    let totalUnitValue = 0;
     let totalValuation = 0;
     let lowStockCount = 0;
     let outOfStockCount = 0;
@@ -730,7 +745,10 @@ export function InventoryStockPanel() {
     const materialStock = computedStock.filter((item) => !isBulkOrderItem(item));
 
     materialStock.forEach((item) => {
-      totalValuation += item.total_price;
+      const quantity = Math.max(0, Number(item.actual_quantity) || 0);
+      const unitValue = Number(item.unit_price) || 0;
+      totalUnitValue += quantity * unitValue;
+      totalValuation += quantity * getUnitValueWithGst(unitValue);
       if (item.actual_quantity <= item.min_quantity && item.actual_quantity > 0) lowStockCount++;
       if (item.actual_quantity <= 0) outOfStockCount++;
     });
@@ -753,8 +771,54 @@ export function InventoryStockPanel() {
         }))
       : 0;
 
-    return { totalItems: completeDmCount, totalValuation, lowStockCount, outOfStockCount, bulkOrderQuantity };
+    return { totalItems: completeDmCount, totalUnitValue, totalValuation, lowStockCount, outOfStockCount, bulkOrderQuantity };
   }, [bomItems, computedStock]);
+
+  const selectedInventoryMetrics = useMemo(() => {
+    let totalUnitValue = 0;
+    let totalStockValue = 0;
+    let lowStockCount = 0;
+
+    combinedInventoryRows.forEach(({ bom, stock: stockItem }) => {
+      const rowKey = getInventoryRowKey(bom?.id, stockItem?.id);
+      if (!selectedInventoryRowKeys.has(rowKey)) return;
+
+      const quantity = Math.max(0, Number(stockItem?.actual_quantity) || 0);
+      const unitValue = Number(stockItem?.unit_price) || 0;
+      totalUnitValue += quantity * unitValue;
+      totalStockValue += quantity * getUnitValueWithGst(unitValue);
+
+      const stockQuantity = stockItem?.actual_quantity ?? (bom ? bom.in_stock_quantity : 0);
+      const minQuantity = stockItem?.min_quantity ?? bom?.min_quantity ?? 0;
+      if (getInventoryStatus(stockQuantity, minQuantity) === "LOW STOCK") lowStockCount++;
+    });
+
+    return { totalUnitValue, totalStockValue, lowStockCount };
+  }, [combinedInventoryRows, selectedInventoryRowKeys]);
+
+  const selectedRowCount = useMemo(
+    () => combinedInventoryRows.filter(({ bom, stock: stockItem }) => selectedInventoryRowKeys.has(getInventoryRowKey(bom?.id, stockItem?.id))).length,
+    [combinedInventoryRows, selectedInventoryRowKeys],
+  );
+
+  const allVisibleRowsSelected = combinedInventoryRows.length > 0 && selectedRowCount === combinedInventoryRows.length;
+
+  const toggleInventoryRowSelection = (rowKey: string) => {
+    setSelectedInventoryRowKeys((current) => {
+      const next = new Set(current);
+      if (next.has(rowKey)) next.delete(rowKey);
+      else next.add(rowKey);
+      return next;
+    });
+  };
+
+  const toggleAllInventoryRows = () => {
+    setSelectedInventoryRowKeys(
+      allVisibleRowsSelected
+        ? new Set()
+        : new Set(combinedInventoryRows.map(({ bom, stock: stockItem }) => getInventoryRowKey(bom?.id, stockItem?.id))),
+    );
+  };
 
   const availableBulkUnitPrices = useMemo(() => {
     const finalCategory = getFinalBulkCategory();
@@ -972,9 +1036,9 @@ export function InventoryStockPanel() {
         const minQuantity = stockItem?.min_quantity ?? bom?.min_quantity ?? 0;
         const status = getInventoryStatus(stockQuantity, minQuantity);
         const bulkOrderQuantity = bom?.bulk_order_quantity ?? 0;
-        const gstStatus = stockItem ? formatGstStatus(getStockGstIncluded(stockItem.notes)) : "-";
         const unitPrice = Number(stockItem?.unit_price) || 0;
-        const stockValue = stockItem ? Math.max(0, Number(stockItem.actual_quantity)) * unitPrice : 0;
+        const unitPriceWithGst = getUnitValueWithGst(unitPrice);
+        const stockValue = stockItem ? Math.max(0, Number(stockItem.actual_quantity)) * unitPriceWithGst : 0;
         return {
           component: sensorType ? `${component} - ${sensorType}` : component,
           qtyPerKit: bom ? `${bom.quantity_per_kit} ${bom.unit}` : "-",
@@ -983,8 +1047,8 @@ export function InventoryStockPanel() {
           bulkOrderQuantity,
           shortage: bom ? bom.shortage_quantity : 0,
           status,
-          gstStatus,
           unitPrice,
+          unitPriceWithGst,
           stockValue,
         };
       });
@@ -1015,8 +1079,8 @@ export function InventoryStockPanel() {
         { label: "Bulk Order", width: 75 },
         { label: "Shortage", width: 70 },
         { label: "Status", width: 90 },
-        { label: "GST", width: 65 },
-        { label: "Unit Price", width: 75 },
+        { label: "Unit Value", width: 75 },
+        { label: "Unit Value with GST", width: 95 },
         { label: "Stock Value", width: 85 },
       ];
       const columnScale = tableWidth / columns.reduce((sum, column) => sum + column.width, 0);
@@ -1067,8 +1131,8 @@ export function InventoryStockPanel() {
           String(item.bulkOrderQuantity),
           String(item.shortage),
           item.status,
-          item.gstStatus,
           `Rs. ${item.unitPrice.toLocaleString("en-IN")}`,
+          `Rs. ${item.unitPriceWithGst.toLocaleString("en-IN")}`,
           `Rs. ${item.stockValue.toLocaleString("en-IN")}`,
         ];
         doc.setDrawColor(...border);
@@ -1419,14 +1483,10 @@ export function InventoryStockPanel() {
   };
 
 
-  const effectiveUnitPrice = useMemo(() => {
-    return getEffectiveUnitPrice(Number(unitPrice) || 0, unitPriceIncludesGst);
-  }, [unitPrice, unitPriceIncludesGst]);
-
   const autoCalculatedPrice = useMemo(() => {
     const qty = Number(actualQuantity) || 0;
-    return qty * effectiveUnitPrice;
-  }, [actualQuantity, effectiveUnitPrice]);
+    return qty * (Number(unitPriceWithGst) || 0);
+  }, [actualQuantity, unitPriceWithGst]);
 
   return (
     <div className="space-y-6">
@@ -1459,10 +1519,13 @@ export function InventoryStockPanel() {
         >
           <div className="space-y-1">
             <p className="text-xs text-text-secondary font-medium uppercase tracking-wider">
-              Total Valuation
+              {selectedRowCount ? `Selected Valuation (${selectedRowCount})` : "Total Valuation"}
             </p>
-            <p className="text-2xl font-extrabold text-emerald-400 flex items-center">
-              ₹{ktaMetrics.totalValuation.toLocaleString("en-IN")}
+            <p className="text-sm font-bold text-text-primary">
+              Unit Value: ₹{(selectedRowCount ? selectedInventoryMetrics.totalUnitValue : ktaMetrics.totalUnitValue).toLocaleString("en-IN")}
+            </p>
+            <p className="text-lg font-extrabold text-emerald-400 flex items-center">
+              Stock Value: ₹{(selectedRowCount ? selectedInventoryMetrics.totalStockValue : ktaMetrics.totalValuation).toLocaleString("en-IN")}
             </p>
           </div>
           <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-400">
@@ -1480,10 +1543,10 @@ export function InventoryStockPanel() {
         >
           <div className="space-y-1">
             <p className="text-xs text-text-secondary font-medium uppercase tracking-wider">
-              Low Stock Warnings
+              {selectedRowCount ? "Selected Low Stock Warnings" : "Low Stock Warnings"}
             </p>
             <p className="text-2xl font-extrabold text-amber-400">
-              {ktaMetrics.lowStockCount} <span className="text-xs font-normal text-text-muted">items</span>
+              {(selectedRowCount ? selectedInventoryMetrics.lowStockCount : ktaMetrics.lowStockCount)} <span className="text-xs font-normal text-text-muted">items</span>
             </p>
           </div>
           <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-400">
@@ -1656,9 +1719,18 @@ export function InventoryStockPanel() {
           ) : combinedInventoryRows.length === 0 ? (
             <div className="p-8 text-center text-xs text-text-muted">Add inventory items or BOM components to populate this table.</div>
           ) : (
-            <table className="w-full text-left text-xs border-collapse min-w-[1040px]">
+            <table className="w-full text-left text-xs border-collapse min-w-[1130px]">
               <thead className="bg-surface-raised/40 text-text-secondary uppercase tracking-wider text-[10px]">
                 <tr>
+                  <th className="p-3 text-center">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleRowsSelected}
+                      onChange={toggleAllInventoryRows}
+                      aria-label="Select all visible inventory rows"
+                      className="h-3.5 w-3.5 accent-violet"
+                    />
+                  </th>
                   <th className="p-3">Entry Date</th>
                   <th className="p-3">Component</th>
                   <th className="p-3 text-center">Qty / Kit</th>
@@ -1667,19 +1739,21 @@ export function InventoryStockPanel() {
                   <th className="p-3 text-center">Bulk Order</th>
                   <th className="p-3 text-center">Shortage</th>
                   <th className="p-3 text-center">Status</th>
-                  <th className="p-3 text-center">GST</th>
-                  <th className="p-3 text-right">Unit Price</th>
+                  <th className="p-3 text-right">Unit Value</th>
+                  <th className="p-3 text-right">Unit Value with GST</th>
                   <th className="p-3 text-right">Stock Value</th>
                   <th className="p-3 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/40">
                 {combinedInventoryRows.map(({ bom, stock: stockItem }) => {
+                  const rowKey = getInventoryRowKey(bom?.id, stockItem?.id);
                   const itemName = bom?.category || stockItem?.category || "-";
                   const stockQuantity = stockItem?.actual_quantity ?? (bom ? bom.in_stock_quantity : 0);
                   const minQuantity = stockItem?.min_quantity ?? bom?.min_quantity ?? 0;
                   const status = getInventoryStatus(stockQuantity, minQuantity);
-                  const gstStatus = stockItem ? formatGstStatus(getStockGstIncluded(stockItem.notes)) : "-";
+                  const unitValue = Number(stockItem?.unit_price) || 0;
+                  const unitValueWithGst = getUnitValueWithGst(unitValue);
                   return (
                     <tr
                       key={`${bom?.id || "stock"}-${stockItem?.id || itemName}`}
@@ -1691,6 +1765,15 @@ export function InventoryStockPanel() {
                           : "border-transparent hover:bg-surface-raised/20"
                       }`}
                     >
+                      <td className="p-3 text-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedInventoryRowKeys.has(rowKey)}
+                          onChange={() => toggleInventoryRowSelection(rowKey)}
+                          aria-label={`Select ${itemName}`}
+                          className="h-3.5 w-3.5 accent-violet"
+                        />
+                      </td>
                       <td className="p-3 whitespace-nowrap text-text-secondary font-mono">{stockItem?.entry_date ? formatDisplayDate(stockItem.entry_date) : "-"}</td>
                       <td className="p-3 font-semibold text-text-primary">{itemName}{(bom?.sensor_type || stockItem?.sensor_type) ? <span className="block text-[10px] text-violet">{bom?.sensor_type || stockItem?.sensor_type}</span> : null}</td>
                       <td className="p-3 text-center font-mono">{bom ? `${bom.quantity_per_kit} ${bom.unit}` : "-"}</td>
@@ -1699,9 +1782,9 @@ export function InventoryStockPanel() {
                       <td className="p-3 text-center font-mono font-bold text-rose-300">{bom ? bom.bulk_order_quantity : "-"}</td>
                       <td className="p-3 text-center font-mono text-rose-300">{bom ? bom.shortage_quantity : "-"}</td>
                       <td className="p-3 text-center whitespace-nowrap"><Badge className={status === "AVAILABLE" ? "text-emerald-400" : status === "LOW STOCK" ? "text-amber-300" : "text-rose-300"}>{status}</Badge></td>
-                      <td className="p-3 text-center whitespace-nowrap text-text-secondary">{gstStatus}</td>
-                      <td className="p-3 text-right font-mono">{stockItem ? `₹${Number(stockItem.unit_price).toLocaleString("en-IN")}` : "-"}</td>
-                      <td className="p-3 text-right font-mono font-bold text-emerald-400">{stockItem ? `₹${(Math.max(0, Number(stockItem.actual_quantity)) * Number(stockItem.unit_price)).toLocaleString("en-IN")}` : "-"}</td>
+                      <td className="p-3 text-right font-mono">{stockItem ? `₹${unitValue.toLocaleString("en-IN")}` : "-"}</td>
+                      <td className="p-3 text-right font-mono">{stockItem ? `₹${unitValueWithGst.toLocaleString("en-IN")}` : "-"}</td>
+                      <td className="p-3 text-right font-mono font-bold text-emerald-400">{stockItem ? `₹${(Math.max(0, Number(stockItem.actual_quantity)) * unitValueWithGst).toLocaleString("en-IN")}` : "-"}</td>
                       <td className="p-3"><div className="flex justify-center gap-1">
                         {stockItem ? <><button type="button" onClick={() => handleEditItem(stockItem)} className="p-1.5 text-text-secondary hover:text-violet" title="Edit inventory item"><Edit2 size={13} /></button><button type="button" onClick={() => void handleDeleteItem(stockItem.id, stockItem.category)} className="p-1.5 text-text-secondary hover:text-rose-300" title="Delete inventory item"><Trash2 size={13} /></button></> : bom ? <><button type="button" onClick={() => handleEditBomItem(bom)} className="p-1.5 text-text-secondary hover:text-violet" title="Edit BOM item"><Edit2 size={13} /></button><button type="button" onClick={() => void handleDeleteBomItem(bom)} className="p-1.5 text-text-secondary hover:text-rose-300" title="Delete BOM item"><Trash2 size={13} /></button></> : null}
                       </div></td>
@@ -2242,7 +2325,7 @@ export function InventoryStockPanel() {
               )}
 
               {/* Quantities & Pricing */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="space-y-1">
                   <Label className="text-text-secondary font-semibold">
                     Actual Quantity <span className="text-rose-400">*</span>
@@ -2279,39 +2362,41 @@ export function InventoryStockPanel() {
 
                 <div className="space-y-1">
                   <Label className="text-text-secondary font-semibold">
-                    Unit Price (₹) <span className="text-rose-400">*</span>
+                    Unit Value (Without GST) (₹) <span className="text-rose-400">*</span>
                   </Label>
                   <Input
                     type="number"
                     min="0"
                     step="0.01"
                     value={unitPrice}
-                    onChange={(e) =>
-                      setUnitPrice(e.target.value === "" ? "" : Number(e.target.value))
-                    }
+                    onChange={(e) => handleUnitValueChange(e.target.value)}
                     placeholder="e.g. 1500"
                     className="bg-surface-raised/50 h-9"
                     required
                   />
-                  <div className="flex flex-col gap-1 pt-1">
-                    <Checkbox
-                      checked={unitPriceIncludesGst}
-                      onCheckedChange={setUnitPriceIncludesGst}
-                      label="Price includes GST"
-                    />
-                    <p className="text-[10px] text-text-muted">
-                      {unitPriceIncludesGst
-                        ? "Stored as entered."
-                        : `Stored without GST: ₹${effectiveUnitPrice.toLocaleString("en-IN")}`}
-                    </p>
-                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-text-secondary font-semibold">
+                    Unit Value with GST (₹) <span className="text-rose-400">*</span>
+                  </Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={unitPriceWithGst}
+                    onChange={(e) => handleUnitValueWithGstChange(e.target.value)}
+                    placeholder="e.g. 1770"
+                    className="bg-surface-raised/50 h-9"
+                    required
+                  />
                 </div>
               </div>
 
               {/* Auto-Calculated Valuation Banner */}
               <div className="p-3 rounded-xl bg-violet/10 border border-violet/20 flex items-center justify-between">
                 <span className="text-xs font-semibold text-text-secondary">
-                  Auto-Calculated Total Valuation:
+                  Auto-Calculated Stock Value (With GST):
                 </span>
                 <span className="text-md font-extrabold text-violet font-mono">
                   ₹{autoCalculatedPrice.toLocaleString("en-IN")}
