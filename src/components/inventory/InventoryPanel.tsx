@@ -19,7 +19,6 @@ import {
   Search,
   ChevronDown,
   ChevronUp,
-  Cpu,
   Wifi,
   Calendar,
   Layers,
@@ -144,6 +143,8 @@ export function InventoryPanel({
   const [tableDateFilter, setTableDateFilter] = useState<TableDateFilter>("all");
   const [tableLocationFilter, setTableLocationFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
+  const [deviceOverviewMaterials, setDeviceOverviewMaterials] = useState<Material[]>([]);
+  const [showDeviceOverviewTable, setShowDeviceOverviewTable] = useState(false);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -235,8 +236,9 @@ export function InventoryPanel({
   }, [materials]);
 
   const tableMaterials = useMemo(() => {
-    return [...filteredMaterials].sort((a, b) => compareDatesDesc(getAnalysisDate(a), getAnalysisDate(b)));
-  }, [filteredMaterials]);
+    const source = viewMode === "table" && !showLogisticsKtas ? deviceOverviewMaterials : filteredMaterials;
+    return [...source].sort((a, b) => compareDatesDesc(getAnalysisDate(a), getAnalysisDate(b)));
+  }, [deviceOverviewMaterials, filteredMaterials, showLogisticsKtas, viewMode]);
 
   // Analytics Metrics (KTAs)
   const metrics = useMemo(() => {
@@ -271,19 +273,21 @@ export function InventoryPanel({
           <p className="font-mono text-[10px] uppercase tracking-widest text-lime/80 font-bold">
             {viewMode === "table" ? "Device Information" : "Live Logistics Pipelines"}
           </p>
-          <div className="mt-2 flex flex-wrap items-center gap-4">
-            <button
-              type="button"
-              onClick={() => {
-                setLocalViewMode("cards");
-                setFilterState("all");
-              }}
-              aria-pressed={viewMode === "cards"}
-              className="text-left text-4xl uppercase tracking-tight font-extrabold font-syne text-text-primary transition hover:text-violet focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet"
-            >
-              Logistic
-            </button>
-          </div>
+          {viewMode !== "table" && (
+            <div className="mt-2 flex flex-wrap items-center gap-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setLocalViewMode("cards");
+                  setFilterState("all");
+                }}
+                aria-pressed={viewMode === "cards"}
+                className="text-left text-4xl uppercase tracking-tight font-extrabold font-syne text-text-primary transition hover:text-violet focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet"
+              >
+                Logistic
+              </button>
+            </div>
+          )}
           <p className="mt-2 text-sm text-text-secondary">
             {viewMode === "table"
               ? "Review dispatched device managers by DM name, dispatch date, and city."
@@ -336,10 +340,14 @@ export function InventoryPanel({
           />
         </div>
       ) : (
-        <DeviceOverviewKta materials={materials} />
+        <DeviceOverviewKta
+          materials={materials}
+          onFilteredMaterialsChange={setDeviceOverviewMaterials}
+          onRevealTable={() => setShowDeviceOverviewTable(true)}
+        />
       )}
 
-      <div className="flex flex-col gap-3 border-t border-border pt-4">
+      {showLogisticsKtas && <div className="flex flex-col gap-3 border-t border-border pt-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <Select
@@ -393,7 +401,7 @@ export function InventoryPanel({
             </Select>
           </div>
         </div>
-      </div>
+      </div>}
 
       {loading ? (
         <div className="grid gap-4 md:grid-cols-2">
@@ -401,7 +409,7 @@ export function InventoryPanel({
             <div key={x} className="h-44 animate-pulse rounded-[10px] bg-surface" />
           ))}
         </div>
-      ) : filteredMaterials.length ? (
+      ) : viewMode === "table" && !showLogisticsKtas && !showDeviceOverviewTable ? null : (viewMode === "table" ? tableMaterials.length : filteredMaterials.length) ? (
         viewMode === "table" ? (
           <LogisticsTableView
             materials={tableMaterials}
@@ -540,7 +548,15 @@ function MetricCard({
 
 type DeviceOverviewDateFilter = "all" | "today" | "yesterday" | "thisMonth" | "lastMonth";
 
-function DeviceOverviewKta({ materials }: { materials: Material[] }) {
+function DeviceOverviewKta({
+  materials,
+  onFilteredMaterialsChange,
+  onRevealTable,
+}: {
+  materials: Material[];
+  onFilteredMaterialsChange: (materials: Material[]) => void;
+  onRevealTable: () => void;
+}) {
   const [dateFilter, setDateFilter] = useState<DeviceOverviewDateFilter>("today");
   const [cityFilter, setCityFilter] = useState("all");
   const [dmFilter, setDmFilter] = useState("all");
@@ -560,14 +576,9 @@ function DeviceOverviewKta({ materials }: { materials: Material[] }) {
     return matchesDate && matchesCity && matchesDm;
   }), [materials, dateFilter, cityFilter, dmFilter]);
 
-  const dmCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    filteredMaterials.forEach((material) => {
-      const name = material.material_name?.trim() || "Unnamed DM";
-      counts.set(name, (counts.get(name) || 0) + 1);
-    });
-    return Array.from(counts.entries()).sort(([a], [b]) => a.localeCompare(b));
-  }, [filteredMaterials]);
+  useEffect(() => {
+    onFilteredMaterialsChange(filteredMaterials);
+  }, [filteredMaterials, onFilteredMaterialsChange]);
 
   return (
     <section className="space-y-4 border-y border-border py-4">
@@ -597,23 +608,14 @@ function DeviceOverviewKta({ materials }: { materials: Material[] }) {
         </div>
       </div>
 
-      {dmCounts.length ? (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {dmCounts.map(([name, count]) => (
-            <MetricCard
-              key={name}
-              icon={Cpu}
-              label={name}
-              value={count}
-              tone="info"
-              active={dmFilter === name}
-              onClick={() => setDmFilter(dmFilter === name ? "all" : name)}
-            />
-          ))}
-        </div>
-      ) : (
-        <p className="text-sm text-text-secondary">No dispatched device managers match the selected filters.</p>
-      )}
+      <MetricCard
+        icon={Boxes}
+        label={`${dateFilter === "today" ? "Today" : dateFilter === "yesterday" ? "Yesterday" : dateFilter === "thisMonth" ? "This month" : dateFilter === "lastMonth" ? "Last month" : "All"} dispatched devices`}
+        value={filteredMaterials.length}
+        tone="info"
+        active={false}
+        onClick={onRevealTable}
+      />
     </section>
   );
 }
