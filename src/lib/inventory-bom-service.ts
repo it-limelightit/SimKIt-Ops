@@ -14,14 +14,12 @@ export type InventoryBomItem = {
 };
 
 export type InventoryBomCalculation = InventoryBomItem & {
-  planned_quantity: number;
-  required_for_plan: number;
+  bulk_order_quantity: number;
   actual_used_quantity: number;
   current_quantity: number;
-  balance_quantity: number;
+  in_stock_quantity: number;
   shortage_quantity: number;
-  order_quantity: number;
-  status: "AVAILABLE" | "LOW STOCK" | "OUT OF STOCK" | "ORDER REQUIRED" | "OPTIONAL";
+  status: "AVAILABLE" | "LOW STOCK" | "OUT OF STOCK";
 };
 
 export type ComponentUsage = {
@@ -49,12 +47,12 @@ function sameComponent(
 export function calculateInventoryBom(
   bomItems: InventoryBomItem[],
   params: {
-    plannedKitQuantity: number;
+    bulkOrderDeviceQuantity: number;
     currentStock: Array<{ category: string; sensor_type: string | null; actual_quantity: number }>;
     usage: ComponentUsage[];
   },
 ): InventoryBomCalculation[] {
-  const plannedKitQuantity = Math.max(0, Number(params.plannedKitQuantity) || 0);
+  const bulkOrderDeviceQuantity = Math.max(0, Number(params.bulkOrderDeviceQuantity) || 0);
 
   return bomItems.filter((item) => item.active).map((item) => {
     const currentQuantity = params.currentStock
@@ -63,26 +61,21 @@ export function calculateInventoryBom(
     const actualUsedQuantity = params.usage
       .filter((usageItem) => sameComponent(item.category, item.sensor_type, usageItem.category, usageItem.sensorType))
       .reduce((sum, usageItem) => sum + Math.max(0, Number(usageItem.quantity) || 0), 0);
-    const requiredForPlan = item.required_by_default ? item.quantity_per_kit * plannedKitQuantity : 0;
-    const balanceQuantity = currentQuantity - actualUsedQuantity;
-    const shortageQuantity = Math.max(requiredForPlan - balanceQuantity, 0);
-    const orderQuantity = Math.max(requiredForPlan - balanceQuantity, 0);
+    const bulkOrderQuantity = item.required_by_default ? item.quantity_per_kit * bulkOrderDeviceQuantity : 0;
+    const inStockQuantity = currentQuantity - actualUsedQuantity;
+    const shortageQuantity = Math.max(bulkOrderQuantity - inStockQuantity, 0);
 
     let status: InventoryBomCalculation["status"] = "AVAILABLE";
-    if (!item.required_by_default) status = "OPTIONAL";
-    else if (balanceQuantity <= 0) status = "OUT OF STOCK";
-    else if (balanceQuantity <= item.min_quantity) status = "LOW STOCK";
-    else if (orderQuantity > 0) status = "ORDER REQUIRED";
+    if (inStockQuantity <= 0) status = "OUT OF STOCK";
+    else if (inStockQuantity <= item.min_quantity) status = "LOW STOCK";
 
     return {
       ...item,
-      planned_quantity: plannedKitQuantity,
-      required_for_plan: requiredForPlan,
+      bulk_order_quantity: bulkOrderQuantity,
       actual_used_quantity: actualUsedQuantity,
       current_quantity: currentQuantity,
-      balance_quantity: balanceQuantity,
+      in_stock_quantity: inStockQuantity,
       shortage_quantity: shortageQuantity,
-      order_quantity: orderQuantity,
       status,
     };
   });

@@ -173,7 +173,12 @@ function LogisticPageWithSeeder() {
             </Button>
           </Card>
           
-          <InventoryPanel editable defaultFilterState="all" viewMode={activeTab === "deviceInfo" ? "table" : "cards"} />
+          <InventoryPanel
+            editable
+            defaultFilterState="all"
+            viewMode={activeTab === "deviceInfo" ? "table" : "cards"}
+            showLogisticsKtas={activeTab !== "deviceInfo"}
+          />
         </>
       )}
     </div>

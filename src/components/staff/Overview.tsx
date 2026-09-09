@@ -94,6 +94,20 @@ type SiteRow = {
   status: string;
 };
 
+function getExcelReportProgress(row: SiteRow) {
+  const status = row.status.trim().toLowerCase();
+  if (status.includes("commissioned") || status.includes("submitted") || status.includes("certification pending")) {
+    return { a: 100, i: 100, c: 100 };
+  }
+  if (status.includes("installed")) {
+    return { a: 100, i: 100, c: 0 };
+  }
+  if (status.includes("assessed") || status.includes("panel dispatched")) {
+    return { a: 100, i: 0, c: 0 };
+  }
+  return row.progress;
+}
+
 const FACTORY_STATUS_OPTIONS = [
   "Pending Assignment",
   "Not Started Yet",
@@ -762,7 +776,9 @@ const allProcessedRows: SiteRow[] = rawSites.map((site) => {
   const canonicalStatus = getCanonicalStatus(site, aMap, iMap, cMap, rawMaterials);
   const assessmentPendingReasons = getAssessmentPendingReasons(ar?.data, deviceOrderExists);
 
-  const displayProgress = getDisplayPhaseProgress(canonicalStatus, { a: aP, i: iP, c: cP }, { isLogisticsDispatched });
+  // Status can come from manually maintained metadata and may contain whitespace.
+  // Normalize it before deriving display progress so final statuses cannot show stale phase values.
+  const displayProgress = getDisplayPhaseProgress(canonicalStatus.trim(), { a: aP, i: iP, c: cP }, { isLogisticsDispatched });
   aP = displayProgress.a;
   iP = displayProgress.i;
   cP = displayProgress.c;
@@ -1078,15 +1094,16 @@ const exportCsv = async () => {
     const safeKpi = kpiLabel.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "assigned";
     const reportRows = sortedRows.map((r, index) => {
       const bcNames = r.workerIds.map((id) => profileNameMap.get(id) || "N/A").join(", ");
+      const reportProgress = getExcelReportProgress(r);
       return {
         srNo: index + 1,
         company: r.company_name || r.name || "N/A",
         city: r.city || "N/A",
         fieldAssociate: bcNames || "Unassigned",
         status: r.status || "N/A",
-        assessment: (r.progress.a || 0) / 100,
-        installation: (r.progress.i || 0) / 100,
-        commissioning: (r.progress.c || 0) / 100,
+        assessment: (reportProgress.a || 0) / 100,
+        installation: (reportProgress.i || 0) / 100,
+        commissioning: (reportProgress.c || 0) / 100,
       };
     });
     const average = (key: "assessment" | "installation" | "commissioning") =>
@@ -1623,6 +1640,22 @@ const exportPdf = async () => {
       }
     };
 
+    // Reports must reflect the final lifecycle status even when an older phase row
+    // still contains incomplete or stale checklist percentages.
+    const getReportProgress = (row: SiteRow) => {
+      const status = row.status.trim().toLowerCase();
+      if (status.includes("commissioned") || status.includes("submitted") || status.includes("certification pending")) {
+        return { a: 100, i: 100, c: 100 };
+      }
+      if (status.includes("installed")) {
+        return { a: 100, i: 100, c: 0 };
+      }
+      if (status.includes("assessed") || status.includes("panel dispatched")) {
+        return { a: 100, i: 0, c: 0 };
+      }
+      return row.progress;
+    };
+
     const drawPageHeader = () => {
       doc.addImage(watermarkDataUrl, "PNG", pageWidth / 2 - 48, pageHeight / 2 - 48, 96, 96);
       doc.setFillColor(...navy);
@@ -1668,7 +1701,14 @@ const exportPdf = async () => {
       const x = pageMarginX;
       const h = cardHeight;
       const w = cardWidth;
-      const tone = statusTone(r.status);
+      const reportStatus = selectedKpi === "dispatched_actual" &&
+        r.logisticsStatus.trim().toLowerCase() === "delivered"
+        ? "Delivered"
+        : selectedKpi === "dispatched"
+          ? "Pending Panel Dispatched"
+          : r.status;
+      const tone = statusTone(reportStatus);
+      const reportProgress = getReportProgress(r);
       const bcNames = r.workerIds.map((id) => profileNameMap.get(id) || "N/A").join(", ") || "Unassigned";
 
       doc.setFillColor(...cardShadow);
@@ -1749,9 +1789,9 @@ const exportPdf = async () => {
       doc.setFontSize(6.8);
       doc.setTextColor(...navy);
       doc.text("PROGRESS", x + 170, y + 5, { align: "center" });
-      drawProgress("Ass.", r.progress.a || 0, x + 152, y + 11.2);
-      drawProgress("Inst.", r.progress.i || 0, x + 152, y + 17.2);
-      drawProgress("Comm.", r.progress.c || 0, x + 152, y + 23.2);
+      drawProgress("Ass.", reportProgress.a || 0, x + 152, y + 11.2);
+      drawProgress("Inst.", reportProgress.i || 0, x + 152, y + 17.2);
+      drawProgress("Comm.", reportProgress.c || 0, x + 152, y + 23.2);
     };
 
     let page = 0;
