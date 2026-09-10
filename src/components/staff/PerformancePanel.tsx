@@ -1011,15 +1011,13 @@ function hasInstalledMilestone(site: SiteDetail) {
     site.status === "Commissioned" ||
     site.status === "Submitted" ||
     site.status === "Certification Pending" ||
-    site.installationPct === 100 ||
-    site.commissioningPct === 100;
+    site.installationPct === 100;
 }
 
 function hasCommissionedMilestone(site: SiteDetail) {
   return site.status === "Commissioned" ||
     site.status === "Submitted" ||
-    site.status === "Certification Pending" ||
-    site.commissioningPct === 100;
+    site.status === "Certification Pending";
 }
 
 function performanceStatusLabel(site: SiteDetail) {

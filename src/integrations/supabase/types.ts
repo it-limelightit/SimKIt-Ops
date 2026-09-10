@@ -90,6 +90,14 @@ export type Database = {
           },
         ]
       }
+      commissioning_approval_requests: {
+        Row: { id: string; site_id: string; requested_by: string; drive_link: string; status: string; requested_at: string; reviewed_at: string | null; reviewed_by: string | null }
+        Insert: { id?: string; site_id: string; requested_by: string; drive_link: string; status?: string; requested_at?: string; reviewed_at?: string | null; reviewed_by?: string | null }
+        Update: { id?: string; site_id?: string; requested_by?: string; drive_link?: string; status?: string; requested_at?: string; reviewed_at?: string | null; reviewed_by?: string | null }
+        Relationships: [
+          { foreignKeyName: "commissioning_approval_requests_site_id_fkey"; columns: ["site_id"]; isOneToOne: true; referencedRelation: "sites"; referencedColumns: ["id"] },
+        ]
+      }
       contacts: {
         Row: {
           created_at: string
@@ -431,6 +439,8 @@ export type Database = {
     }
     Functions: {
       can_access_site: { Args: { _site_id: string }; Returns: boolean }
+      review_commissioning_approval_request: { Args: { _request_id: string; _approved: boolean }; Returns: undefined }
+      submit_commissioning_approval_request: { Args: { _site_id: string; _drive_link: string }; Returns: string }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
