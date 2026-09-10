@@ -175,13 +175,16 @@ export function getCanonicalStatus(
     return "Dropped / Rejected";
   }
 
-  // 2. Manual manager/associate status must win over older phase rows.
+  // 2. Manual manager/associate status must win over older phase rows, except
+  // that a final commissioning approval outranks stale lower statuses such as
+  // Installed. This prevents a site appearing in both dashboard groups.
   const latestStatusLog = Array.isArray(meta.activity_logs)
     ? meta.activity_logs.find((log) => log?.type === "status_change")
     : null;
   const isLegacyManualOverride = !!meta.status && latestStatusLog?.to_status === meta.status;
 
-  if ((meta.status_source === "manager" || meta.status_source === "associate" || isLegacyManualOverride) && meta.status) {
+  const isLowerThanCommissioned = ["In Assessment", "Assessed", "Panel Dispatched", "Installed"].includes(meta.status);
+  if ((meta.status_source === "manager" || meta.status_source === "associate" || isLegacyManualOverride) && meta.status && !(isCommissioningSubmitted && isLowerThanCommissioned)) {
     if (meta.status === "In Assessment") return "Assessed";
     return meta.status;
   }
@@ -192,12 +195,7 @@ export function getCanonicalStatus(
   if (meta.status === "Unsubmitted") return "Unsubmitted";
   if (meta.status === "Commissioned") return "Commissioned";
 
-  // Final commissioning submit must outrank stale lower statuses like Installed.
-  // Do not use realCP alone here; old auto-saved checklist data should not
-  // reclassify Installed companies unless the phase was explicitly submitted.
-  if (isCommissioningSubmitted) {
-    return "Commissioned";
-  }
+  if (isCommissioningSubmitted) return "Commissioned";
 
   if (meta.status === "Installed") return "Installed";
 

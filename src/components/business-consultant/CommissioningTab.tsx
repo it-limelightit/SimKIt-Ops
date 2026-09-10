@@ -32,14 +32,30 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit, r
   const canReview = ["patidarnit21@gmail.com", "info@limelightit.io"].includes((viewerEmail || "").toLowerCase());
 
   useEffect(() => {
-    if (!canReview) return;
-    void supabase
-      .from("commissioning_approval_requests")
-      .select("id,drive_link,status")
-      .eq("site_id", siteId)
-      .maybeSingle()
-      .then(({ data }) => setApprovalRequest(data));
-  }, [canReview, siteId]);
+    if (!requireApproval && !canReview) return;
+    let active = true;
+    const loadRequest = async () => {
+      const { data: request } = await supabase
+        .from("commissioning_approval_requests")
+        .select("id,drive_link,status")
+        .eq("site_id", siteId)
+        .maybeSingle();
+      if (active) setApprovalRequest(request);
+    };
+    void loadRequest();
+
+    const channel = supabase
+      .channel(`commissioning-approval-${siteId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "commissioning_approval_requests", filter: `site_id=eq.${siteId}` }, () => {
+        void loadRequest();
+      })
+      .subscribe();
+
+    return () => {
+      active = false;
+      void supabase.removeChannel(channel);
+    };
+  }, [canReview, requireApproval, siteId]);
 
   if (!loaded) return null;
   const nowIso = () => new Date().toISOString();
@@ -53,9 +69,16 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit, r
     !!data.screenshots_uploaded && 
     !!data.certificate_sent && 
     !!data.final_mom_uploaded;
+  const isApprovalApproved = requireApproval && approvalRequest?.status === "approved";
+  const isApprovalRejected = requireApproval && approvalRequest?.status === "rejected";
+  const isApprovalPending = requireApproval && approvalRequest?.status === "pending";
   const commissioningLabel = requireApproval
-    ? data.commissioning_approval_status === "pending"
+    ? isApprovalApproved
+      ? "Commissioned"
+      : isApprovalPending
       ? "Approval Pending"
+      : isApprovalRejected
+        ? "Request Rejected"
       : isCommissioned
         ? "Ready for Approval"
         : "Pending"
@@ -115,7 +138,13 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit, r
       return;
     }
 
-    toast.success("Commissioning request sent for manager approval.");
+    const { data: updatedRequest } = await supabase
+      .from("commissioning_approval_requests")
+      .select("id,drive_link,status")
+      .eq("site_id", siteId)
+      .maybeSingle();
+    setApprovalRequest(updatedRequest);
+    toast.success(isApprovalPending ? "Commissioning request updated for manager approval." : "Commissioning request sent for manager approval.");
     if (onSubmit) await onSubmit();
   };
 
@@ -188,25 +217,31 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit, r
               Confirm that all commissioning steps have been completed.
             </p>
           </div>
-          <Badge tone={requireApproval && data.commissioning_approval_status === "pending" ? "warning" : isCommissioned ? "success" : "warning"}>
+          <Badge tone={isApprovalPending || isApprovalRejected ? "warning" : isCommissioned ? "success" : "warning"}>
             {commissioningLabel}
           </Badge>
         </div>
 
-        <div className="flex items-start gap-3 p-4 bg-lime-dim/5 border border-lime/20 rounded-xl">
-          <input
-            type="checkbox"
-            id="confirm-commissioned-checkbox"
-            className="h-6 w-6 rounded border-gray-300 text-lime focus:ring-lime mt-0.5 cursor-pointer"
-            checked={isCommissioned}
-            onChange={(e) => handleToggleCommissioned(e.target.checked)}
-          />
-          <label htmlFor="confirm-commissioned-checkbox" className="text-base font-semibold text-text-primary select-none cursor-pointer">
-            I have commissioned
-          </label>
-        </div>
+        {!isApprovalApproved && (
+          <div className="flex items-start gap-3 p-4 bg-lime-dim/5 border border-lime/20 rounded-xl">
+            <input
+              type="checkbox"
+              id="confirm-commissioned-checkbox"
+              className="h-6 w-6 rounded border-gray-300 text-lime focus:ring-lime mt-0.5 cursor-pointer"
+              checked={isCommissioned}
+              onChange={(e) => handleToggleCommissioned(e.target.checked)}
+            />
+            <label htmlFor="confirm-commissioned-checkbox" className="text-base font-semibold text-text-primary select-none cursor-pointer">
+              I have commissioned
+            </label>
+          </div>
+        )}
 
-        {requireApproval && (
+        {isApprovalApproved ? (
+          <div className="rounded-xl border border-emerald-400/40 bg-emerald-50/40 p-4 text-sm text-emerald-700">
+            Your commissioning request has been accepted. This site is commissioned.
+          </div>
+        ) : requireApproval && (
           <div className="space-y-2">
             <label htmlFor="commissioning-drive-link" className="text-sm font-semibold text-text-primary">
               Google Drive Link <span className="text-red-500">*</span>
@@ -218,8 +253,12 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit, r
               value={data.commissioning_drive_link || ""}
               onChange={(event) => patch({ commissioning_drive_link: event.target.value })}
             />
-            <p className="text-xs text-text-secondary">
-              Your commissioning will stay at its current status until an approved manager confirms this request.
+            <p className={`text-xs ${isApprovalRejected ? "text-coral" : "text-text-secondary"}`}>
+              {isApprovalRejected
+                ? "Your request was rejected. Kindly update the Drive link if needed and resubmit it for approval."
+                : isApprovalPending
+                  ? "Your request is pending. You may update the Drive link and send the updated request to the manager."
+                  : "Your commissioning will stay at its current status until an approved manager confirms this request."}
             </p>
           </div>
         )}
@@ -240,7 +279,7 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit, r
         </Card>
       )}
 
-      <div className="mt-8 flex justify-end">
+      {!isApprovalApproved && <div className="mt-8 flex justify-end">
         <Button 
           onClick={async () => {
             if (!isCommissioned) {
@@ -257,9 +296,15 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit, r
           }} 
           className="w-full sm:w-auto text-base py-3 px-8"
         >
-          {requireApproval ? "Request Commissioning Approval" : "Submit Commissioning Phase"}
+          {requireApproval
+            ? isApprovalRejected
+              ? "Resubmit Commissioning Request"
+              : isApprovalPending
+                ? "Update Commissioning Request"
+                : "Request Commissioning Approval"
+            : "Submit Commissioning Phase"}
         </Button>
-      </div>
+      </div>}
     </>
   );
 }
