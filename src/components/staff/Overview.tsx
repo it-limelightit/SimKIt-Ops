@@ -119,6 +119,15 @@ function getKpiReportStatus(row: SiteRow, selectedKpi: string) {
   return row.status;
 }
 
+type PdfColumnKey = "company" | "assoc" | "status" | "progress";
+type PdfColumnSelection = Record<PdfColumnKey, boolean>;
+const PDF_COLUMN_OPTIONS: { key: PdfColumnKey; label: string; weight: number }[] = [
+  { key: "company", label: "COMPANY / SITE DETAILS", weight: 60 },
+  { key: "assoc", label: "FIELD ASSOCIATE", weight: 34 },
+  { key: "status", label: "STATUS", weight: 28 },
+  { key: "progress", label: "PROGRESS (ASS. / INST. / COMM.)", weight: 46 },
+];
+
 const FACTORY_STATUS_OPTIONS = [
   "Pending Assignment",
   "Not Started Yet",
@@ -425,6 +434,13 @@ export function Overview() {
   // Pagination States
   const [currentPage, setCurrentPage] = useState(1);
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [pdfColumnPickerOpen, setPdfColumnPickerOpen] = useState(false);
+  const [pdfSelectedColumns, setPdfSelectedColumns] = useState<PdfColumnSelection>({
+    company: true,
+    assoc: true,
+    status: true,
+    progress: true,
+  });
   const rowsPerPage = 10;
 
   const loadData = async () => {
@@ -1465,27 +1481,23 @@ const exportCsv = async () => {
   toast.success("CSV exported successfully.");
 };
 
-const exportPdf = async () => {
+const exportPdf = async (columns: PdfColumnSelection) => {
   if (sortedRows.length === 0) {
     toast.error("No data available to export.");
     return;
   }
   setExportingPdf(true);
   try {
-    const [{ jsPDF }, { default: autoTable }] = await Promise.all([
-      import("jspdf"),
-      import("jspdf-autotable"),
-    ]);
+    const { jsPDF } = await import("jspdf");
     const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
 
     const navy: [number, number, number] = [18, 28, 48];
-    const blue: [number, number, number] = [37, 99, 235];
     const ink: [number, number, number] = [20, 24, 38];
     const muted: [number, number, number] = [85, 96, 115];
     const border: [number, number, number] = [214, 220, 232];
-    const soft: [number, number, number] = [247, 249, 252];
+    const soft: [number, number, number] = [246, 248, 251];
 
     const kpiLabel = kpis.find((k) => k.id === selectedKpi)?.label || "Data";
     const generatedAt = new Intl.DateTimeFormat("en-IN", {
@@ -1543,13 +1555,6 @@ const exportPdf = async () => {
       }
       return parts[0];
     };
-    const progressText = (r: SiteRow) => [
-      `Assessment: ${r.progress.a || 0}%`,
-      `Installation: ${r.progress.i || 0}%`,
-      `Commissioning: ${r.progress.c || 0}%`,
-      `Submission: ${r.status === "Submitted" ? "Submitted" : "Pending"}`,
-    ].join("\n");
-
     const logoDataUrl = await fetch(logoUrl)
       .then((response) => response.blob())
       .then(
@@ -1561,32 +1566,11 @@ const exportPdf = async () => {
             reader.readAsDataURL(blob);
           }),
       );
-    const watermarkDataUrl = await new Promise<string>((resolve, reject) => {
-      const image = new Image();
-      image.onload = () => {
-        const canvas = document.createElement("canvas");
-        canvas.width = 700;
-        canvas.height = 700;
-        const context = canvas.getContext("2d");
-        if (!context) {
-          reject(new Error("Could not prepare watermark."));
-          return;
-        }
-        context.clearRect(0, 0, canvas.width, canvas.height);
-        context.globalAlpha = 0.07;
-        context.drawImage(image, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/png"));
-      };
-      image.onerror = () => reject(new Error("Could not load company watermark."));
-      image.src = logoDataUrl;
-    });
-
     const teal: [number, number, number] = [13, 134, 154];
     const orange: [number, number, number] = [245, 146, 25];
     const green: [number, number, number] = [21, 140, 55];
     const greenBg: [number, number, number] = [235, 249, 239];
     const orangeBg: [number, number, number] = [255, 248, 232];
-    const cardShadow: [number, number, number] = [231, 235, 242];
 
     const statusTone = (status: string): { fg: [number, number, number]; bg: [number, number, number]; label: string } => {
       const normalized = status.toLowerCase();
@@ -1632,44 +1616,44 @@ const exportPdf = async () => {
       lines.slice(0, maxLines).forEach((line: string, i: number) => doc.text(line, x, y + i * 3.6));
     };
 
-    const drawCenteredWrappedText = (
-      text: string,
-      x: number,
-      y: number,
-      maxWidth: number,
-      size: number,
-      lineHeight: number,
-      color: [number, number, number],
-    ) => {
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(size);
-      doc.setTextColor(...color);
-      const lines = doc.splitTextToSize(clean(text), maxWidth).slice(0, 2);
-      lines.forEach((line: string, index: number) => {
-        doc.text(line, x, y + index * lineHeight, { align: "center" });
-      });
-      return lines.length;
-    };
+    const pageMarginX = 12;
+    const contentWidth = pageWidth - pageMarginX * 2;
+    const navyBarHeight = 22;
+    const accentHeight = 1;
+    const subheaderHeight = 8;
+    const colHeaderHeight = 7;
+    const headerHeight = navyBarHeight + accentHeight + subheaderHeight + colHeaderHeight;
+    const rowHeight = 23;
 
-    const pageMarginX = 9;
-    const headerHeight = 31;
-    const cardHeight = 26;
-    const cardGap = 5;
-    const cardWidth = pageWidth - pageMarginX * 2;
+    const activeColumns = PDF_COLUMN_OPTIONS.filter((c) => columns[c.key]);
+    const totalWeight = activeColumns.reduce((sum, c) => sum + c.weight, 0) || 1;
 
-    const drawProgress = (label: string, value: number, x: number, y: number) => {
-      const width = 14;
-      const barX = x + 18;
+    const colW: { idx: number } & Partial<Record<PdfColumnKey, number>> = { idx: 18 };
+    const colX: { idx: number } & Partial<Record<PdfColumnKey, number>> = { idx: 0 };
+    const availableWidth = contentWidth - colW.idx;
+    let columnCursor = colW.idx;
+    activeColumns.forEach((c) => {
+      colX[c.key] = columnCursor;
+      colW[c.key] = (c.weight / totalWeight) * availableWidth;
+      columnCursor += colW[c.key]!;
+    });
+
+    const drawProgressBar = (label: string, value: number, x: number, y: number) => {
+      const barWidth = 15;
+      const barX = x + 11;
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(6.5);
+      doc.setFontSize(6.2);
       doc.setTextColor(...ink);
       doc.text(label, x, y);
-      doc.setFillColor(229, 232, 238);
-      doc.roundedRect(barX, y - 2.0, width, 1.8, 0.9, 0.9, "F");
+      doc.setFillColor(226, 230, 236);
+      doc.rect(barX, y - 1.7, barWidth, 1.6, "F");
       if (value > 0) {
         doc.setFillColor(...teal);
-        doc.roundedRect(barX, y - 2.0, Math.max(0.8, (width * value) / 100), 1.8, 0.9, 0.9, "F");
+        doc.rect(barX, y - 1.7, Math.max(0.6, (barWidth * value) / 100), 1.6, "F");
       }
+      doc.setFontSize(6.2);
+      doc.setTextColor(...muted);
+      doc.text(`${Math.round(value)}%`, barX + barWidth + 2, y);
     };
 
     // Reports must reflect the final lifecycle status even when an older phase row
@@ -1688,268 +1672,169 @@ const exportPdf = async () => {
       return row.progress;
     };
 
+    const generatedDateLabel = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+
     const drawPageHeader = () => {
-      doc.addImage(watermarkDataUrl, "PNG", pageWidth / 2 - 48, pageHeight / 2 - 48, 96, 96);
       doc.setFillColor(...navy);
-      doc.roundedRect(0, 0, 58, 28, 0, 0, "F");
+      doc.rect(0, 0, pageWidth, navyBarHeight, "F");
       doc.setFillColor(...teal);
-      doc.triangle(56, 0, 68, 0, 58, 28, "F");
-      doc.setFillColor(255, 255, 255);
-      doc.triangle(62, 0, 67, 0, 58, 25, "F");
-      doc.addImage(logoDataUrl, "PNG", 5, 5, 12, 12);
+      doc.rect(0, navyBarHeight, pageWidth, accentHeight, "F");
+
+      doc.addImage(logoDataUrl, "PNG", pageMarginX, (navyBarHeight - 12) / 2, 12, 12);
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(10);
+      doc.setFontSize(11);
       doc.setTextColor(255, 255, 255);
-      doc.text("LimelightIT", 19, 11);
-      doc.setFontSize(7.2);
-      doc.text("Research Pvt. Ltd.", 19, 17);
+      doc.text("LimelightIT", pageMarginX + 16, 11);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.setTextColor(198, 210, 224);
+      doc.text("Research Pvt. Ltd.", pageMarginX + 16, 16.5);
 
       doc.setFont("helvetica", "bold");
-      doc.setTextColor(...navy);
-      const titleCenterX = 116;
-      const titleLines = drawCenteredWrappedText(`${kpiLabel} Status & Progress`, titleCenterX, 12, 88, 14.5, 6.5, navy);
+      doc.setFontSize(10.5);
+      doc.setTextColor(255, 255, 255);
+      doc.text(`${kpiLabel} Report`, pageWidth - pageMarginX, 10, { align: "right" });
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(9);
-      doc.setTextColor(...muted);
-      doc.text("LimelightIT Research Pvt. Ltd.", titleCenterX, titleLines > 1 ? 26 : 21.5, { align: "center" });
-      doc.setFontSize(7.8);
+      doc.setFontSize(7);
+      doc.setTextColor(198, 210, 224);
+      doc.text(`Generated: ${generatedDateLabel}`, pageWidth - pageMarginX, 16.5, { align: "right" });
+
+      const subY = navyBarHeight + accentHeight;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7.6);
       doc.setTextColor(...teal);
-      doc.text("Field Assignment Overview", titleCenterX, titleLines > 1 ? 32 : 28, { align: "center" });
-
+      doc.text("FIELD ASSIGNMENT OVERVIEW", pageMarginX, subY + 6);
       doc.setDrawColor(...border);
-      doc.setFillColor(255, 255, 255);
-      doc.roundedRect(pageWidth - 47, 5.5, 38, 16, 2, 2, "FD");
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(7.2);
-      doc.setTextColor(...muted);
-      doc.text("Report Date", pageWidth - 28, 12, { align: "center" });
+      doc.setLineWidth(0.2);
+      doc.line(pageMarginX, subY + subheaderHeight, pageWidth - pageMarginX, subY + subheaderHeight);
+
+      const colY = subY + subheaderHeight;
+      doc.setFillColor(233, 237, 244);
+      doc.rect(pageMarginX, colY, contentWidth, colHeaderHeight, "F");
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(8.3);
+      doc.setFontSize(6.4);
       doc.setTextColor(...navy);
-      doc.text(new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }), pageWidth - 28, 18, { align: "center" });
+      doc.text("#", pageMarginX + colX.idx + colW.idx / 2, colY + 4.6, { align: "center" });
+      activeColumns.forEach((c) => {
+        const startX = pageMarginX + colX[c.key]!;
+        const width = colW[c.key]!;
+        if (c.key === "status" || c.key === "progress") {
+          doc.text(c.label, startX + width / 2, colY + 4.6, { align: "center" });
+        } else {
+          doc.text(c.label, startX + 2, colY + 4.6);
+        }
+      });
     };
 
-    const drawCompanyCard = (r: SiteRow, displayIndex: number, y: number) => {
+    const drawCompanyRow = (r: SiteRow, displayIndex: number, rowIndex: number, y: number) => {
       const x = pageMarginX;
-      const h = cardHeight;
-      const w = cardWidth;
+      const h = rowHeight;
       const reportStatus = getKpiReportStatus(r, selectedKpi);
       const tone = statusTone(reportStatus);
       const reportProgress = getReportProgress(r);
       const bcNames = r.workerIds.map((id) => profileNameMap.get(id) || "N/A").join(", ") || "Unassigned";
 
-      doc.setFillColor(...cardShadow);
-      doc.roundedRect(x + 0.6, y + 0.7, w, h, 2, 2, "F");
-      doc.setFillColor(255, 255, 255);
+      if (rowIndex % 2 === 1) {
+        doc.setFillColor(...soft);
+        doc.rect(x, y, contentWidth, h, "F");
+      }
+      doc.setFillColor(...tone.fg);
+      doc.rect(x, y, 1.4, h, "F");
       doc.setDrawColor(...border);
-      doc.roundedRect(x, y, w, h, 2, 2, "FD");
-      doc.setFillColor(...teal);
-      doc.roundedRect(x, y, 1.8, h, 1.4, 1.4, "F");
+      doc.setLineWidth(0.15);
+      doc.line(x, y + h, x + contentWidth, y + h);
+      activeColumns.forEach((c) => {
+        const dx = colX[c.key]!;
+        doc.line(x + dx, y + 3, x + dx, y + h - 3);
+      });
 
       // Column 1: Index and City
-      doc.setFillColor(...navy);
-      doc.roundedRect(x + 4, y + 3.5, 12, 11, 1.5, 1.5, "F");
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(9.5);
-      doc.setTextColor(255, 255, 255);
-      doc.text(String(displayIndex), x + 10, y + 11.5, { align: "center" });
+      doc.setFontSize(9);
+      doc.setTextColor(...navy);
+      doc.text(String(displayIndex), x + colX.idx + colW.idx / 2, y + 9, { align: "center" });
 
       const cityName = getCityNameOnly(r.city);
-      doc.setFillColor(232, 247, 250);
-      doc.roundedRect(x + 2, y + 17.5, 16, 5, 1.2, 1.2, "F");
-      doc.setFontSize(6.2);
-      doc.setTextColor(...teal);
-      doc.text(cityName.toUpperCase(), x + 10, y + 21.2, { align: "center" });
-
-      const dividers = [20, 85, 125, 150];
-      doc.setDrawColor(...border);
-      dividers.forEach((dx) => doc.line(x + dx, y + 3, x + dx, y + h - 3));
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(6);
+      doc.setTextColor(...muted);
+      doc.text(cityName.toUpperCase(), x + colX.idx + colW.idx / 2, y + 15.5, { align: "center" });
 
       // Column 2: Company details
-      doc.setFillColor(232, 247, 250);
-      doc.circle(x + 25.5, y + 13, 3.5, "F");
-      doc.setDrawColor(...teal);
-      doc.rect(x + 24.2, y + 11.9, 2.6, 3.4, "S");
-      doc.rect(x + 23.4, y + 13.2, 4.3, 2.1, "S");
-      doc.setTextColor(...navy);
-      const companyLines = drawTextFit(clean(r.company_name || r.name).toUpperCase(), x + 31, y + 9.5, 50, 7.8, true, 2);
+      if (columns.company) {
+        const cx = x + colX.company!;
+        const cw = colW.company!;
+        doc.setTextColor(...navy);
+        const companyLines = drawTextFit(clean(r.company_name || r.name), cx + 2, y + 7.5, cw - 4, 7.8, true, 2);
 
-      const fullAddress = r.address || (r.city && r.city.includes(",") ? r.city : "");
-      if (fullAddress) {
-        doc.setTextColor(...muted);
-        drawAddressFit(fullAddress, x + 31, companyLines > 1 ? y + 17.8 : y + 15.8, 52, companyLines > 1 ? 2 : 3);
+        const fullAddress = r.address || (r.city && r.city.includes(",") ? r.city : "");
+        if (fullAddress) {
+          doc.setTextColor(...muted);
+          drawAddressFit(fullAddress, cx + 2, companyLines > 1 ? y + 17 : y + 14, cw - 4, companyLines > 1 ? 1 : 2);
+        }
       }
 
       // Column 3: Field Associate
-      doc.setTextColor(...ink);
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(6.8);
-      doc.text("Field Associate", x + 88, y + 8);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(...teal);
-      drawTextFit(clean(bcNames), x + 88, y + 13.5, 34, 7.2, true, 2);
+      if (columns.assoc) {
+        const ax = x + colX.assoc!;
+        const aw = colW.assoc!;
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...teal);
+        drawTextFit(clean(bcNames), ax + 2, y + 10, aw - 4, 7.4, true, 2);
+      }
 
-      // Column 4: Status
-      doc.setFillColor(...tone.bg);
-      doc.setDrawColor(...tone.fg);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(5);
-      const statusLines = doc.splitTextToSize(tone.label, 18).slice(0, 2);
-      const badgeHeight = statusLines.length > 1 ? 11.5 : 10.5;
-      const statusBadgeY = y + (h - badgeHeight) / 2;
-      doc.roundedRect(x + 127, statusBadgeY, 22, badgeHeight, 2, 2, "FD");
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(5);
-      doc.setTextColor(...tone.fg);
-      const statusTextStartY =
-        statusBadgeY + badgeHeight / 2 - ((statusLines.length - 1) * 3.2) / 2 + 1.7;
-      statusLines.forEach((line: string, lineIndex: number) => {
-        doc.text(line, x + 138, statusTextStartY + lineIndex * 3.2, { align: "center" });
-      });
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(...ink);
+      // Column 4: Status (text only)
+      if (columns.status) {
+        const sx = x + colX.status!;
+        const sw = colW.status!;
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(7);
+        let statusLines = doc.splitTextToSize(tone.label, sw - 4);
+        if (statusLines.length > 2) {
+          doc.setFontSize(6);
+          statusLines = doc.splitTextToSize(tone.label, sw - 4);
+        }
+        statusLines = statusLines.slice(0, 2);
+        const lineH = 3.3;
+        const textStartY = y + h / 2 - ((statusLines.length - 1) * lineH) / 2 + 1.2;
+        doc.setTextColor(...tone.fg);
+        statusLines.forEach((line: string, lineIndex: number) => {
+          doc.text(line, sx + sw / 2, textStartY + lineIndex * lineH, { align: "center" });
+        });
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...ink);
+      }
 
       // Column 5: Progress
-      doc.setDrawColor(...border);
-      doc.line(x + 152, y + 5.5, x + 188, y + 5.5);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(6.8);
-      doc.setTextColor(...navy);
-      doc.text("PROGRESS", x + 170, y + 5, { align: "center" });
-      drawProgress("Ass.", reportProgress.a || 0, x + 152, y + 11.2);
-      drawProgress("Inst.", reportProgress.i || 0, x + 152, y + 17.2);
-      drawProgress("Comm.", reportProgress.c || 0, x + 152, y + 23.2);
+      if (columns.progress) {
+        const px = x + colX.progress!;
+        drawProgressBar("Ass.", reportProgress.a || 0, px + 2, y + 8);
+        drawProgressBar("Inst.", reportProgress.i || 0, px + 2, y + 14);
+        drawProgressBar("Comm.", reportProgress.c || 0, px + 2, y + 20);
+      }
     };
 
+    const footerReserve = 14;
+    const rowsPerReportPage = Math.max(1, Math.floor((pageHeight - headerHeight - footerReserve) / rowHeight));
+    const totalReportPages = Math.max(1, Math.ceil(sortedRows.length / rowsPerReportPage));
+
     let page = 0;
-    const rowsPerReportPage = 8;
     for (let offset = 0; offset < sortedRows.length; offset += rowsPerReportPage) {
       if (page > 0) doc.addPage();
       page += 1;
       drawPageHeader();
       sortedRows.slice(offset, offset + rowsPerReportPage).forEach((row, index) => {
-        drawCompanyCard(row, offset + index + 1, headerHeight + 5 + index * (cardHeight + cardGap));
+        drawCompanyRow(row, offset + index + 1, index, headerHeight + index * rowHeight);
       });
-      doc.setFontSize(7);
-      doc.setTextColor(...muted);
-      doc.setFont("helvetica", "normal");
-      doc.text(`Page ${page}`, pageWidth - pageMarginX, pageHeight - 6, { align: "right" });
-    }
-
-    doc.save(`${kpiLabel.toLowerCase().replace(/\s+/g, "-")}-report-${new Date().toISOString().slice(0, 10)}.pdf`);
-    toast.success("PDF report downloaded.");
-    return;
-
-    const addChrome = () => {
-      const pageNumber = doc.getNumberOfPages();
-      doc.setFillColor(...navy);
-      doc.rect(0, 0, pageWidth, 24, "F");
-      doc.setFillColor(...blue);
-      doc.rect(0, 24, pageWidth, 1.4, "F");
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(13);
-      doc.setTextColor(255, 255, 255);
-      doc.text("SIMKIT OPS", 14, 11);
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(8);
-      doc.setTextColor(204, 213, 226);
-      doc.text("Management Report", 14, 17);
-      doc.text(kpiLabel.toUpperCase(), pageWidth - 14, 11, { align: "right" });
-      doc.text(generatedAt, pageWidth - 14, 17, { align: "right" });
       doc.setDrawColor(...border);
       doc.setLineWidth(0.2);
-      doc.line(14, pageHeight - 12, pageWidth - 14, pageHeight - 12);
-      doc.setFontSize(7);
+      doc.line(pageMarginX, pageHeight - 12, pageWidth - pageMarginX, pageHeight - 12);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(6.8);
       doc.setTextColor(...muted);
-      doc.text("Generated from SimKit Ops Overview", 14, pageHeight - 7);
-      doc.text(`Page ${pageNumber}`, pageWidth - 14, pageHeight - 7, { align: "right" });
-    };
-
-    addChrome();
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(18);
-    doc.setTextColor(...ink);
-    doc.text(`${kpiLabel} Report`, 14, 38);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.setTextColor(...muted);
-    doc.text("Particular data export with company, assignment, status, and progress details.", 14, 44);
-    doc.setFillColor(...soft);
-    doc.setDrawColor(...border);
-    doc.roundedRect(14, 51, pageWidth - 28, 22, 2, 2, "FD");
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
-    doc.setTextColor(...ink);
-    doc.text(`Total Records: ${sortedRows.length}`, 19, 59);
-    doc.text(`City Filter: ${cityFilter || "All Cities"}`, 19, 66);
-    doc.text(`Field Associate: ${executiveFilter ? clean(profileNameMap.get(executiveFilter)) : "All Field Associates"}`, 86, 59);
-    doc.text(`Search: ${searchQuery || "None"}`, 86, 66);
-
-    autoTable(doc, {
-      startY: 82,
-      margin: { left: 14, right: 14, top: 31, bottom: 18 },
-      head: [["#", "City", "Company Details", "Assignment", "Status & Progress"]],
-      body: sortedRows.map((r, index) => {
-        const bcNames = r.workerIds.map((id) => profileNameMap.get(id) || "—").join(", ");
-        const canonicalStatus = r.status;
-        const progressStr = `Appt: ${r.progress.appt.status !== "none" ? r.progress.appt.status : "—"}\nAssmt: ${r.progress.a || 0}%\nInst: ${r.progress.i || 0}%\nComm: ${r.progress.c || 0}%`;
-        const lastUpdated = formatDate(r.progress.updated || r.assigned_at || r.appt_date);
-        const company = clean(r.company_name || r.name);
-        const siteName = clean(r.name);
-        const contactLines = [
-          `Company: ${company}`,
-          company !== siteName ? `Site: ${siteName}` : "",
-          `Contact: ${clean(r.meta.c1_name)}`,
-          `Mobile: ${clean(r.meta.c1_mobile)}`,
-          r.meta.c1_email ? `Email: ${r.meta.c1_email}` : "",
-        ].filter(Boolean).join("\n");
-        const assignmentLines = [
-          `Field Associate: ${bcNames || "Unassigned"}`,
-          `Assigned: ${formatDate(r.assigned_at)}`,
-          `Last Updated: ${lastUpdated}`,
-        ].join("\n");
-        const statusLines = [
-          `Status: ${canonicalStatus}`,
-          r.logisticsStatus ? `Logistics: ${r.logisticsStatus}` : "",
-          progressText(r),
-        ].filter(Boolean).join("\n");
-        return [
-          String(index + 1),
-          r.city || "—",
-          contactLines,
-          assignmentLines,
-          statusLines
-        ];
-      }),
-      theme: "grid",
-      styles: {
-        font: "helvetica",
-        fontSize: 8.2,
-        cellPadding: 3,
-        lineColor: border,
-        lineWidth: 0.2,
-        textColor: ink,
-        overflow: "linebreak",
-        valign: "top",
-      },
-      headStyles: {
-        fillColor: navy,
-        textColor: [255, 255, 255],
-        fontStyle: "bold",
-        fontSize: 8.6,
-        cellPadding: 3,
-      },
-      alternateRowStyles: { fillColor: soft },
-      columnStyles: {
-        0: { cellWidth: 10, halign: "center" },
-        1: { cellWidth: 22 },
-        2: { cellWidth: 62 },
-        3: { cellWidth: 43 },
-        4: { cellWidth: 45 },
-      },
-      didDrawPage: () => addChrome(),
-    });
+      doc.text("Generated by LimelightIT Research Pvt. Ltd.", pageMarginX, pageHeight - 7);
+      doc.text(`Page ${page} of ${totalReportPages}`, pageWidth - pageMarginX, pageHeight - 7, { align: "right" });
+    }
 
     doc.save(`${kpiLabel.toLowerCase().replace(/\s+/g, "-")}-report-${new Date().toISOString().slice(0, 10)}.pdf`);
     toast.success("PDF report downloaded.");
@@ -2574,7 +2459,7 @@ return (
                   <span>Excel</span>
                 </button>
                 <button
-                  onClick={exportPdf}
+                  onClick={() => setPdfColumnPickerOpen(true)}
                   disabled={exportingPdf}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-[#FFEBEE] hover:bg-[#FFCDD2] text-[#C62828] border border-[#EF9A9A] rounded-md transition-colors shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   title="Export to PDF"
@@ -2842,6 +2727,52 @@ return (
         </div>
       )}
 
+      {pdfColumnPickerOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm overflow-hidden rounded-xl border border-border bg-surface shadow-2xl">
+            <div className="flex items-center justify-between border-b border-border bg-surface-raised/40 px-5 py-3.5">
+              <h3 className="text-sm font-bold text-text-primary">Select PDF Columns</h3>
+              <button
+                onClick={() => setPdfColumnPickerOpen(false)}
+                className="rounded-md border border-border bg-surface p-1 text-text-secondary transition-colors hover:text-text-primary"
+                aria-label="Close column picker"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="p-5 space-y-2.5">
+              {PDF_COLUMN_OPTIONS.map((c) => (
+                <label key={c.key} className="flex items-center gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={pdfSelectedColumns[c.key]}
+                    onChange={(e) =>
+                      setPdfSelectedColumns((prev) => ({ ...prev, [c.key]: e.target.checked }))
+                    }
+                    className="h-4 w-4 rounded border-border text-lime focus:ring-lime"
+                  />
+                  <span className="text-sm text-text-primary">{c.label}</span>
+                </label>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2 border-t border-border px-5 py-3.5">
+              <Button variant="secondary" onClick={() => setPdfColumnPickerOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                disabled={!PDF_COLUMN_OPTIONS.some((c) => pdfSelectedColumns[c.key])}
+                onClick={() => {
+                  setPdfColumnPickerOpen(false);
+                  exportPdf(pdfSelectedColumns);
+                }}
+              >
+                Generate PDF
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Hybrid Associate Consultant Portal Modal */}
       {consultantSiteId && (() => {
         const modalSite = rawSites.find(s => s.id === consultantSiteId);
@@ -2903,7 +2834,7 @@ return (
                     </span>
                   </div>
 
-                  <div className="grid gap-4 md:grid-cols-3">
+                  <div className="grid gap-4 md:grid-cols-2">
                     {/* Location Address Card */}
                     <div className="bg-surface/50 p-4 rounded-xl border border-border flex gap-3">
                       <MapPin className="text-lime w-5 h-5 shrink-0 mt-0.5" />
@@ -2930,31 +2861,6 @@ return (
                             {modalMeta.c1_email && (
                               <div className="text-text-secondary text-xs truncate flex items-center gap-1.5 mt-0.5 font-mono">
                                 <Mail size={11} /> {modalMeta.c1_email}
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <p className="mt-1 text-xs text-text-dim italic">No contact details</p>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Secondary Contact Card */}
-                    <div className="bg-surface/50 p-4 rounded-xl border border-border flex gap-3">
-                      <User className="text-lime w-5 h-5 shrink-0 mt-0.5" />
-                      <div className="flex-1 min-w-0">
-                        <div className="font-mono text-[9px] uppercase tracking-wider text-text-secondary">Secondary Contact</div>
-                        {(modalMeta.c2_name || modalMeta.c2_mobile || modalMeta.c2_email) ? (
-                          <div className="mt-1 space-y-1 text-sm">
-                            {modalMeta.c2_name && <p className="font-semibold text-text-primary truncate">{modalMeta.c2_name}</p>}
-                            {modalMeta.c2_mobile && (
-                              <a href={`tel:${modalMeta.c2_mobile}`} className="text-lime hover:underline font-mono text-xs flex items-center gap-1.5 mt-0.5 font-bold">
-                                <Phone size={11} /> {modalMeta.c2_mobile}
-                              </a>
-                            )}
-                            {modalMeta.c2_email && (
-                              <div className="text-text-secondary text-xs truncate flex items-center gap-1.5 mt-0.5 font-mono">
-                                <Mail size={11} /> {modalMeta.c2_email}
                               </div>
                             )}
                           </div>

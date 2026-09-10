@@ -1,0 +1,288 @@
+Delivered-To: tarun@limelightit.io
+Received: by 2002:a17:906:df08:b0:c24:900a:9b2a with SMTP id ie8csp251751ejc;
+        Wed, 9 Sep 2026 01:48:51 -0700 (PDT)
+X-Received: by 2002:a05:6a00:f8f:b0:85c:e16c:a1f6 with SMTP id
+ d2e1a72fcca58-8616ae550e5mr47448647b3a.24.1788943731080;        Wed, 09 Sep
+ 2026 01:48:51 -0700 (PDT)
+ARC-Seal: i=1; a=rsa-sha256; t=1788943731; cv=none;
+        d=google.com; s=arc-20260327;
+        b=rHSyeC/8Dtm/WD6yw3ziS2GGJmh8yu2WyGjJZJu+QFsDE2LTIbjEBNM6RBb+En3QhO
+         hICsbQJvO7Kmycp+EM3OilNtNttllDiN8aD49aA2BZ4kfRLdc8t1rZ79T6fUPsGj883U
+         ETxHRce1yGduplOJ8aqoU7BtreGrNwFjSjx7R313qB5mRZg65gXlplSFm8ycQArw7ymA
+         ZHZknvYxHNBEvwbSABgjj1OZNXmDuyN7ar58H7BmZFxH2Xe/n5P9HfocLuebglodwfMB
+         MUCpzWO4W1N/is/g8xEpef7USEDmftzBXvumg7xXdG5AKblzYVwB78I/0StqlVpKE2mo
+         2XfA==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=google.com;
+ s=arc-20260327;       
+ h=mime-version:date:content-transfer-encoding:message-id:subject:to        
+ :from:dkim-signature;        bh=0pifAivJ5yHXMsomKjTdWcE8kYzj5MKzxkQZvLC83hA=;
+        fh=Cndm6W6oiNRwfrTzDGmTwxHYxm/VXA0LEFEvQXHEypw=;       
+ b=XAH7pRGHl6IfmajeFgJN6b79rOeZgrxzZZ196VBw0q8+Krsshx6R3wCwuWJ11IHOld        
+ 3dCIuHV3I4X7B64e2pxWvst0JCuQZ+Kslmwm8HF5MuS7/tBh/jVMciBXwZxyybGtFeBM        
+ HRaynxgjExpfB3vmfOSzEwm5zsSJniMXQyIIA0tgiznH17V+sELs0OZMZ0uro69ZfbJ/        
+ q7ywbT4N4yFoBrr/uIn7OiSWrwEgnW8kmTtglCSUWOyGRw6rL9OVpxh9h+D8zi/hx2PH        
+ iC3ynSLUowC+PD57BO0LJ1yZdk7NoTyl2MM4VDmeJLr+E3FWsBVE0BHsAStoH7zAjYiV        
+ TkXg==;        dara=google.com
+ARC-Authentication-Results: i=1; mx.google.com;       dkim=pass
+ header.i=@i4gujarat.in header.s=google header.b=dFYB8TuC;       spf=pass
+ (google.com: domain of info@i4gujarat.in designates 209.85.220.41 as
+ permitted sender) smtp.mailfrom=info@i4gujarat.in;       dara=neutral
+ header.i=@limelightit.io
+Return-Path: <info@i4gujarat.in>
+Received: from mail-sor-f41.google.com (mail-sor-f41.google.com.
+ [209.85.220.41])        by mx.google.com with SMTPS id
+ d2e1a72fcca58-8614db9945esor8448884b3a.2.2026.09.09.01.48.50        for
+ <tarun@limelightit.io>        (Google Transport Security);        Wed, 09 Sep
+ 2026 01:48:51 -0700 (PDT)
+Received-SPF: pass (google.com: domain of info@i4gujarat.in designates
+ 209.85.220.41 as permitted sender) client-ip=209.85.220.41;
+Authentication-Results: mx.google.com;       dkim=pass header.i=@i4gujarat.in
+ header.s=google header.b=dFYB8TuC;       spf=pass (google.com: domain of
+ info@i4gujarat.in designates 209.85.220.41 as permitted sender)
+ smtp.mailfrom=info@i4gujarat.in;       dara=neutral header.i=@limelightit.io
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;        d=i4gujarat.in;
+ s=google; t=1788943730; x=1789548530; darn=limelightit.io;       
+ h=content-type:mime-version:date:content-transfer-encoding:message-id
+         :subject:to:from:from:to:cc:subject:date:message-id:reply-to        
+ :content-type;        bh=0pifAivJ5yHXMsomKjTdWcE8kYzj5MKzxkQZvLC83hA=;
+        b=dFYB8TuCGWXbuVrDGiaue9gPY33VBWls6BFknZAdp9cOZGQGdPkEZqgxnGAify2gjn
+         r2MXN3wQD2u5GNBsRLC8Lno7ReyTLFAe13d/6z48XyJ3CksbVeT9TYui5JioOze20Nwi
+         K4N2Gk8XnIf3QAN42Khq8P8hKvIdgtDZR6Ja/4qnBKfr19TEH5T7tfXdmbBWbaiy9t2+
+         sWjOHb7MjuhmO0p9E2gyLoAtn7yWxACaCJQepK3O7HCw1XC659Km82mT4SFqcwcpCoM/
+         6j51wdxgU+r94r4fugHIFb7VeCA7Z10gglChVAs5ifVEbZWPVp8xk2ZtmOhhjrhcwt2s
+         yp9g==
+X-Google-DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=1e100.net; s=20251104; t=1788943730; x=1789548530;
+        h=content-type:mime-version:date:content-transfer-encoding:message-id
+         :subject:to:from:x-gm-gg:x-gm-message-state:from:to:cc:subject:date
+         :message-id:reply-to:content-type;
+        bh=0pifAivJ5yHXMsomKjTdWcE8kYzj5MKzxkQZvLC83hA=;
+        b=EaIuzAO8CRHrA5WoICgrAll+EW6QKksGIrp8pMpZCSdFH4xkfJby5+Rl2XTEInf6KS
+         Am8kRMvyMvBBTzDlPADCJZHtKW+FZn6Jxk1H4DtVg5KO254ncMKMKUGh97BrGFDhGXiM
+         Yo0e8PboahbBBUuQ8BrdaCy2wgLOBHQ7gb1DszwytxhNrsEUaIVbHgaWVLSZ7fZikOi7
+         j8UjQ3LefLQ7OTNX+6mCFndr6EYSkwyNwvqga0GG+cQbGfgJvWXIVYEEziwcPBXTpv0v
+         VcIHmm8k92l5oRDH78VTFIzfprOWGXOdyDKMYCHCuqUBXK2eOjO0ABAQfV0V2ccc0imA
+         nuXA==
+X-Gm-Message-State: AFuF++m/uK0py4IUX9YY++qsWFkxVkdAx1l4ygVUT8P43plLkE6wViCM
+	PDDTAbmjGG6npIoDsw26YYt+XvW8ybuQaIqrfl0nyDxKyT4Gj8ZOQ0IHrfeYABlqaEPrfqPkc0U
+	loA2yng==
+X-Gm-Gg: AYBFou0PlaYulXU0G4mQTdv67nU+YLPA4tSa/IdY9JNJj37atfn68vM0+GhWK2OrHRV
+	aVcFCF07dSlVR9UBM5/hpkf10aSZsKCcNdvk0SrPdPGpj4qOHr4rcjwBcLi8xuOQ+ZprJoyDcRY
+	fNF/5Nuv9yotbFdODYSaiDCM7XcDpXNq8t490wU8FpsbuEEjRbDKh2hwk1tw1ej1FAsjCt7MBgi
+	F6qujR7HjloBICCNIGOya/iKBKiTTm/4dAk0GQe/cWSE3Jd57MKzNGxmfHkDWIN/VThK6pD6ntz
+	jTCfXX9hUOPnLbTUB8hw+rKRuZVPY+vdtvcem2atkaqHb6NHig/OdurIwqGlS3AyFI5vapgyJde
+	M9BR2wN/pRFW8NYr42+EfCdtY2GP7HnO5yuq8sakLPUnXylNUvzc0BnsQQ6UrLAcmX9E+heaeNz
+	gl4PmmLBK5ViZgIRh+FGOgYzwlLxLrsgu10q1qYFJrBPFY9dmNXNPbXPoOOEwgzLrclTbHrRRLY
+	mt5Dbw6c+D6zfTZRhmrFgJwkZIMl0z1I7e78CxmKe//LhBXrAZkG8UbkAbBsTLLlcfGnw+CndH2
+	maoUrWxQhQ==
+X-Received: by 2002:a05:6a00:3313:b0:84e:f90e:492f with SMTP id
+ d2e1a72fcca58-86167f9be1emr48721286b3a.7.1788943730273;        Wed, 09 Sep
+ 2026 01:48:50 -0700 (PDT)
+Return-Path: <info@i4gujarat.in>
+Received: from [127.0.0.1] (e2e-66-192.ssdcloudindia.net. [164.52.198.192])
+        by smtp.gmail.com with ESMTPSA id
+ d2e1a72fcca58-8615292d875sm6597329b3a.25.2026.09.09.01.48.48        for
+ <tarun@limelightit.io>        (version=TLS1_3 cipher=TLS_AES_128_GCM_SHA256
+ bits=128/128);        Wed, 09 Sep 2026 01:48:49 -0700 (PDT)
+From: NPC India <info@i4gujarat.in>
+X-Google-Original-From: NPC India <info@npctraining.org>
+To: tarun@limelightit.io
+Subject: =?UTF-8?Q?Assessor_and_startup_partner_assigned_?=
+ =?UTF-8?Q?=E2=80=94_contact_details_=28M/S_DYNAMIC?=
+ =?UTF-8?Q?_PLASTIC_INDUSTRY=29?=
+Message-ID: <d7869eaf-6143-af07-9ba5-ba17b793c40a@npctraining.org>
+Content-Transfer-Encoding: quoted-printable
+Date: Wed, 09 Sep 2026 08:48:47 +0000
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+
+  <div style=3D"background-color: #f9fafc; padding: 40px 20px; =
+font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+    <div style=3D"max-width: 600px; margin: 0 auto; background-color: =
+#ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px -1px =
+rgba(0, 0, 0, 0.1);">
+
+      <div style=3D"background-color: #0a5091; =
+padding: 30px; text-align: center;">
+        <h1 style=3D"color: #ffffff; =
+margin: 0; font-size: 22px; letter-spacing: 0.5px;">Assessor &amp; startup =
+assigned</h1>
+      </div>
+
+      <div style=3D"padding: 40px; color: =
+#3a424c; line-height: 1.6;">
+        <p style=3D"font-size: 16px;">Dear =
+<strong>Tarun Purohit</strong>,</p>
+        <p style=3D"font-size: =
+16px;">Your startup has been assigned to support <strong>M/S DYNAMIC =
+PLASTIC INDUSTRY</strong>, together with the assessor listed below.</p>
+        <p style=3D"font-size: 15px; color: #6c7681;">Below are the =
+registered contact details for coordination.</p>
+
+        <h2 =
+style=3D"font-size: 14px; text-transform: uppercase; letter-spacing: 0.=
+08em; color: #04417a; margin: 28px 0 12px;">MSME</h2>
+        <div style=3D"background-color: #f2f5f8; border: 1px solid #e2e7ec;=
+ padding: 20px; border-radius: 12px;">
+         =20
+    <div style=3D"margin-bottom: 12px;">
+      <span style=3D"display: =
+block; font-size: 11px; text-transform: uppercase; color: #6c7681; =
+font-weight: bold; margin-bottom: 4px; letter-spacing: 0.=
+5px;">Enterprise</span>
+      <span style=3D"font-size: 15px; color: =
+#3a424c;">M/S DYNAMIC PLASTIC INDUSTRY</span>
+    </div>
+ =20
+         =20
+    <div style=3D"margin-bottom: 12px;">
+      <span style=3D"display: =
+block; font-size: 11px; text-transform: uppercase; color: #6c7681; =
+font-weight: bold; margin-bottom: 4px; letter-spacing: 0.5px;">Owner</span>
+      <span style=3D"font-size: 15px; color: #3a424c;">M/S DYNAMIC PLASTIC =
+INDUSTRY</span>
+    </div>
+ =20
+         =20
+    <div =
+style=3D"margin-bottom: 12px;">
+      <span style=3D"display: block; =
+font-size: 11px; text-transform: uppercase; color: #6c7681; font-weight: =
+bold; margin-bottom: 4px; letter-spacing: 0.5px;">Email</span>
+      <span style=3D"font-size: 15px; color: #3a424c;">dynamicplasticindust=
+ry@gmail.com</span>
+    </div>
+ =20
+         =20
+    <div =
+style=3D"margin-bottom: 12px;">
+      <span style=3D"display: block; =
+font-size: 11px; text-transform: uppercase; color: #6c7681; font-weight: =
+bold; margin-bottom: 4px; letter-spacing: 0.5px;">Mobile</span>
+      <span style=3D"font-size: 15px; color: #3a424c;">9974455132</span>
+    </div>
+ =20
+         =20
+    <div style=3D"margin-bottom: 12px;">
+      <span style=3D"display: block; font-size: 11px; text-transform: =
+uppercase; color: #6c7681; font-weight: bold; margin-bottom: 4px; =
+letter-spacing: 0.5px;">Address &amp; location</span>
+      <span style=3D"font-size: 15px; color: #3a424c;">"Flat No:- C-7/A, =
+Building:- SARDAR ESTATE, Road/Street:- Ajwa road, Village/Town:- Vadodara,=
+ Block:- C-7/A, City:- Vadodara" =C2=B7 VADODARA, GUJARAT =C2=B7 PIN =
+390019</span>
+    </div>
+ =20
+        </div>
+
+        <h2 =
+style=3D"font-size: 14px; text-transform: uppercase; letter-spacing: 0.=
+08em; color: #04417a; margin: 28px 0 12px;">Assessor</h2>
+        <div style=3D"background-color: #f2f5f8; border: 1px solid #e2e7ec;=
+ padding: 20px; border-radius: 12px;">
+         =20
+    <div style=3D"margin-bottom: 12px;">
+      <span style=3D"display: =
+block; font-size: 11px; text-transform: uppercase; color: #6c7681; =
+font-weight: bold; margin-bottom: 4px; letter-spacing: 0.=
+5px;">Organisation</span>
+      <span style=3D"font-size: 15px; color: =
+#3a424c;">Industrial Dr.</span>
+    </div>
+ =20
+         =20
+    <div style=3D"margin-bottom: 12px;">
+      <span style=3D"display: =
+block; font-size: 11px; text-transform: uppercase; color: #6c7681; =
+font-weight: bold; margin-bottom: 4px; letter-spacing: 0.5px;">Contact =
+person</span>
+      <span style=3D"font-size: 15px; color: #3a424c;">Ashish=
+ Raiyani</span>
+    </div>
+ =20
+         =20
+    <div =
+style=3D"margin-bottom: 12px;">
+      <span style=3D"display: block; =
+font-size: 11px; text-transform: uppercase; color: #6c7681; font-weight: =
+bold; margin-bottom: 4px; letter-spacing: 0.5px;">Email</span>
+      <span style=3D"font-size: 15px; color: #3a424c;">industrialdr21@gmail=
+.com</span>
+    </div>
+ =20
+         =20
+    <div style=3D"margin-bottom: =
+12px;">
+      <span style=3D"display: block; font-size: 11px; =
+text-transform: uppercase; color: #6c7681; font-weight: bold; =
+margin-bottom: 4px; letter-spacing: 0.5px;">Mobile</span>
+      <span style=3D"font-size: 15px; color: #3a424c;">9265123732</span>
+    </div>
+ =20
+        </div>
+
+        <h2 style=3D"font-size: 14px; =
+text-transform: uppercase; letter-spacing: 0.08em; color: #04417a; margin: =
+28px 0 12px;">Startup partner</h2>
+        <div style=3D"background-color: =
+#f2f5f8; border: 1px solid #e2e7ec; padding: 20px; border-radius: 12px;">
+         =20
+    <div style=3D"margin-bottom: 12px;">
+      <span style=3D"display: block; font-size: 11px; text-transform: =
+uppercase; color: #6c7681; font-weight: bold; margin-bottom: 4px; =
+letter-spacing: 0.5px;">Startup</span>
+      <span style=3D"font-size: =
+15px; color: #3a424c;">Limelight IT</span>
+    </div>
+ =20
+         =20
+    <div style=3D"margin-bottom: 12px;">
+      <span style=3D"display: =
+block; font-size: 11px; text-transform: uppercase; color: #6c7681; =
+font-weight: bold; margin-bottom: 4px; letter-spacing: 0.5px;">Contact =
+person</span>
+      <span style=3D"font-size: 15px; color: #3a424c;">Tarun =
+Purohit</span>
+    </div>
+ =20
+         =20
+    <div =
+style=3D"margin-bottom: 12px;">
+      <span style=3D"display: block; =
+font-size: 11px; text-transform: uppercase; color: #6c7681; font-weight: =
+bold; margin-bottom: 4px; letter-spacing: 0.5px;">Email</span>
+      <span style=3D"font-size: 15px; color: #3a424c;">tarun@limelightit.=
+io</span>
+    </div>
+ =20
+         =20
+    <div style=3D"margin-bottom: =
+12px;">
+      <span style=3D"display: block; font-size: 11px; =
+text-transform: uppercase; color: #6c7681; font-weight: bold; =
+margin-bottom: 4px; letter-spacing: 0.5px;">Mobile</span>
+      <span style=3D"font-size: 15px; color: #3a424c;">9904953644</span>
+    </div>
+ =20
+        </div>
+
+        <p style=3D"font-size: 14px; color:=
+ #6c7681; margin-top: 28px;">Please use the official channels above for =
+next steps in the programme.</p>
+        <p style=3D"margin-top: 24px; =
+font-size: 16px;">Regards,<br/>
+        <strong style=3D"color: =
+#4e5863;">National Productivity Council</strong></p>
+      </div>
+
+      <div style=3D"background-color: #f9fafc; padding: 25px; text-align: =
+center; border-top: 1px solid #e2e7ec;">
+        <p style=3D"margin: 0; =
+font-size: 13px; color: #9ba4ae;">
+          This is an automated =
+notification from the <strong>NPC Digital Portal</strong>.
+        </p>
+      </div>
+    </div>
+  </div>

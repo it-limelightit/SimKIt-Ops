@@ -1249,7 +1249,6 @@ function OrderCard({
           recipientMobile = firstFilledMobile(
             contactData?.mobile,
             siteMeta.c1_mobile,
-            siteMeta.c2_mobile,
             ownerMobile,
             technicianMobile
           );
