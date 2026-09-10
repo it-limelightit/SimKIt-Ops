@@ -5,9 +5,6 @@ export type SiteMeta = {
   c1_name: string;
   c1_mobile: string;
   c1_email: string;
-  c2_name: string;
-  c2_mobile: string;
-  c2_email: string;
   status: string;
   status_source?: "manager" | "associate" | "system";
   create_drive_folder: boolean;
@@ -16,11 +13,9 @@ export type SiteMeta = {
   visit_status: string;
   worker_ids: string[];
   assessor_company: string;
+  assessor_name: string;
   assessor_phone: string;
-  assessor_city: string;
-  assessor_number: string;
   assessor_email: string;
-  assessor_address: string;
   credential_created?: boolean;
   manager_password?: string;
   client_email?: string;
@@ -42,9 +37,6 @@ const DEFAULT_META: SiteMeta = {
   c1_name: "",
   c1_mobile: "",
   c1_email: "",
-  c2_name: "",
-  c2_mobile: "",
-  c2_email: "",
   status: "Running",
   create_drive_folder: false,
   drive_folder_name: "",
@@ -52,11 +44,9 @@ const DEFAULT_META: SiteMeta = {
   visit_status: "",
   worker_ids: [],
   assessor_company: "",
+  assessor_name: "",
   assessor_phone: "",
-  assessor_city: "",
-  assessor_number: "",
   assessor_email: "",
-  assessor_address: "",
 };
 
 // Extract the JSON object after [METADATA: by counting braces — safe for nested arrays/objects

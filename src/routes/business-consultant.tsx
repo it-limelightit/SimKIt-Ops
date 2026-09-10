@@ -605,7 +605,7 @@ function BusinessConsultantPage() {
             </Badge>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-2">
             {/* Location Address Card */}
             <div className="bg-surface-raised/40 p-4 rounded-xl border border-border/80 flex gap-3">
               <MapPin className="text-lime w-5 h-5 shrink-0 mt-0.5" />
@@ -632,31 +632,6 @@ function BusinessConsultantPage() {
                     {meta.c1_email && (
                       <div className="text-text-secondary text-xs truncate flex items-center gap-1.5 mt-0.5 font-mono">
                         <Mail size={11} /> {meta.c1_email}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <p className="mt-1 text-xs text-text-dim italic">No contact details</p>
-                )}
-              </div>
-            </div>
-
-            {/* Secondary Contact Card */}
-            <div className="bg-surface-raised/40 p-4 rounded-xl border border-border/80 flex gap-3">
-              <User className="text-lime w-5 h-5 shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">
-                <div className="font-mono text-[9px] uppercase tracking-wider text-text-secondary">Secondary Contact</div>
-                {(meta.c2_name || meta.c2_mobile || meta.c2_email) ? (
-                  <div className="mt-1 space-y-1 text-sm">
-                    {meta.c2_name && <p className="font-semibold text-text-primary truncate">{meta.c2_name}</p>}
-                    {meta.c2_mobile && (
-                      <a href={`tel:${meta.c2_mobile}`} className="text-lime hover:underline font-mono text-xs flex items-center gap-1.5 mt-0.5 font-bold">
-                        <Phone size={11} /> {meta.c2_mobile}
-                      </a>
-                    )}
-                    {meta.c2_email && (
-                      <div className="text-text-secondary text-xs truncate flex items-center gap-1.5 mt-0.5 font-mono">
-                        <Mail size={11} /> {meta.c2_email}
                       </div>
                     )}
                   </div>

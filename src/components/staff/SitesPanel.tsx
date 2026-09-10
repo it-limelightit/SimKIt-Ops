@@ -11,13 +11,12 @@ import {
   X,
   Edit,
   Phone,
-  Calendar,
-  Clock,
   Folder,
   ExternalLink,
   ChevronDown,
   Check,
   FileText,
+  Upload,
 } from "lucide-react";
 import { parseSiteMetadata, recordStatusActivityLog, serializeSiteMetadata } from "@/lib/site-metadata";
 import {
@@ -80,6 +79,91 @@ const CUSTOM_LIST_COLUMNS = [
 ] as const;
 
 type CustomListColumnKey = (typeof CUSTOM_LIST_COLUMNS)[number]["key"];
+
+type EmlSiteValues = {
+  name: string;
+  company_name: string;
+  city: string;
+  address: string;
+  c1_name: string;
+  c1_mobile: string;
+  c1_email: string;
+  assessor_company: string;
+  assessor_name: string;
+  assessor_phone: string;
+  assessor_email: string;
+};
+
+const EMPTY_EML_SITE_VALUES: EmlSiteValues = {
+  name: "", company_name: "", city: "", address: "", c1_name: "", c1_mobile: "", c1_email: "",
+  assessor_company: "", assessor_name: "", assessor_phone: "", assessor_email: "",
+};
+
+const cleanEmlText = (value: string) => value.replace(/\s+/g, " ").trim();
+
+function decodeQuotedPrintable(value: string) {
+  const unfolded = value.replace(/=\r?\n/g, "");
+  const bytes: number[] = [];
+  for (let index = 0; index < unfolded.length; index += 1) {
+    if (unfolded[index] === "=" && /^[0-9A-F]{2}$/i.test(unfolded.slice(index + 1, index + 3))) {
+      bytes.push(parseInt(unfolded.slice(index + 1, index + 3), 16));
+      index += 2;
+    } else {
+      bytes.push(unfolded.charCodeAt(index));
+    }
+  }
+  return new TextDecoder("utf-8").decode(new Uint8Array(bytes));
+}
+
+function getEmlHtml(rawEmail: string) {
+  const parts = rawEmail.split(/\r?\n--[^\r\n]+(?:\r?\n|--\r?\n)/);
+  const htmlPart = parts.find((part) => /content-type:\s*text\/html/i.test(part));
+  const source = htmlPart || rawEmail;
+  const bodyStart = source.search(/\r?\n\r?\n/);
+  return decodeQuotedPrintable(bodyStart >= 0 ? source.slice(bodyStart) : source);
+}
+
+function getSectionFields(document: Document, sectionName: string) {
+  const heading = Array.from(document.querySelectorAll("h1,h2,h3,h4,strong,b"))
+    .find((element) => cleanEmlText(element.textContent || "").toLowerCase() === sectionName.toLowerCase());
+  if (!heading) return new Map<string, string>();
+
+  const fields = new Map<string, string>();
+  let sibling = heading.nextElementSibling;
+  while (sibling && !/^H[1-4]$/i.test(sibling.tagName)) {
+    const spans = Array.from(sibling.querySelectorAll("span"));
+    for (let index = 0; index + 1 < spans.length; index += 2) {
+      const label = cleanEmlText(spans[index].textContent || "").toLowerCase();
+      const value = cleanEmlText(spans[index + 1].textContent || "");
+      if (label && value) fields.set(label, value);
+    }
+    sibling = sibling.nextElementSibling;
+  }
+  return fields;
+}
+
+function parseSiteEml(rawEmail: string): EmlSiteValues {
+  const document = new DOMParser().parseFromString(getEmlHtml(rawEmail), "text/html");
+  const msme = getSectionFields(document, "MSME");
+  const assessor = getSectionFields(document, "Assessor");
+  const address = msme.get("address & location") || msme.get("address") || "";
+  const explicitCity = address.match(/\bcity\s*[:-]\s*([^,·"]+)/i)?.[1]?.trim() || "";
+
+  return {
+    ...EMPTY_EML_SITE_VALUES,
+    name: msme.get("enterprise") || msme.get("company name") || "",
+    company_name: msme.get("enterprise") || msme.get("company name") || "",
+    city: explicitCity,
+    address,
+    c1_name: msme.get("owner") || "",
+    c1_mobile: msme.get("mobile") || msme.get("phone") || "",
+    c1_email: msme.get("email") || "",
+    assessor_company: assessor.get("organisation") || assessor.get("organization") || "",
+    assessor_name: assessor.get("contact person") || "",
+    assessor_phone: assessor.get("mobile") || assessor.get("phone") || "",
+    assessor_email: assessor.get("email") || "",
+  };
+}
 
 const getDefaultCustomListColumns = (): CustomListColumnKey[] =>
   CUSTOM_LIST_COLUMNS.map((column) => column.key);
@@ -190,6 +274,7 @@ function BCMultiSelect({
 // ── Main panel ────────────────────────────────────────────────────────────────
 export function SitesPanel() {
   const formRevealRef = useRef<HTMLDivElement>(null);
+  const emlInputRef = useRef<HTMLInputElement>(null);
   const { userId, email, profile } = useAuth();
   const [sites, setSites] = useState<any[]>([]);
   const [materials, setMaterials] = useState<any[]>([]);
@@ -240,28 +325,42 @@ export function SitesPanel() {
     c1_name: "",
     c1_mobile: "",
     c1_email: "",
-    c2_name: "",
-    c2_mobile: "",
-    c2_email: "",
     status: "Running",
-    appt_date: "",
-    appt_time: "",
-    create_drive_folder: false,
-    drive_folder_link: "",
     assessor_company: "",
+    assessor_name: "",
     assessor_phone: "",
-    assessor_city: "",
-    assessor_number: "",
     assessor_email: "",
-    assessor_address: "",
   });
+
+  const handleEmlUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".eml")) {
+      toast.error("Please upload an .eml email file.");
+      return;
+    }
+
+    try {
+      const parsed = parseSiteEml(await file.text());
+      const filledCount = Object.values(parsed).filter(Boolean).length;
+      if (filledCount === 0) {
+        toast.error("No matching Add Site fields were found in this email.");
+        return;
+      }
+      setForm((current) => ({ ...current, ...EMPTY_EML_SITE_VALUES, ...parsed }));
+      toast.success(`${filledCount} Add Site fields filled from the email. You can edit them before saving.`);
+    } catch {
+      toast.error("Could not read this .eml file.");
+    }
+  };
 
   const load = async () => {
     const [s, w, aRes, iRes, cRes, rRes, mRes] = await Promise.all([
       supabase
         .from("sites")
         .select(
-          "id,name,company_name,city,address,assigned_worker_id,assigned_at,task_notes,appt_date,appt_time,consultant_stage,created_at",
+          "id,name,company_name,city,address,assigned_worker_id,assigned_at,task_notes,consultant_stage,created_at",
         )
         .order("created_at", { ascending: false }),
       supabase.from("profiles").select("id,name,mobile,is_active").order("created_at"),
@@ -429,21 +528,13 @@ export function SitesPanel() {
       c1_name: form.c1_name,
       c1_mobile: form.c1_mobile,
       c1_email: form.c1_email,
-      c2_name: form.c2_name,
-      c2_mobile: form.c2_mobile,
-      c2_email: form.c2_email,
       status: metaStatus,
       status_source: "manager",
-      create_drive_folder: form.create_drive_folder,
-      drive_folder_name: form.name,
-      drive_folder_link: form.create_drive_folder ? form.drive_folder_link : "",
       worker_ids: formWorkers,
       assessor_company: form.assessor_company,
+      assessor_name: form.assessor_name,
       assessor_phone: form.assessor_phone,
-      assessor_city: form.assessor_city,
-      assessor_number: form.assessor_number,
       assessor_email: form.assessor_email,
-      assessor_address: form.assessor_address,
     };
     const taskNotes = serializeSiteMetadata("", meta);
 
@@ -455,8 +546,6 @@ export function SitesPanel() {
       assigned_worker_id: formWorkers[0] || null,
       task_notes: taskNotes,
       consultant_stage: consultantStage,
-      appt_date: form.appt_date || null,
-      appt_time: form.appt_time || null,
     } as never).select("id").single();
 
     if (error) toast.error(error.message);
@@ -498,20 +587,11 @@ export function SitesPanel() {
       c1_name: meta.c1_name,
       c1_mobile: meta.c1_mobile,
       c1_email: meta.c1_email,
-      c2_name: meta.c2_name,
-      c2_mobile: meta.c2_mobile,
-      c2_email: meta.c2_email,
       status: getCanonicalStatus(s, aMap, iMap, cMap, materials),
-      appt_date: s.appt_date ?? "",
-      appt_time: s.appt_time ?? "",
-      create_drive_folder: !!meta.create_drive_folder,
-      drive_folder_link: meta.drive_folder_link ?? "",
       assessor_company: meta.assessor_company ?? "",
+      assessor_name: meta.assessor_name ?? "",
       assessor_phone: meta.assessor_phone ?? "",
-      assessor_city: meta.assessor_city ?? "",
-      assessor_number: meta.assessor_number ?? "",
       assessor_email: meta.assessor_email ?? "",
-      assessor_address: meta.assessor_address ?? "",
     });
   };
 
@@ -574,21 +654,13 @@ export function SitesPanel() {
       c1_name: form.c1_name,
       c1_mobile: form.c1_mobile,
       c1_email: form.c1_email,
-      c2_name: form.c2_name,
-      c2_mobile: form.c2_mobile,
-      c2_email: form.c2_email,
       status: metaStatus,
       status_source: "manager",
-      create_drive_folder: form.create_drive_folder,
-      drive_folder_name: form.name,
-      drive_folder_link: form.create_drive_folder ? form.drive_folder_link : "",
       worker_ids: formWorkers,
       assessor_company: form.assessor_company,
+      assessor_name: form.assessor_name,
       assessor_phone: form.assessor_phone,
-      assessor_city: form.assessor_city,
-      assessor_number: form.assessor_number,
       assessor_email: form.assessor_email,
-      assessor_address: form.assessor_address,
     };
     const taskNotes = serializeSiteMetadata(editingSite.task_notes, meta);
 
@@ -602,8 +674,6 @@ export function SitesPanel() {
         assigned_worker_id: formWorkers[0] || null,
         task_notes: taskNotes,
         consultant_stage: consultantStage,
-        appt_date: form.appt_date || null,
-        appt_time: form.appt_time || null,
       } as never)
       .eq("id", editingSite.id);
 
@@ -647,20 +717,11 @@ export function SitesPanel() {
       c1_name: "",
       c1_mobile: "",
       c1_email: "",
-      c2_name: "",
-      c2_mobile: "",
-      c2_email: "",
       status: "Running",
-      appt_date: "",
-      appt_time: "",
-      create_drive_folder: false,
-      drive_folder_link: "",
       assessor_company: "",
+      assessor_name: "",
       assessor_phone: "",
-      assessor_city: "",
-      assessor_number: "",
       assessor_email: "",
-      assessor_address: "",
     });
   };
 
@@ -673,7 +734,7 @@ export function SitesPanel() {
     };
 
     let address = (site.address || "").trim();
-    let mobile = normalizeMobileForPdf(meta.pdf_to_mobile || meta.c1_mobile || meta.c2_mobile);
+    let mobile = normalizeMobileForPdf(meta.pdf_to_mobile || meta.c1_mobile);
 
     try {
       const [{ data: assessment }, { data: contact }] = await Promise.all([
@@ -966,8 +1027,8 @@ export function SitesPanel() {
   const getCustomListContact = (site: any) => {
     const meta = parseSiteMetadata(site.task_notes);
     return {
-      name: String(meta.c1_name || meta.c2_name || "-").trim(),
-      mobile: String(meta.c1_mobile || meta.c2_mobile || "-").trim(),
+      name: String(meta.c1_name || "-").trim(),
+      mobile: String(meta.c1_mobile || "-").trim(),
     };
   };
 
@@ -1477,18 +1538,39 @@ export function SitesPanel() {
               <h2 className="text-xl uppercase font-bold tracking-tight text-lime">
                 {editingSite ? "Edit Site Details" : "New Site Details"}
               </h2>
-              <button
-                type="button"
-                aria-label="Close site form"
-                title="Close"
-                onClick={() => {
-                  setCreating(false);
-                  setEditingSite(null);
-                }}
-                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[6px] border border-border-bright bg-surface-raised text-text-primary transition-colors hover:border-coral/60 hover:bg-coral-dim hover:text-coral focus:outline-none focus:ring-3 focus:ring-coral/20"
-              >
-                <X size={18} strokeWidth={2.25} />
-              </button>
+              <div className="flex items-center gap-2">
+                {!editingSite && (
+                  <>
+                    <input
+                      ref={emlInputRef}
+                      type="file"
+                      accept=".eml"
+                      className="hidden"
+                      onChange={handleEmlUpload}
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => emlInputRef.current?.click()}
+                      title="Auto-fill this form from an .eml email"
+                    >
+                      <Upload size={16} strokeWidth={1.5} /> Upload .eml
+                    </Button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  aria-label="Close site form"
+                  title="Close"
+                  onClick={() => {
+                    setCreating(false);
+                    setEditingSite(null);
+                  }}
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[6px] border border-border-bright bg-surface-raised text-text-primary transition-colors hover:border-coral/60 hover:bg-coral-dim hover:text-coral focus:outline-none focus:ring-3 focus:ring-coral/20"
+                >
+                  <X size={18} strokeWidth={2.25} />
+                </button>
+              </div>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
               <div>
@@ -1522,42 +1604,9 @@ export function SitesPanel() {
                 />
               </div>
 
-              <div>
-                <Label>Appointment Date</Label>
-                <div className="relative flex items-center">
-                  <Input
-                    type="date"
-                    className="pr-10"
-                    value={form.appt_date}
-                    onChange={(e) => setForm({ ...form, appt_date: e.target.value })}
-                  />
-                  <Calendar
-                    className="absolute right-3 text-text-primary pointer-events-none z-0"
-                    size={16}
-                    strokeWidth={1.5}
-                  />
-                </div>
-              </div>
-              <div>
-                <Label>Appointment Time</Label>
-                <div className="relative flex items-center">
-                  <Input
-                    type="time"
-                    className="pr-10"
-                    value={form.appt_time}
-                    onChange={(e) => setForm({ ...form, appt_time: e.target.value })}
-                  />
-                  <Clock
-                    className="absolute right-3 text-text-primary pointer-events-none z-0"
-                    size={16}
-                    strokeWidth={1.5}
-                  />
-                </div>
-              </div>
-
               <div className="border-t border-border pt-4 md:col-span-2">
                 <h4 className="text-sm font-bold uppercase tracking-wider text-lime mb-3">
-                  Primary Contact
+                  Owner Detail
                 </h4>
                 <div className="grid gap-4 md:grid-cols-3">
                   <div>
@@ -1586,35 +1635,6 @@ export function SitesPanel() {
 
               <div className="border-t border-border pt-4 md:col-span-2">
                 <h4 className="text-sm font-bold uppercase tracking-wider text-lime mb-3">
-                  Secondary Contact
-                </h4>
-                <div className="grid gap-4 md:grid-cols-3">
-                  <div>
-                    <Label>Contact Name</Label>
-                    <Input
-                      value={form.c2_name}
-                      onChange={(e) => setForm({ ...form, c2_name: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <Label>Contact Mobile</Label>
-                    <Input
-                      value={form.c2_mobile}
-                      onChange={(e) => setForm({ ...form, c2_mobile: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <Label>Contact Email</Label>
-                    <Input
-                      value={form.c2_email}
-                      onChange={(e) => setForm({ ...form, c2_email: e.target.value })}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="border-t border-border pt-4 md:col-span-2">
-                <h4 className="text-sm font-bold uppercase tracking-wider text-lime mb-3">
                   Assessor
                 </h4>
                 <div className="grid gap-4 md:grid-cols-2">
@@ -1627,6 +1647,14 @@ export function SitesPanel() {
                     />
                   </div>
                   <div>
+                    <Label>Assessor Name (Person)</Label>
+                    <Input
+                      value={form.assessor_name}
+                      onChange={(e) => setForm({ ...form, assessor_name: e.target.value })}
+                      placeholder="Assessor's name"
+                    />
+                  </div>
+                  <div>
                     <Label>Phone</Label>
                     <Input
                       value={form.assessor_phone}
@@ -1635,35 +1663,11 @@ export function SitesPanel() {
                     />
                   </div>
                   <div>
-                    <Label>City</Label>
-                    <Input
-                      value={form.assessor_city}
-                      onChange={(e) => setForm({ ...form, assessor_city: e.target.value })}
-                      placeholder="City"
-                    />
-                  </div>
-                  <div>
-                    <Label>Contact Number</Label>
-                    <Input
-                      value={form.assessor_number}
-                      onChange={(e) => setForm({ ...form, assessor_number: e.target.value })}
-                      placeholder="Contact number"
-                    />
-                  </div>
-                  <div>
                     <Label>Email</Label>
                     <Input
                       value={form.assessor_email}
                       onChange={(e) => setForm({ ...form, assessor_email: e.target.value })}
                       placeholder="Email address"
-                    />
-                  </div>
-                  <div>
-                    <Label>Address</Label>
-                    <Input
-                      value={form.assessor_address}
-                      onChange={(e) => setForm({ ...form, assessor_address: e.target.value })}
-                      placeholder="Address (optional)"
                     />
                   </div>
                 </div>
@@ -1729,34 +1733,6 @@ export function SitesPanel() {
                     </p>
                   )}
                 </div>
-              </div>
-
-              <div className="border-t border-border pt-4 md:col-span-2 grid gap-4 md:grid-cols-2">
-                <div className="flex items-center gap-2 mt-6">
-                  <input
-                    type="checkbox"
-                    id="create_drive_folder"
-                    checked={form.create_drive_folder}
-                    onChange={(e) => setForm({ ...form, create_drive_folder: e.target.checked })}
-                    className="rounded border-border bg-surface text-lime focus:ring-lime h-4 w-4"
-                  />
-                  <label
-                    htmlFor="create_drive_folder"
-                    className="cursor-pointer text-sm font-medium text-text-primary"
-                  >
-                    Google Drive Link
-                  </label>
-                </div>
-                {form.create_drive_folder && (
-                  <div>
-                    <Label>Google Drive Folder Link</Label>
-                    <Input
-                      placeholder="https://drive.google.com/drive/folders/..."
-                      value={form.drive_folder_link}
-                      onChange={(e) => setForm({ ...form, drive_folder_link: e.target.value })}
-                    />
-                  </div>
-                )}
               </div>
             </div>
             <div className="mt-6 flex justify-end gap-3">
