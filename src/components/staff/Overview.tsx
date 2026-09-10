@@ -1603,17 +1603,19 @@ const exportPdf = async (columns: PdfColumnSelection) => {
       return lines.length;
     };
 
-    const drawAddressFit = (text: string, x: number, y: number, maxWidth: number, maxLines = 3) => {
+    // Keep the complete site address in the Company / Site Details column.
+    // Unlike the other compact fields, addresses must not be shortened in the
+    // manager overview report because they are used as the site reference.
+    const getAddressLines = (text: string, maxWidth: number) => {
       doc.setFont("helvetica", "normal");
-      let size = 5.7;
-      let lines = doc.splitTextToSize(clean(text), maxWidth);
-      while (lines.length > maxLines && size > 4.4) {
-        size -= 0.2;
-        doc.setFontSize(size);
-        lines = doc.splitTextToSize(clean(text), maxWidth);
-      }
-      doc.setFontSize(size);
-      lines.slice(0, maxLines).forEach((line: string, i: number) => doc.text(line, x, y + i * 3.6));
+      doc.setFontSize(5.7);
+      return doc.splitTextToSize(clean(text), maxWidth) as string[];
+    };
+
+    const drawFullAddress = (text: string, x: number, y: number, maxWidth: number) => {
+      const lines = getAddressLines(text, maxWidth);
+      lines.forEach((line, i) => doc.text(line, x, y + i * 3.6));
+      return lines.length;
     };
 
     const pageMarginX = 12;
@@ -1623,7 +1625,7 @@ const exportPdf = async (columns: PdfColumnSelection) => {
     const subheaderHeight = 8;
     const colHeaderHeight = 7;
     const headerHeight = navyBarHeight + accentHeight + subheaderHeight + colHeaderHeight;
-    const rowHeight = 23;
+    const defaultRowHeight = 23;
 
     const activeColumns = PDF_COLUMN_OPTIONS.filter((c) => columns[c.key]);
     const totalWeight = activeColumns.reduce((sum, c) => sum + c.weight, 0) || 1;
@@ -1726,9 +1728,23 @@ const exportPdf = async (columns: PdfColumnSelection) => {
       });
     };
 
-    const drawCompanyRow = (r: SiteRow, displayIndex: number, rowIndex: number, y: number) => {
+    const getRowHeight = (r: SiteRow) => {
+      if (!columns.company) return defaultRowHeight;
+
+      const companyWidth = colW.company! - 4;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7.8);
+      const companyLineCount = Math.min(2, doc.splitTextToSize(clean(r.company_name || r.name), companyWidth).length);
+      const fullAddress = r.address || (r.city && r.city.includes(",") ? r.city : "");
+      if (!fullAddress) return defaultRowHeight;
+
+      const addressLineCount = getAddressLines(fullAddress, companyWidth).length;
+      const addressStart = companyLineCount > 1 ? 17 : 14;
+      return Math.max(defaultRowHeight, Math.ceil(addressStart + addressLineCount * 3.6 + 2));
+    };
+
+    const drawCompanyRow = (r: SiteRow, displayIndex: number, rowIndex: number, y: number, h: number) => {
       const x = pageMarginX;
-      const h = rowHeight;
       const reportStatus = getKpiReportStatus(r, selectedKpi);
       const tone = statusTone(reportStatus);
       const reportProgress = getReportProgress(r);
@@ -1770,7 +1786,7 @@ const exportPdf = async (columns: PdfColumnSelection) => {
         const fullAddress = r.address || (r.city && r.city.includes(",") ? r.city : "");
         if (fullAddress) {
           doc.setTextColor(...muted);
-          drawAddressFit(fullAddress, cx + 2, companyLines > 1 ? y + 17 : y + 14, cw - 4, companyLines > 1 ? 1 : 2);
+          drawFullAddress(fullAddress, cx + 2, companyLines > 1 ? y + 17 : y + 14, cw - 4);
         }
       }
 
@@ -1815,16 +1831,32 @@ const exportPdf = async (columns: PdfColumnSelection) => {
     };
 
     const footerReserve = 14;
-    const rowsPerReportPage = Math.max(1, Math.floor((pageHeight - headerHeight - footerReserve) / rowHeight));
-    const totalReportPages = Math.max(1, Math.ceil(sortedRows.length / rowsPerReportPage));
+    const availableRowsHeight = pageHeight - headerHeight - footerReserve;
+    const reportPages: { row: SiteRow; height: number; displayIndex: number }[][] = [];
+    let currentPage: { row: SiteRow; height: number; displayIndex: number }[] = [];
+    let currentPageHeight = 0;
 
-    let page = 0;
-    for (let offset = 0; offset < sortedRows.length; offset += rowsPerReportPage) {
-      if (page > 0) doc.addPage();
-      page += 1;
+    sortedRows.forEach((row, index) => {
+      const height = getRowHeight(row);
+      if (currentPage.length > 0 && currentPageHeight + height > availableRowsHeight) {
+        reportPages.push(currentPage);
+        currentPage = [];
+        currentPageHeight = 0;
+      }
+      currentPage.push({ row, height, displayIndex: index + 1 });
+      currentPageHeight += height;
+    });
+    if (currentPage.length > 0) reportPages.push(currentPage);
+
+    const totalReportPages = Math.max(1, reportPages.length);
+
+    reportPages.forEach((rows, pageIndex) => {
+      if (pageIndex > 0) doc.addPage();
       drawPageHeader();
-      sortedRows.slice(offset, offset + rowsPerReportPage).forEach((row, index) => {
-        drawCompanyRow(row, offset + index + 1, index, headerHeight + index * rowHeight);
+      let rowY = headerHeight;
+      rows.forEach(({ row, height, displayIndex }, index) => {
+        drawCompanyRow(row, displayIndex, index, rowY, height);
+        rowY += height;
       });
       doc.setDrawColor(...border);
       doc.setLineWidth(0.2);
@@ -1833,8 +1865,8 @@ const exportPdf = async (columns: PdfColumnSelection) => {
       doc.setFontSize(6.8);
       doc.setTextColor(...muted);
       doc.text("Generated by LimelightIT Research Pvt. Ltd.", pageMarginX, pageHeight - 7);
-      doc.text(`Page ${page} of ${totalReportPages}`, pageWidth - pageMarginX, pageHeight - 7, { align: "right" });
-    }
+      doc.text(`Page ${pageIndex + 1} of ${totalReportPages}`, pageWidth - pageMarginX, pageHeight - 7, { align: "right" });
+    });
 
     doc.save(`${kpiLabel.toLowerCase().replace(/\s+/g, "-")}-report-${new Date().toISOString().slice(0, 10)}.pdf`);
     toast.success("PDF report downloaded.");
