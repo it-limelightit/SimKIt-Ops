@@ -333,7 +333,7 @@ export function SitesPanel() {
     const meta = parseSiteMetadata(site.task_notes);
     const stage = (site.consultant_stage || meta.status || "").toLowerCase();
     const cr = cMap.get(site.id);
-    return stage.includes("commissioned") || pctKeys(cr?.data, COMMISSIONING_KEYS) === 100;
+    return stage.includes("commissioned") || !!cr?.data?.commissioning_phase_submitted;
   };
 
   const isSiteAssessment = (site: any) => {

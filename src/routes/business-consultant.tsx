@@ -213,7 +213,7 @@ function BusinessConsultantPage() {
       const submitted = {
         assessment: !!aData?.assessment_phase_submitted || aPctRaw === 100,
         installation: !!iData?.installation_phase_submitted || iPctRaw === 100,
-        commissioning: !!cData?.commissioning_phase_submitted || cPctRaw === 100,
+        commissioning: !!cData?.commissioning_phase_submitted,
       };
       const assessmentPendingReasons = getAssessmentPendingReasons(aData, hasDeviceOrder(s, aData, materials));
 
@@ -497,7 +497,7 @@ function BusinessConsultantPage() {
     const nextSubmitted = new Set<string>();
     if ((site as any).submitted?.assessment || (site as any).aPct === 100) nextSubmitted.add("assessment");
     if ((site as any).submitted?.installation || (site as any).iPct === 100) nextSubmitted.add("installation");
-    if ((site as any).submitted?.commissioning || (site as any).cPct === 100) nextSubmitted.add("commissioning");
+    if ((site as any).submitted?.commissioning) nextSubmitted.add("commissioning");
     setSubmittedPhases(nextSubmitted);
 
     const nextForwardTab =
@@ -875,16 +875,9 @@ function BusinessConsultantPage() {
             <CommissioningTab
               siteId={site.id}
               workerId={userId!}
+              requireApproval
               onSubmit={async () => {
-                const saved = await updateSiteCommissioned();
-                if (saved) {
-                  setSubmittedPhases(prev => new Set([...prev, "commissioning"]));
-                  setProgress(prev => ({ ...prev, commissioning: 100 }));
-                  setSelectedKpi("commissioned");
-                  setView("dashboard");
-                  toast.success("Commissioned successfully.");
-                  void fetchSites();
-                }
+                void fetchSites();
               }}
             />
           )

@@ -4,20 +4,42 @@ import {
   Badge,
   Button,
   Card,
+  Input,
 } from "@/components/ui-kit";
 import { toast } from "sonner";
 import { usePhaseData } from "@/lib/use-phase-data";
 import { advanceSiteVisitStatus } from "@/lib/site-metadata";
 
-type Props = { siteId: string; workerId: string; hiddenSections?: string[]; onSubmit?: () => void | Promise<void> };
+type Props = {
+  siteId: string;
+  workerId: string;
+  hiddenSections?: string[];
+  onSubmit?: () => void | Promise<void>;
+  /** Field-associate submissions require manager approval. */
+  requireApproval?: boolean;
+  viewerEmail?: string | null;
+};
 
-export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit }: Props) {
+export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit, requireApproval = false, viewerEmail }: Props) {
   const { data, patch, save, loaded, lastSaved, saving } = usePhaseData<Record<string, any>>(
     "commissioning",
     siteId,
     workerId,
     {},
   );
+  const [approvalRequest, setApprovalRequest] = useState<{ id: string; drive_link: string; status: string } | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+  const canReview = ["patidarnit21@gmail.com", "info@limelightit.io"].includes((viewerEmail || "").toLowerCase());
+
+  useEffect(() => {
+    if (!canReview) return;
+    void supabase
+      .from("commissioning_approval_requests")
+      .select("id,drive_link,status")
+      .eq("site_id", siteId)
+      .maybeSingle()
+      .then(({ data }) => setApprovalRequest(data));
+  }, [canReview, siteId]);
 
   if (!loaded) return null;
   const nowIso = () => new Date().toISOString();
@@ -31,6 +53,15 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit }:
     !!data.screenshots_uploaded && 
     !!data.certificate_sent && 
     !!data.final_mom_uploaded;
+  const commissioningLabel = requireApproval
+    ? data.commissioning_approval_status === "pending"
+      ? "Approval Pending"
+      : isCommissioned
+        ? "Ready for Approval"
+        : "Pending"
+    : isCommissioned
+      ? "Commissioned"
+      : "Pending";
 
   const buildCommissionedData = (base: Record<string, any> = data) => {
     const submittedAt = nowIso();
@@ -55,6 +86,54 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit }:
       commissioning_phase_submitted: true,
       commissioning_phase_submitted_at: base.commissioning_phase_submitted_at || submittedAt,
     };
+  };
+
+  const isGoogleDriveLink = (value: string) =>
+    /^https?:\/\/(?:drive|docs)\.google\.com\//i.test(value.trim());
+
+  const submitForApproval = async () => {
+    const driveLink = String(data.commissioning_drive_link || "").trim();
+    if (!isGoogleDriveLink(driveLink)) {
+      toast.error("Please enter a valid Google Drive link before submitting.");
+      return;
+    }
+
+    const saved = await save({
+      ...data,
+      commissioning_drive_link: driveLink,
+      commissioning_approval_status: "pending",
+      commissioning_approval_requested_at: nowIso(),
+    });
+    if (!saved) return;
+
+    const { error } = await supabase.rpc("submit_commissioning_approval_request", {
+      _site_id: siteId,
+      _drive_link: driveLink,
+    });
+    if (error) {
+      toast.error(error.message || "Could not submit the approval request.");
+      return;
+    }
+
+    toast.success("Commissioning request sent for manager approval.");
+    if (onSubmit) await onSubmit();
+  };
+
+  const reviewRequest = async (approved: boolean) => {
+    if (!approvalRequest) return;
+    setReviewing(true);
+    const { error } = await supabase.rpc("review_commissioning_approval_request", {
+      _request_id: approvalRequest.id,
+      _approved: approved,
+    });
+    setReviewing(false);
+    if (error) {
+      toast.error(error.message || "Could not review the commissioning request.");
+      return;
+    }
+    setApprovalRequest({ ...approvalRequest, status: approved ? "approved" : "rejected" });
+    toast.success(approved ? "Commissioning approved." : "Commissioning request rejected.");
+    if (onSubmit) await onSubmit();
   };
 
   const handleToggleCommissioned = async (checked: boolean) => {
@@ -109,8 +188,8 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit }:
               Confirm that all commissioning steps have been completed.
             </p>
           </div>
-          <Badge tone={isCommissioned ? "success" : "warning"}>
-            {isCommissioned ? "Commissioned" : "Pending"}
+          <Badge tone={requireApproval && data.commissioning_approval_status === "pending" ? "warning" : isCommissioned ? "success" : "warning"}>
+            {commissioningLabel}
           </Badge>
         </div>
 
@@ -126,7 +205,40 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit }:
             I have commissioned
           </label>
         </div>
+
+        {requireApproval && (
+          <div className="space-y-2">
+            <label htmlFor="commissioning-drive-link" className="text-sm font-semibold text-text-primary">
+              Google Drive Link <span className="text-red-500">*</span>
+            </label>
+            <Input
+              id="commissioning-drive-link"
+              type="url"
+              placeholder="https://drive.google.com/..."
+              value={data.commissioning_drive_link || ""}
+              onChange={(event) => patch({ commissioning_drive_link: event.target.value })}
+            />
+            <p className="text-xs text-text-secondary">
+              Your commissioning will stay at its current status until an approved manager confirms this request.
+            </p>
+          </div>
+        )}
       </Card>
+
+      {canReview && approvalRequest?.status === "pending" && (
+        <Card className="mt-4 border-amber-400/40 p-5 space-y-3">
+          <div>
+            <h4 className="font-bold text-text-primary">Commissioning approval requested</h4>
+            <a className="text-sm text-lime underline break-all" href={approvalRequest.drive_link} target="_blank" rel="noreferrer">
+              View submitted Google Drive link
+            </a>
+          </div>
+          <div className="flex gap-3">
+            <Button disabled={reviewing} onClick={() => void reviewRequest(true)}>Approve commissioning</Button>
+            <Button disabled={reviewing} variant="secondary" onClick={() => void reviewRequest(false)}>Reject request</Button>
+          </div>
+        </Card>
+      )}
 
       <div className="mt-8 flex justify-end">
         <Button 
@@ -135,13 +247,17 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit }:
               toast.error("Please confirm commissioning before submitting.");
               return;
             }
+            if (requireApproval) {
+              await submitForApproval();
+              return;
+            }
             const saved = await save(buildCommissionedData());
             if (!saved) return;
             if (onSubmit) await onSubmit();
           }} 
           className="w-full sm:w-auto text-base py-3 px-8"
         >
-          Submit Commissioning Phase
+          {requireApproval ? "Request Commissioning Approval" : "Submit Commissioning Phase"}
         </Button>
       </div>
     </>
