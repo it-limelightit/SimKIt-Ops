@@ -86,9 +86,16 @@ $$;
 CREATE OR REPLACE FUNCTION public.prevent_unapproved_commissioning_submission()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
-  IF NEW.data->>'commissioning_phase_submitted' = 'true'
-     AND COALESCE(OLD.data->>'commissioning_phase_submitted', 'false') <> 'true'
-     AND NOT public.is_staff(auth.uid())
+  -- OLD is unavailable on INSERT, so only inspect it for an UPDATE.
+  IF COALESCE(NEW.data->>'commissioning_phase_submitted', 'false') <> 'true' THEN
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'UPDATE' AND COALESCE(OLD.data->>'commissioning_phase_submitted', 'false') = 'true' THEN
+    RETURN NEW;
+  END IF;
+
+  IF NOT public.is_staff(auth.uid())
      AND NOT public.is_commissioning_approver()
      AND NOT EXISTS (
        SELECT 1 FROM public.commissioning_approval_requests

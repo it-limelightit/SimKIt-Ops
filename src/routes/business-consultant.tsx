@@ -932,9 +932,11 @@ function ConsultantDashboard({
   const countAssessed = sites.filter(s => s.derivedStatus === "Assessed").length;
   const countDeviceOrder = sites.filter(s => s.derivedStatus === "Panel Dispatched" || s.derivedStatus === "Device Order").length;
   const countInstalled = sites.filter(s => s.derivedStatus === "Installed").length;
-  // Commissioned is a completed milestone and remains counted when the manager
-  // later moves the assignment to Certification Pending or Submitted.
-  const countCommissioned = sites.filter(s => s.submitted?.commissioning).length;
+  // Commissioned also includes the final Submitted / Certification Pending
+  // lifecycle states, but never a site that is still Installed.
+  const isCommissionedLifecycle = (site: (typeof sites)[number]) =>
+    ["Commissioned", "Submitted", "Certification Pending"].includes(site.derivedStatus);
+  const countCommissioned = sites.filter(isCommissionedLifecycle).length;
   const countSubmitted = sites.filter(s => s.derivedStatus === "Submitted").length;
   const countCertification = sites.filter(s => s.derivedStatus === "Certification Pending").length;
   const countUnsubmitted = sites.filter(s => s.derivedStatus === "Unsubmitted").length;
@@ -1050,7 +1052,7 @@ function ConsultantDashboard({
       return s.derivedStatus === "Installed";
     }
     if (selectedKpi === "commissioned") {
-      return !!s.submitted?.commissioning;
+      return isCommissionedLifecycle(s);
     }
     if (selectedKpi === "submitted") {
       return s.derivedStatus === "Submitted";
