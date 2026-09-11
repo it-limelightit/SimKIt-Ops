@@ -639,6 +639,56 @@ export function FactoryDataPanel() {
     }
   };
 
+  const saveTechnicianPassword = async (siteId: string, technicianIndex: number, passwordOverride?: string) => {
+    const assessment = assessments.find((a) => a.site_id === siteId);
+    if (!assessment) return;
+
+    const technicians = Array.isArray(assessment.data?.factory_op_technicians) ? [...assessment.data.factory_op_technicians] : [];
+    const technician = technicians[technicianIndex];
+    if (!technician) {
+      toast.error("Technician details are missing. Add and save the technician first.");
+      return;
+    }
+
+    const key = `technician:${siteId}:${technicianIndex}`;
+    const nextPassword = passwordOverride ?? passwordDrafts[key] ?? (typeof technician.password === "string" ? technician.password : "");
+    setSavingOwnerPasswordKey(key);
+
+    technicians[technicianIndex] = { ...technician, password: nextPassword };
+    const nextData = {
+      ...assessment.data,
+      factory_op_technicians: technicians,
+    };
+    const updatedAt = new Date().toISOString();
+
+    const { error } = await supabase
+      .from("assessment")
+      .update({
+        data: nextData,
+        updated_at: updatedAt,
+      } as never)
+      .eq("site_id", siteId);
+
+    setSavingOwnerPasswordKey(null);
+
+    if (error) {
+      toast.error("Could not save technician password: " + error.message);
+      return;
+    }
+
+    setAssessments(prev => prev.map((a) => (a.site_id === siteId ? { ...a, data: nextData, updated_at: updatedAt } : a)));
+    setPasswordDrafts(prev => ({ ...prev, [key]: nextPassword }));
+    toast.success(nextPassword.trim() ? "Technician password saved." : "Technician password cleared.");
+
+    if (nextPassword.trim()) {
+      setCredentialDialog({
+        ownerName: technician.name || "Technician",
+        email: technician.email || "",
+        password: nextPassword,
+      });
+    }
+  };
+
   const saveNewOwnerWithPassword = async (siteId: string) => {
     const assessment = assessments.find((a) => a.site_id === siteId);
     if (!assessment) return;
@@ -1163,10 +1213,10 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
         <DialogContent className="border-border bg-surface text-text-primary sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="font-syne uppercase tracking-tight">
-              Owner Login Credentials
+              Login Credentials
             </DialogTitle>
             <DialogDescription className="text-text-secondary">
-              Copy this message and share it with the owner.
+              Copy this message and share it with the team member.
             </DialogDescription>
           </DialogHeader>
 
@@ -1827,7 +1877,7 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                           
                           <div className="space-y-3">
                             {(editData.factory_op_technicians || []).map((t: any, idx: number) => (
-                              <div key={idx} className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end border-b border-border/20 pb-3 last:border-0 last:pb-0">
+                              <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end border-b border-border/20 pb-3 last:border-0 last:pb-0">
                                 <div>
                                   <Label className="text-[10px]">Technician Name</Label>
                                   <Input
@@ -1865,6 +1915,29 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                                       className="h-8 text-xs"
                                     />
                                   </div>
+                                </div>
+                                <div className="flex items-end gap-2">
+                                  <div className="flex-1 min-w-0">
+                                    <Label className="text-[10px]">Password</Label>
+                                    <Input
+                                      type="text"
+                                      value={t.password || ""}
+                                      onChange={(e) => {
+                                        const technicians = [...editData.factory_op_technicians];
+                                        technicians[idx] = { ...technicians[idx], password: e.target.value };
+                                        setEditData({ ...editData, factory_op_technicians: technicians });
+                                      }}
+                                      placeholder="Enter password"
+                                      className="h-8 text-xs font-mono"
+                                    />
+                                  </div>
+                                  <Button
+                                    className="h-8 py-1 px-2.5 text-xs bg-lime text-black hover:bg-lime/90"
+                                    disabled={savingOwnerPasswordKey === `technician:${selectedSiteId}:${idx}`}
+                                    onClick={() => saveTechnicianPassword(selectedSiteId, idx, t.password || "")}
+                                  >
+                                    <Save size={12} />
+                                  </Button>
                                   <Button
                                     variant="danger"
                                     className="h-8 py-1 px-2.5 text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20"
@@ -2434,9 +2507,13 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
 
                       <div className="bg-surface/50 border border-border/70 p-4 rounded-xl space-y-3 shadow-sm">
                         <div className="space-y-2.5 max-h-[220px] overflow-y-auto pr-1">
-                          {(selectedAssessment.data.factory_op_technicians ?? []).map((t: any, idx: number) => (
-                            <div key={idx} className="text-xs border-b border-border/30 pb-2.5 last:border-0 last:pb-0 flex items-center justify-between gap-2">
-                              <div>
+                          {(selectedAssessment.data.factory_op_technicians ?? []).map((t: any, idx: number) => {
+                            const passwordKey = `technician:${selectedSite.id}:${idx}`;
+                            const technicianPassword = typeof t.password === "string" ? t.password : "";
+
+                            return (
+                            <div key={idx} className="text-xs border-b border-border/30 pb-2.5 last:border-0 last:pb-0 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                              <div className="min-w-0">
                                 <p className="font-bold text-text-primary text-xs">{t.name || "Unnamed Tech"}</p>
                                 <div className="flex flex-wrap items-center gap-3 mt-1 text-[11px]">
                                   {t.contact && (
@@ -2451,15 +2528,47 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                                   )}
                                 </div>
                               </div>
-                              <button
-                                onClick={() => copyToClipboard(`${t.name} | ${t.contact || "No Phone"} | ${t.email || "No Email"}`, "Technician Details")}
-                                className="text-text-dim hover:text-lime p-1 rounded cursor-pointer shrink-0"
-                                title="Copy Technician Details"
-                              >
-                                <Copy size={13} />
-                              </button>
+                              <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                                <Input
+                                  type="text"
+                                  value={passwordDrafts[passwordKey] ?? technicianPassword}
+                                  onChange={(e) => setPasswordDrafts(prev => ({ ...prev, [passwordKey]: e.target.value }))}
+                                  placeholder="Enter password"
+                                  className="h-8 w-44 text-xs font-mono"
+                                />
+                                <Button
+                                  onClick={() => saveTechnicianPassword(selectedSite.id, idx)}
+                                  disabled={savingOwnerPasswordKey === passwordKey}
+                                  className="h-8 py-1 px-3 text-xs bg-lime text-black hover:bg-lime/90 flex items-center gap-1 font-bold cursor-pointer"
+                                >
+                                  <Save size={12} />
+                                  {savingOwnerPasswordKey === passwordKey ? "Saving" : "Save Password"}
+                                </Button>
+                                {technicianPassword.trim() && (
+                                  <Button
+                                    variant="secondary"
+                                    className="h-8 py-1 px-3 text-xs flex items-center gap-1 cursor-pointer"
+                                    onClick={() => setCredentialDialog({
+                                      ownerName: t.name || "Technician",
+                                      email: t.email || "",
+                                      password: technicianPassword,
+                                    })}
+                                  >
+                                    <KeyRound size={12} />
+                                    Show Message
+                                  </Button>
+                                )}
+                                <button
+                                  onClick={() => copyToClipboard(`${t.name} | ${t.contact || "No Phone"} | ${t.email || "No Email"}`, "Technician Details")}
+                                  className="text-text-dim hover:text-lime p-1 rounded cursor-pointer shrink-0"
+                                  title="Copy Technician Details"
+                                >
+                                  <Copy size={13} />
+                                </button>
+                              </div>
                             </div>
-                          ))}
+                            );
+                          })}
                           {(!selectedAssessment.data.factory_op_technicians || selectedAssessment.data.factory_op_technicians.length === 0) && (
                             <p className="text-xs text-text-dim italic">No technician details recorded</p>
                           )}
