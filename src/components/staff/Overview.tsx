@@ -3102,7 +3102,7 @@ return (
                         <Button onClick={() => setModalTab("installation")}>Go to Installation</Button>
                       </Card>
                     ) : (
-                      <CommissioningTab siteId={modalSite.id} workerId={userId!} viewerEmail={email} onSubmit={() => { loadData(); }} />
+                      <CommissioningTab siteId={modalSite.id} workerId={userId!} requireApproval viewerEmail={email} onSubmit={() => { loadData(); }} />
                     )
                   )}
 

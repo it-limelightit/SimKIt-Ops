@@ -400,7 +400,16 @@ export function ReportsPanel() {
       fromStatus: log.from_value || actionLabel(log.action),
       toStatus: log.to_value || actionLabel(log.action),
       changedAt: log.created_at,
-    }));
+    })).filter((row) => {
+      // Site edits are logged even when the lifecycle status did not change
+      // (for example, Pending Assessment -> Pending Assessment). They are
+      // not transitions and make the activity history look as if a worker
+      // repeatedly moved a site backwards.
+      if (row.activityType !== "status_change" && row.activityType !== "update") return true;
+      const from = displayStatusLabel(row.fromStatus).trim().toLowerCase();
+      const to = displayStatusLabel(row.toStatus).trim().toLowerCase();
+      return !from || !to || from !== to;
+    });
     const auditKeys = new Set(
       auditRows.map((row) => `${row.activityType}:${row.siteId}:${row.fromStatus}:${row.toStatus}`),
     );
@@ -421,12 +430,14 @@ export function ReportsPanel() {
     ): ActivityRow | null => {
       const site = siteById.get(row.site_id);
       if (!site) return null;
+      // `updated_at` is not an event timestamp. A later edit to an already
+      // submitted form must not create a new lifecycle transition (and must
+      // not appear after Commissioned). Only use the immutable submission
+      // timestamps recorded by the phase forms.
       const changedAt =
         (phase === "assessment" && row.data?.factory_form_submitted_at) ||
         (phase === "installation" && row.data?.installation_phase_submitted_at) ||
-        (phase === "commissioning" && row.data?.commissioning_phase_submitted_at) ||
-        row.updated_at ||
-        site.created_at;
+        (phase === "commissioning" && row.data?.commissioning_phase_submitted_at);
       if (!hasValidDate(changedAt)) return null;
       if (hasLoggedStatus(site.id, toStatus, changedAt)) return null;
       return {
