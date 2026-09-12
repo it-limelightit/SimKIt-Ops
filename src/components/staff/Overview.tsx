@@ -229,8 +229,8 @@ export function Overview() {
       rawMaterials,
     );
     let assessmentProgress = pctKeys(aData, ASSESSMENT_KEYS);
-    let installationProgress = pctKeys(iData, INSTALLATION_KEYS);
-    let commissioningProgress = pctKeys(cData, COMMISSIONING_KEYS);
+    let installationProgress = iData?.installation_phase_submitted ? 100 : pctKeys(iData, INSTALLATION_KEYS);
+    let commissioningProgress = cData?.commissioning_phase_submitted ? 100 : pctKeys(cData, COMMISSIONING_KEYS);
 
     const displayProgress = getDisplayPhaseProgress(canonicalStatus, {
       a: assessmentProgress,
@@ -364,15 +364,9 @@ export function Overview() {
 
   const completeAssessmentAfterDeviceOrder = async (site: any) => {
     if (!site || !userId) return;
-    const companyName = site.company_name || site.name;
-    const { data: order, error: orderError } = await supabase
-      .from("inventory_materials")
-      .select("id")
-      .eq("submitted", true)
-      .eq("material_name", companyName)
-      .maybeSingle();
+    const order = getSubmittedLogisticsOrder(site, rawMaterials);
 
-    if (orderError || !order) {
+    if (!order) {
       toast.error("Please submit the device order before completing Assessment.");
       return;
     }
@@ -724,6 +718,12 @@ export function Overview() {
       return;
     }
     toast.success(approved ? "Commissioning approved." : "Commissioning request rejected.");
+    const request = rawCommissioningApprovalRequests.find((item) => item.id === requestId);
+    const site = rawSites.find((item) => item.id === request?.site_id);
+    if (approved && site) {
+      await updateSiteStatus(site.id, "Commissioned", site.task_notes, undefined, getSiteWorkerIds(site));
+      return;
+    }
     await loadData();
   };
 
@@ -791,8 +791,8 @@ const allProcessedRows: SiteRow[] = rawSites.map((site) => {
   const isFullyDone = site.consultant_stage === "Completion" || site.consultant_stage === "Billing";
 
   let aP = isFullyDone ? 100 : pctKeys(ar?.data, ASSESSMENT_KEYS);
-  let iP = isFullyDone ? 100 : pctKeys(ir?.data, INSTALLATION_KEYS);
-  let cP = isFullyDone ? 100 : pctKeys(cr?.data, COMMISSIONING_KEYS);
+  let iP = isFullyDone || ir?.data?.installation_phase_submitted ? 100 : pctKeys(ir?.data, INSTALLATION_KEYS);
+  let cP = isFullyDone || cr?.data?.commissioning_phase_submitted ? 100 : pctKeys(cr?.data, COMMISSIONING_KEYS);
   const phaseUpdated =
     [ar?.updated_at, ir?.updated_at, cr?.updated_at, site.assigned_at]
       .filter(Boolean)
@@ -3060,9 +3060,7 @@ return (
                         siteId={modalSite.id}
                         workerId={userId!}
                         requireDeviceOrderCompletion
-                        onSubmit={() => {
-                          void completeAssessmentAfterDeviceOrder(modalSite);
-                        }}
+                        onSubmit={() => completeAssessmentAfterDeviceOrder(modalSite)}
                       >
                         <OrderTab
                           site={{ id: modalSite.id, name: modalSite.name, company_name: modalSite.company_name, city: modalSite.city, address: modalSite.address }}
@@ -3085,7 +3083,17 @@ return (
                         <Button onClick={() => setModalTab("assessment")}>Go to Assessment</Button>
                       </Card>
                     ) : (
-                      <InstallationTab siteId={modalSite.id} workerId={userId!} onSubmit={() => { loadData(); }} />
+                      <InstallationTab
+                        siteId={modalSite.id}
+                        workerId={userId!}
+                        onSubmit={() => updateSiteStatus(
+                          modalSite.id,
+                          "Installed",
+                          modalSite.task_notes,
+                          undefined,
+                          getSiteWorkerIds(modalSite),
+                        )}
+                      />
                     )
                   )}
 
@@ -3102,7 +3110,20 @@ return (
                         <Button onClick={() => setModalTab("installation")}>Go to Installation</Button>
                       </Card>
                     ) : (
-                      <CommissioningTab siteId={modalSite.id} workerId={userId!} requireApproval viewerEmail={email} onSubmit={() => { loadData(); }} />
+                      <CommissioningTab
+                        siteId={modalSite.id}
+                        workerId={userId!}
+                        requireApproval
+                        viewerEmail={email}
+                        onCommissioned={() => updateSiteStatus(
+                          modalSite.id,
+                          "Commissioned",
+                          modalSite.task_notes,
+                          undefined,
+                          getSiteWorkerIds(modalSite),
+                        )}
+                        onSubmit={() => loadData()}
+                      />
                     )
                   )}
 

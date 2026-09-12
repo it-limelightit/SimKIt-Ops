@@ -57,6 +57,7 @@ type ActivityRow = {
   factoryName: string;
   city: string;
   userName: string;
+  entityType?: string;
   fromStatus: string;
   toStatus: string;
   changedAt: string;
@@ -96,7 +97,7 @@ const isPendingStatus = (status: string) =>
 const isAwaitingStatus = (status: string) => status === "Certification Pending";
 
 function displayStatusLabel(status: string) {
-  return status === "Pending Assignment" || status === "Not Started Yet" ? "Pending Assessment" : status;
+  return status === "Not Started Yet" ? "Pending Assessment" : status;
 }
 
 function statusStyle(status: string) {
@@ -116,6 +117,27 @@ function actionLabel(action: ActivityRow["activityType"]) {
   if (action === "status_change") return "Status Changed";
   if (action === "logistics_update") return "Logistics Updated";
   return action.charAt(0).toUpperCase() + action.slice(1);
+}
+
+function isLogisticsActivity(row: ActivityRow) {
+  return row.activityType === "logistics_update" || row.entityType === "logistics_order";
+}
+
+function activityValueLabel(row: ActivityRow, value: string) {
+  const label = displayStatusLabel(value);
+  if (!isLogisticsActivity(row)) return label;
+  if (label === "Pending") return "Device Order Pending";
+  if (label === "Deleted") return "Device Order Deleted";
+  return `Logistics: ${label}`;
+}
+
+function activitySourceLabel(row: ActivityRow) {
+  if (row.activityType === "login") return "Login";
+  if (row.activityType === "status_change") return `Status: ${activityValueLabel(row, row.fromStatus)}`;
+  if (row.activityType === "logistics_update") return `Logistics: ${activityValueLabel(row, row.fromStatus)}`;
+  if (row.activityType === "create" && isLogisticsActivity(row)) return "Device Order Created";
+  if (row.activityType === "delete" && isLogisticsActivity(row)) return "Device Order Deleted";
+  return actionLabel(row.activityType);
 }
 
 function groupReportRows(rows: FactoryRow[], key: (row: FactoryRow) => string) {
@@ -384,6 +406,7 @@ export function ReportsPanel() {
             factoryName: site.name,
             city: site.city || "—",
             userName: String(log.user_name || "Unknown User"),
+            entityType: "site",
             fromStatus: String(log.from_status || "—"),
             toStatus: String(log.to_status || "—"),
             changedAt: String(log.at || site.created_at),
@@ -397,6 +420,7 @@ export function ReportsPanel() {
       factoryName: log.factory_name || log.entity_name || log.entity_type,
       city: "—",
       userName: log.actor_name || "Unknown User",
+      entityType: log.entity_type,
       fromStatus: log.from_value || actionLabel(log.action),
       toStatus: log.to_value || actionLabel(log.action),
       changedAt: log.created_at,
@@ -1226,11 +1250,11 @@ function ActivityLogView({
                     </div>
                   </td>
                   <td className="px-5 py-3 font-mono text-[11px] font-bold uppercase tracking-wider text-text-secondary">
-                    {row.activityType === "login" ? "Login" : displayStatusLabel(row.fromStatus)}
+                    {activitySourceLabel(row)}
                   </td>
                   <td className="px-5 py-3">
-                    <span className={`inline-flex rounded-[5px] border px-2.5 py-1 font-mono text-[9px] font-bold uppercase tracking-wider ${statusStyle(displayStatusLabel(row.toStatus))}`}>
-                      {displayStatusLabel(row.toStatus)}
+                    <span className={`inline-flex rounded-[5px] border px-2.5 py-1 font-mono text-[9px] font-bold uppercase tracking-wider ${statusStyle(row.toStatus)}`}>
+                      {activityValueLabel(row, row.toStatus)}
                     </span>
                   </td>
                 </tr>
