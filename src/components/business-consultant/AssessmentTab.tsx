@@ -360,6 +360,14 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit, requ
               return;
             }
 
+            if (shouldShow("Factory Operations")) {
+              const check = validateFactoryOperationsForm(data);
+              if (!check.isValid) {
+                toast.error(check.errorMsg || "Mandatory fields missing in Factory Operations Form.");
+                return;
+              }
+            }
+
             if (onSubmit) onSubmit();
             if (requireDeviceOrderCompletion) return;
 
@@ -621,6 +629,8 @@ function checkShiftOverlap(shifts: any[]): boolean {
 }
 
 export function validateFactoryOperationsForm(data: Record<string, any>): { isValid: boolean; errorMsg?: string; invalidSection?: string } {
+  const isBlank = (value: unknown) => typeof value !== "string" || !value.trim();
+
   // 1. Factory Name
   if (!data.factory_op_name || !data.factory_op_name.trim()) {
     return { isValid: false, errorMsg: "Official Factory Name is required.", invalidSection: "company" };
@@ -644,18 +654,35 @@ export function validateFactoryOperationsForm(data: Record<string, any>): { isVa
   }
   for (let i = 0; i < owners.length; i++) {
     const o = owners[i];
-    if (!o.name || !o.name.trim()) {
+    if (isBlank(o?.name)) {
       return { isValid: false, errorMsg: `Owner #${i + 1} Name is required.`, invalidSection: "owners" };
     }
-    if (!o.contact || !o.contact.trim()) {
+    if (isBlank(o?.contact)) {
       return { isValid: false, errorMsg: `Owner #${i + 1} Mobile Contact is required.`, invalidSection: "owners" };
     }
-    if (!o.email || !o.email.trim()) {
+    if (isBlank(o?.email)) {
       return { isValid: false, errorMsg: `Owner #${i + 1} Email Address is required.`, invalidSection: "owners" };
     }
   }
 
-  // 5. Shift Panel (all fields name, startTime, endTime, and no overlap)
+  // 5. Technicians are optional, but every added technician must be complete.
+  const technicians = data.factory_op_technicians ?? [];
+  for (let i = 0; i < technicians.length; i++) {
+    const technician = technicians[i];
+    const hasAnyDetail = [technician?.name, technician?.contact, technician?.email].some((value) => !isBlank(value));
+    if (!hasAnyDetail) continue;
+    if (isBlank(technician?.name)) {
+      return { isValid: false, errorMsg: `Technician #${i + 1} Name is required.`, invalidSection: "technicians" };
+    }
+    if (isBlank(technician?.contact)) {
+      return { isValid: false, errorMsg: `Technician #${i + 1} Mobile Contact is required.`, invalidSection: "technicians" };
+    }
+    if (isBlank(technician?.email)) {
+      return { isValid: false, errorMsg: `Technician #${i + 1} Email Address is required.`, invalidSection: "technicians" };
+    }
+  }
+
+  // 6. Shift Panel (all fields name, startTime, endTime, and no overlap)
   const shifts = data.factory_op_shifts ?? [];
   if (!shifts.length) {
     return { isValid: false, errorMsg: "At least one Shift timing entry is required.", invalidSection: "shifts" };
@@ -679,7 +706,7 @@ export function validateFactoryOperationsForm(data: Record<string, any>): { isVa
     return { isValid: false, errorMsg: "Shift timings overlap. Please adjust start/end times.", invalidSection: "shifts" };
   }
 
-  // 6. Electricity Board
+  // 7. Electricity Board
   if (!data.factory_op_electricity_board || !data.factory_op_electricity_board.trim()) {
     return { isValid: false, errorMsg: "Electricity Board Selection is required.", invalidSection: "electricity" };
   }
@@ -1140,6 +1167,7 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
               <h4 className="font-syne text-xs font-bold uppercase tracking-wider text-text-primary">
                 Technicians & Engineering Team
               </h4>
+              <p className="text-[10px] text-text-dim mt-1">If you add any technician detail, name, mobile, and email are all required.</p>
             </div>
             <Button
               type="button"
