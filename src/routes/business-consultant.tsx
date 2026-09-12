@@ -12,7 +12,7 @@ import { parseSiteMetadata, recordStatusActivityLog, serializeSiteMetadata } fro
 import { toast } from "sonner";
 import { InventoryPanel } from "@/components/inventory/InventoryPanel";
 import { OrderTab } from "@/components/business-consultant/OrderTab";
-import { getCanonicalStatus, getAssessmentPendingReasons, getDisplayPhaseProgress, hasDeviceOrder } from "@/utils/status";
+import { getCanonicalStatus, getAssessmentPendingReasons, getDisplayPhaseProgress, getSubmittedLogisticsOrder, hasDeviceOrder } from "@/utils/status";
 import { notifyAfterNewFactoryFormSubmission } from "@/lib/factory-form-notification";
 
 export const Route = createFileRoute("/business-consultant")({
@@ -428,13 +428,11 @@ function BusinessConsultantPage() {
 
   const completeAssessmentAfterDeviceOrder = async () => {
     if (!site || !userId) return;
-    const companyName = site.company_name || site.name;
-    const { data: order, error: orderError } = await supabase
+    const { data: orders, error: orderError } = await supabase
       .from("inventory_materials")
-      .select("id")
-      .eq("submitted", true)
-      .eq("material_name", companyName)
-      .maybeSingle();
+      .select("material_name,submitted")
+      .eq("submitted", true);
+    const order = getSubmittedLogisticsOrder(site, orders ?? []);
 
     if (orderError || !order) {
       toast.error("Please submit the device order before completing Assessment.");
@@ -798,9 +796,7 @@ function BusinessConsultantPage() {
               siteId={site.id}
               workerId={userId!}
               requireDeviceOrderCompletion
-              onSubmit={() => {
-                void completeAssessmentAfterDeviceOrder();
-              }}
+              onSubmit={completeAssessmentAfterDeviceOrder}
             >
               <OrderTab site={site} workerId={userId!} />
             </AssessmentTab>
@@ -851,9 +847,8 @@ function BusinessConsultantPage() {
               siteId={site.id}
               workerId={userId!}
               requireApproval
-              onSubmit={async () => {
-                void fetchSites();
-              }}
+              onCommissioned={updateSiteCommissioned}
+              onSubmit={fetchSites}
             />
           )
         )}

@@ -26,7 +26,7 @@ type Props = {
   siteId: string;
   workerId: string;
   hiddenSections?: string[];
-  onSubmit?: () => void;
+  onSubmit?: () => void | Promise<void>;
   requireDeviceOrderCompletion?: boolean;
   children?: React.ReactNode;
 };
@@ -368,7 +368,7 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit, requ
               }
             }
 
-            if (onSubmit) onSubmit();
+            if (onSubmit) await onSubmit();
             if (requireDeviceOrderCompletion) return;
 
             const nextData = {

@@ -15,12 +15,13 @@ type Props = {
   workerId: string;
   hiddenSections?: string[];
   onSubmit?: () => void | Promise<void>;
+  onCommissioned?: () => void | Promise<void>;
   /** Field-associate submissions require manager approval. */
   requireApproval?: boolean;
   viewerEmail?: string | null;
 };
 
-export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit, requireApproval = false, viewerEmail }: Props) {
+export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit, onCommissioned, requireApproval = false, viewerEmail }: Props) {
   const { data, patch, save, loaded, lastSaved, saving } = usePhaseData<Record<string, any>>(
     "commissioning",
     siteId,
@@ -57,7 +58,6 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit, r
     };
   }, [canReview, requireApproval, siteId]);
 
-  if (!loaded) return null;
   const nowIso = () => new Date().toISOString();
 
   const isCommissioned = 
@@ -111,6 +111,24 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit, r
     };
   };
 
+  // Older approval requests can be approved before their commissioning row has
+  // been created or its final marker has saved. Repair that record when it is
+  // opened so the approved state and the phase progress stay in sync.
+  useEffect(() => {
+    if (!loaded || !isApprovalApproved || data.commissioning_phase_submitted) return;
+    let active = true;
+
+    void save(buildCommissionedData()).then(async (saved) => {
+      if (active && saved && onSubmit) await onSubmit();
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [loaded, isApprovalApproved, data.commissioning_phase_submitted, save, siteId]);
+
+  if (!loaded) return null;
+
   const isGoogleDriveLink = (value: string) =>
     /^https?:\/\/(?:drive|docs)\.google\.com\//i.test(value.trim());
 
@@ -162,6 +180,7 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit, r
     }
     setApprovalRequest({ ...approvalRequest, status: approved ? "approved" : "rejected" });
     toast.success(approved ? "Commissioning approved." : "Commissioning request rejected.");
+    if (approved && onCommissioned) await onCommissioned();
     if (onSubmit) await onSubmit();
   };
 
@@ -292,6 +311,7 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit, r
             }
             const saved = await save(buildCommissionedData());
             if (!saved) return;
+            if (onCommissioned) await onCommissioned();
             if (onSubmit) await onSubmit();
           }} 
           className="w-full sm:w-auto text-base py-3 px-8"
