@@ -175,16 +175,15 @@ export function getCanonicalStatus(
     return "Dropped / Rejected";
   }
 
-  // 2. Manual manager/associate status must win over older phase rows, except
-  // that a final commissioning approval outranks stale lower statuses such as
-  // Installed. This prevents a site appearing in both dashboard groups.
+  // 2. A newer manual manager/associate status must win over historical phase
+  // rows. The manager uses this as the explicit lifecycle override, including
+  // when correcting an already-submitted commissioning record.
   const latestStatusLog = Array.isArray(meta.activity_logs)
     ? meta.activity_logs.find((log) => log?.type === "status_change")
     : null;
   const isLegacyManualOverride = !!meta.status && latestStatusLog?.to_status === meta.status;
 
-  const isLowerThanCommissioned = ["In Assessment", "Assessed", "Panel Dispatched", "Installed"].includes(meta.status);
-  if ((meta.status_source === "manager" || meta.status_source === "associate" || isLegacyManualOverride) && meta.status && !(isCommissioningSubmitted && isLowerThanCommissioned)) {
+  if ((meta.status_source === "manager" || meta.status_source === "associate" || isLegacyManualOverride) && meta.status) {
     if (meta.status === "In Assessment") return "Assessed";
     return meta.status;
   }
