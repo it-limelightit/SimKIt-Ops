@@ -44,6 +44,7 @@ const DEFAULT_SENDER = {
 
 type PdfAddressDraft = {
   site?: any;
+  deviceOrder?: any;
   toName: string;
   toAddress: string;
   toMobile: string;
@@ -735,12 +736,16 @@ export function SitesPanel() {
 
     let address = (site.address || "").trim();
     let mobile = normalizeMobileForPdf(meta.pdf_to_mobile || meta.c1_mobile);
+    let deviceOrder: any;
 
     try {
-      const [{ data: assessment }, { data: contact }] = await Promise.all([
+      const companyNames = [site.company_name, site.name].filter(Boolean);
+      const [{ data: assessment }, { data: contact }, { data: fetchedDeviceOrder }] = await Promise.all([
         supabase.from("assessment").select("data").eq("site_id", site.id).limit(1).maybeSingle(),
         supabase.from("contacts").select("mobile").eq("site_id", site.id).limit(1).maybeSingle(),
+        supabase.from("inventory_materials").select("*").in("material_name", companyNames).limit(1).maybeSingle(),
       ]);
+      deviceOrder = fetchedDeviceOrder;
 
       const aData: any = assessment?.data || {};
       if (!address) {
@@ -764,6 +769,7 @@ export function SitesPanel() {
 
     setPdfDraft({
       site,
+      deviceOrder,
       toName: meta.pdf_to_name || site.company_name || site.name || "",
       toAddress: address || site.city || "",
       toMobile: mobile || "N/A",
@@ -873,6 +879,139 @@ export function SitesPanel() {
 
   const downloadSiteAddressPdf = async (draft: PdfAddressDraft) => {
     const [{ jsPDF }] = await Promise.all([import("jspdf")]);
+
+    // Site-row labels use the same landscape courier-label layout as Logistics.
+    if (draft.site) {
+      const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+      const startX = 12;
+      const width = 132;
+      const cardHeight = 150;
+      const lineSpacing = 7;
+      const toAddressLines = doc.splitTextToSize(draft.toAddress.trim() || "Address not specified", width - 14);
+      const fromAddressLines = doc.splitTextToSize(draft.fromAddress.trim() || "Address not specified", width - 14);
+      const maxAddressLines = Math.max(toAddressLines.length, fromAddressLines.length);
+      const compact = maxAddressLines > 5;
+      const titleSize = compact ? 14 : 16;
+      const headerSize = compact ? 9 : 10;
+      const contentSize = compact ? 7.5 : 8.5;
+      const addressSpacing = compact ? 5 : lineSpacing;
+      const titleOffset = 11;
+      const headerDividerOffset = 18;
+      const toHeaderOffset = 27;
+      const toCompanyOffset = 35;
+      const toAddressOffset = 43;
+      const toMobileOffset = toAddressOffset + toAddressLines.length * addressSpacing + 2;
+      const fromToDividerOffset = Math.max(76, toMobileOffset + 8);
+      const fromHeaderOffset = fromToDividerOffset + 9;
+      const fromCompanyOffset = fromHeaderOffset + 8;
+      const fromAddressOffset = fromCompanyOffset + 8;
+      const fromMobileOffset = fromAddressOffset + fromAddressLines.length * addressSpacing + 2;
+      const labelStartY = Math.max(12, (210 - cardHeight) / 2);
+
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(0.8);
+      doc.roundedRect(startX, labelStartY, width, cardHeight, 5, 5, "D");
+      doc.setLineWidth(0.5);
+      doc.line(startX, labelStartY + headerDividerOffset, startX + width, labelStartY + headerDividerOffset);
+      doc.line(startX, labelStartY + fromToDividerOffset, startX + width, labelStartY + fromToDividerOffset);
+
+      doc.setFont("Helvetica", "bold");
+      doc.setFontSize(titleSize);
+      doc.text("COURIER ADDRESS LABEL", startX + width / 2, labelStartY + titleOffset, { align: "center" });
+
+      doc.setFontSize(headerSize);
+      doc.text("TO", startX + 7, labelStartY + toHeaderOffset);
+      doc.setFontSize(contentSize);
+      doc.text((draft.toName || "N/A").toUpperCase(), startX + 7, labelStartY + toCompanyOffset);
+      doc.setFont("Helvetica", "normal");
+      toAddressLines.forEach((line: string, index: number) => {
+        doc.text(line, startX + 7, labelStartY + toAddressOffset + index * addressSpacing);
+      });
+      doc.text(`Mobile: ${draft.toMobile || "N/A"}`, startX + 7, labelStartY + toMobileOffset);
+
+      doc.setFont("Helvetica", "bold");
+      doc.setFontSize(headerSize);
+      doc.text("FROM", startX + 7, labelStartY + fromHeaderOffset);
+      doc.setFontSize(contentSize);
+      doc.text((draft.fromName || DEFAULT_SENDER.name).toUpperCase(), startX + 7, labelStartY + fromCompanyOffset);
+      doc.setFont("Helvetica", "normal");
+      fromAddressLines.forEach((line: string, index: number) => {
+        doc.text(line, startX + 7, labelStartY + fromAddressOffset + index * addressSpacing);
+      });
+      doc.text(`Mobile: ${draft.fromMobile || "N/A"}`, startX + 7, labelStartY + fromMobileOffset);
+
+      if (draft.deviceOrder) {
+        const order = draft.deviceOrder;
+        const panelX = 153;
+        const panelY = labelStartY;
+        const panelWidth = width;
+        doc.setDrawColor(0, 0, 0);
+        doc.setLineWidth(0.5);
+        doc.roundedRect(panelX, panelY, panelWidth, cardHeight, 4, 4, "D");
+        doc.setFont("Helvetica", "bold");
+        doc.setFontSize(15);
+        doc.text("DEVICE ORDER", panelX + 6, panelY + 11);
+        doc.setFontSize(10);
+        doc.text("SELECTED ITEM", panelX + 6, panelY + 18);
+        doc.setLineWidth(0.3);
+        doc.line(panelX + 6, panelY + 22, panelX + panelWidth - 6, panelY + 22);
+
+        const deviceInfo = [
+          ["Device", order.device_id || "N/A"],
+          ["Version", order.version || "N/A"],
+          ["Uplink", order.uplink || "N/A"],
+          ["ICCID", order.iccid || "N/A"],
+        ];
+        let infoY = panelY + 31;
+        deviceInfo.forEach(([label, value]) => {
+          doc.setFont("Helvetica", "bold");
+          doc.setFontSize(8.5);
+          doc.text(`${label}:`, panelX + 6, infoY);
+          doc.setFont("Helvetica", "normal");
+          const valueLines = doc.splitTextToSize(String(value), panelWidth - 28);
+          doc.text(valueLines, panelX + 25, infoY);
+          infoY += Math.max(7, valueLines.length * 4.5);
+        });
+
+        const sensorItems = ([
+          ["CT 1 Clamp", order.ct1], ["CT 2 Clamp", order.ct2], ["CT 3 Clamp", order.ct3],
+          ["Proxy 1", order.proxy1], ["Proxy 2", order.proxy2], ["Encoder", order.encoder],
+          ["Vibration", order.vibration], ["Antenna", order.antenna], ["Tower Light", order.tower_light],
+          ["Energy Meter", order.energy_meter], ["PLC", order.plc],
+        ] as Array<[string, string | null | undefined]>).filter(([, value]) =>
+          value === "TRUE" || value === "true" || value === "1" || value === "yes" || value === "Yes",
+        );
+        doc.setFont("Helvetica", "bold");
+        doc.setFontSize(10);
+        doc.text("ORDERED SENSORS", panelX + 6, infoY + 4);
+        const checklistStartY = infoY + 12;
+        sensorItems.forEach(([label], index) => {
+          const column = index < 6 ? 0 : 1;
+          const row = index < 6 ? index : index - 6;
+          const itemX = panelX + 6 + column * 43;
+          const itemY = checklistStartY + row * 10;
+          doc.setDrawColor(0, 0, 0);
+          doc.rect(itemX, itemY - 4.5, 4.5, 4.5);
+          doc.setLineWidth(0.6);
+          doc.line(itemX + 0.8, itemY - 2.2, itemX + 2, itemY - 1);
+          doc.line(itemX + 2, itemY - 1, itemX + 4, itemY - 4);
+          doc.setFont("Helvetica", "normal");
+          doc.setFontSize(8);
+          doc.text(label, itemX + 7, itemY - 1);
+        });
+        if (!sensorItems.length) {
+          doc.setFont("Helvetica", "normal");
+          doc.setFontSize(8);
+          doc.text("No sensors ordered", panelX + 6, checklistStartY);
+        }
+      }
+
+      const safeName = (draft.toName || "company").toLowerCase().replace(/[^a-z0-9]/g, "_");
+      const timestamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "");
+      doc.save(`courier_label_${safeName}_${timestamp}.pdf`);
+      return;
+    }
+
     const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
     const wrapWidth = 160;
     const toAddress = draft.toAddress.trim();

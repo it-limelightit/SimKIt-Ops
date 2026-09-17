@@ -313,7 +313,7 @@ export function FactoryDataPanel() {
   const [loading, setLoading] = useState(true);
   const [selectedSiteId, setSelectedSiteId] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("credential_remaining");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [passwordFilter, setPasswordFilter] = useState("all");
   const [monthFilter, setMonthFilter] = useState("all");
   const [cityFilter, setCityFilter] = useState("all");
@@ -1276,7 +1276,25 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
               </div>
             </div>
 
-            <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 xl:grid-cols-5 gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery("");
+                  setStatusFilter("all");
+                  setPasswordFilter("all");
+                  setMonthFilter("all");
+                  setCityFilter("all");
+                }}
+                className={`rounded-lg border p-4 text-left transition-all cursor-pointer ${
+                  statusFilter === "all"
+                    ? "border-lime bg-lime/15 ring-2 ring-lime/20"
+                    : "border-border bg-surface/70 hover:border-lime/50"
+                }`}
+              >
+                <div className="text-[9px] font-mono uppercase tracking-widest text-lime">Show All Factories</div>
+                <div className="mt-1 text-2xl font-extrabold text-lime font-mono leading-none">{analyticsSites.length}</div>
+              </button>
               <button
                 type="button"
                 onClick={() => setStatusFilter("credential_remaining")}
@@ -1343,6 +1361,7 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                   onChange={(e) => setStatusFilter(e.target.value)}
                   className="h-9 text-xs py-0.5 bg-surface"
                 >
+                  <option value="all">Show All Factories</option>
                   <option value="credential_remaining">Pending Credential</option>
                   <option value="credential_created">Credential Created</option>
                 </Select>
