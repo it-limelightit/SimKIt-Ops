@@ -31,6 +31,14 @@ export const PREDEFINED_CATEGORIES = [
   "Tower Light",
   "Energy Meter",
   "PLC Interface",
+  "Tape Role",
+  "TAPE ROLE (FRAGILE)",
+  "UV PRINTING",
+  "ZIPE TIE",
+  "2 CORE WIRE",
+  "4 CORE WIRE",
+  "POWER CORD CABLE",
+  "PANEL BOX/DOOR/LOCK",
 ];
 
 // Proxy Models from App UI

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Badge,
@@ -49,6 +49,8 @@ type InventoryEntryNotes = {
   gst_included?: boolean;
   entered_unit_price?: number;
   effective_unit_price?: number;
+  inventory_group?: InventoryGroup;
+  inventory_unit?: InventoryUnit;
 };
 
 type BulkOrderDraft = {
@@ -67,8 +69,81 @@ type BulkOrderPlan = {
   created_at: string;
 };
 
+type DeviceOrderRecord = {
+  id: string;
+  material_name: string;
+  quantity: number | null;
+  submitted: boolean | null;
+  created_at: string;
+  ct1: string | null;
+  ct2: string | null;
+  ct3: string | null;
+  proxy1: string | null;
+  proxy2: string | null;
+  vibration: string | null;
+  encoder: string | null;
+  antenna: string | null;
+  tower_light: string | null;
+  energy_meter: string | null;
+  plc: string | null;
+};
+
 type InventoryStatus = "AVAILABLE" | "LOW STOCK" | "OUT OF STOCK";
 type StatusFilter = "all" | "out" | "low" | "available";
+type InventoryGroup = "Data Meter" | "Sensors" | "Accessories";
+type InventoryUnit = "Nos" | "Meter" | "Packets" | "Rolls";
+
+const INVENTORY_GROUPS: InventoryGroup[] = ["Data Meter", "Sensors", "Accessories"];
+const INVENTORY_UNITS: InventoryUnit[] = ["Nos", "Meter", "Packets", "Rolls"];
+
+const DATA_METER_COMPONENTS = [
+  "enclosure sticker",
+  "enclousure sticker",
+  "sim card",
+  "3d print enclosure",
+  "3d print enclousure",
+  "3d printer enclosure",
+  "3d printer enclousure",
+  "3d printer encloser",
+  "motherboard pcb",
+  "lcd pcb",
+  "cavli pcb",
+  "din rail mounting clip",
+  "magnetic mount antenna",
+  "magnetic mount anteena",
+  "rf cable antenna",
+  "rf cable anteena",
+];
+
+// These names are deliberately matched before a saved group so that legacy
+// inventory rows which were previously stored as Sensors are shown correctly.
+const ACCESSORY_COMPONENTS = [
+  "tower light",
+  "form sheet",
+  "cable gland",
+  "tape role",
+  "tape roll",
+  "tape role (fragile)",
+  "uv printing",
+  "zipe tie",
+  "2 core wire",
+  "4 core wire",
+  "power cord cable",
+  "panel box/door/lock",
+  "box",
+];
+
+const DATA_METER_REQUIREMENTS = [
+  ["enclosure sticker", "enclousure sticker"],
+  ["sim card"],
+  ["3d print enclosure", "3d print enclousure", "3d printer enclosure", "3d printer enclousure", "3d printer encloser"],
+  ["lcd pcb"],
+  ["mother board pcb", "motherboard pcb"],
+  ["cavli pcb"],
+  ["din rail mounting clip"],
+  ["magnetic mount antenna", "magnetic mount anteena"],
+  ["rf cable antenna", "rf cable anteena"],
+];
 
 function parseInventoryEntryNotes(notes: string | null): InventoryEntryNotes {
   if (!notes) return {};
@@ -108,6 +183,23 @@ function getUnitValueWithGst(unitValue: number) {
 
 function getUnitValueWithoutGst(unitValueWithGst: number) {
   return Number((unitValueWithGst / (1 + GST_RATE)).toFixed(2));
+}
+
+function getInventoryGroup(item: Pick<InventoryStockItem, "category" | "notes">): InventoryGroup {
+  const itemName = item.category.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  const matchesName = (names: string[]) => names.some((name) => name.replace(/[^a-z0-9]/g, "") === itemName);
+  if (matchesName(DATA_METER_COMPONENTS)) return "Data Meter";
+  // Keep the requested accessory items out of Sensors, including legacy rows
+  // that carry an older saved inventory_group value.
+  if (matchesName(ACCESSORY_COMPONENTS)) return "Accessories";
+  const savedGroup = parseInventoryEntryNotes(item.notes).inventory_group;
+  if (savedGroup && INVENTORY_GROUPS.includes(savedGroup)) return savedGroup;
+  return "Sensors";
+}
+
+function getInventoryUnit(notes: string | null): InventoryUnit {
+  const savedUnit = parseInventoryEntryNotes(notes).inventory_unit;
+  return savedUnit && INVENTORY_UNITS.includes(savedUnit) ? savedUnit : "Nos";
 }
 
 function getInventoryRowKey(bomId: string | null | undefined, stockId: string | null | undefined) {
@@ -153,6 +245,7 @@ export function InventoryStockPanel() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [expandedInventoryGroup, setExpandedInventoryGroup] = useState<InventoryGroup | null>(null);
 
   // Form State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -164,6 +257,8 @@ export function InventoryStockPanel() {
   const [editingBulkDraftIndex, setEditingBulkDraftIndex] = useState<number | null>(null);
   
   const [category, setCategory] = useState(PREDEFINED_CATEGORIES[0]);
+  const [inventoryGroup, setInventoryGroup] = useState<InventoryGroup>("Sensors");
+  const [inventoryUnit, setInventoryUnit] = useState<InventoryUnit>("Nos");
   const [customCategory, setCustomCategory] = useState("");
   const [sensorType, setSensorType] = useState("");
   const [customSensorType, setCustomSensorType] = useState("");
@@ -171,6 +266,8 @@ export function InventoryStockPanel() {
   const [minQuantity, setMinQuantity] = useState<number | "">("");
   const [unitPrice, setUnitPrice] = useState<number | "">("");
   const [unitPriceWithGst, setUnitPriceWithGst] = useState<number | "">("");
+  const [priceInputIncludesGst, setPriceInputIncludesGst] = useState(false);
+  const [quantityPerDm, setQuantityPerDm] = useState<number | "">(1);
   const [entryDate, setEntryDate] = useState(
     new Date().toISOString().split("T")[0]
   );
@@ -191,6 +288,7 @@ export function InventoryStockPanel() {
   const [bomUsageLogs, setBomUsageLogs] = useState<Array<{ stock_id: string | null; quantity_changed: number; change_type: string }>>([]);
   const [bulkOrderDeviceQuantity, setBulkOrderDeviceQuantity] = useState<number | "">(0);
   const [savedBulkOrderPlan, setSavedBulkOrderPlan] = useState<BulkOrderPlan | null>(null);
+  const [deviceOrders, setDeviceOrders] = useState<DeviceOrderRecord[]>([]);
   const [bomLoading, setBomLoading] = useState(false);
   const [isBomModalOpen, setIsBomModalOpen] = useState(false);
   const [bomCategory, setBomCategory] = useState(PREDEFINED_CATEGORIES[0]);
@@ -254,10 +352,24 @@ export function InventoryStockPanel() {
     }
   }, []);
 
+  const fetchDeviceOrders = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("inventory_materials" as any)
+      .select("id,material_name,quantity,submitted,created_at,ct1,ct2,ct3,proxy1,proxy2,vibration,encoder,antenna,tower_light,energy_meter,plc")
+      .eq("submitted", true)
+      .order("created_at", { ascending: false });
+    if (error) {
+      console.error("Error fetching device orders for inventory matching:", error);
+      return;
+    }
+    setDeviceOrders((data ?? []) as DeviceOrderRecord[]);
+  }, []);
+
   useEffect(() => {
     void fetchStock();
     void fetchBom();
     void fetchLatestBulkOrderPlan();
+    void fetchDeviceOrders();
     const channel = supabase
       .channel("inventory-stock-live")
       .on(
@@ -266,11 +378,16 @@ export function InventoryStockPanel() {
         () => void fetchStock()
       )
       .subscribe();
+    const orderChannel = supabase
+      .channel("inventory-device-order-stock-match")
+      .on("postgres_changes", { event: "*", schema: "public", table: "inventory_materials" }, () => void fetchDeviceOrders())
+      .subscribe();
 
     return () => {
       void supabase.removeChannel(channel);
+      void supabase.removeChannel(orderChannel);
     };
-  }, [fetchStock, fetchBom, fetchLatestBulkOrderPlan]);
+  }, [fetchStock, fetchBom, fetchLatestBulkOrderPlan, fetchDeviceOrders]);
 
   const bomCalculations = useMemo(() => {
     const usageByStockId = new Map<string, number>();
@@ -304,6 +421,46 @@ export function InventoryStockPanel() {
       usage,
     });
   }, [bomItems, bomUsageLogs, bulkOrderDeviceQuantity, stock]);
+
+  const orderInventoryMatches = useMemo(() => {
+    const normalize = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+    const enabled = (value: string | null) => ["true", "1", "yes"].includes((value || "").trim().toLowerCase());
+    const availableFor = (category: string, required: number) => {
+      const target = normalize(category);
+      const available = stock
+        .filter((item) => !isBulkOrderItem(item))
+        .filter((item) => {
+          const actual = normalize(item.category);
+          return actual === target || actual.includes(target) || target.includes(actual);
+        })
+        .reduce((sum, item) => sum + Math.max(0, Number(item.actual_quantity) || 0), 0);
+      return { required, available, ready: available >= required };
+    };
+
+    return deviceOrders.map((order) => {
+      const quantity = Math.max(1, Number(order.quantity) || 1);
+      const requirements = [
+        { group: "Data Meter" as InventoryGroup, category: "Datameter Box", required: quantity },
+        ...(enabled(order.ct1) ? [{ group: "Sensors" as InventoryGroup, category: "CT 1", required: quantity }] : []),
+        ...(enabled(order.ct2) ? [{ group: "Sensors" as InventoryGroup, category: "CT 2", required: quantity }] : []),
+        ...(enabled(order.ct3) ? [{ group: "Sensors" as InventoryGroup, category: "CT 3", required: quantity }] : []),
+        ...(enabled(order.proxy1) ? [{ group: "Sensors" as InventoryGroup, category: "Proxy 1", required: quantity }] : []),
+        ...(enabled(order.proxy2) ? [{ group: "Sensors" as InventoryGroup, category: "Proxy 2", required: quantity }] : []),
+        ...(enabled(order.vibration) ? [{ group: "Sensors" as InventoryGroup, category: "Vibration Sensor", required: quantity }] : []),
+        ...(enabled(order.encoder) ? [{ group: "Sensors" as InventoryGroup, category: "Encoder", required: quantity }] : []),
+        ...(enabled(order.antenna) ? [{ group: "Sensors" as InventoryGroup, category: "Antenna", required: quantity }] : []),
+        ...(enabled(order.energy_meter) ? [{ group: "Sensors" as InventoryGroup, category: "Energy Meter", required: quantity }] : []),
+        ...(enabled(order.plc) ? [{ group: "Sensors" as InventoryGroup, category: "PLC Interface", required: quantity }] : []),
+        ...(enabled(order.tower_light) ? [{ group: "Accessories" as InventoryGroup, category: "Tower Light", required: quantity }] : []),
+      ].map((requirement) => ({ ...requirement, ...availableFor(requirement.category, requirement.required) }));
+      const groupReady = INVENTORY_GROUPS.reduce((result, group) => {
+        const groupRequirements = requirements.filter((requirement) => requirement.group === group);
+        result[group] = groupRequirements.length ? groupRequirements.every((requirement) => requirement.ready) : null;
+        return result;
+      }, {} as Record<InventoryGroup, boolean | null>);
+      return { order, quantity, requirements, groupReady, ready: requirements.every((requirement) => requirement.ready) };
+    });
+  }, [deviceOrders, stock]);
 
   const resetBomForm = () => {
     setEditingBomId(null);
@@ -369,6 +526,8 @@ export function InventoryStockPanel() {
   const resetForm = () => {
     setEditingId(null);
     setCategory(PREDEFINED_CATEGORIES[0]);
+    setInventoryGroup(getInventoryGroup({ category: PREDEFINED_CATEGORIES[0], notes: null }));
+    setInventoryUnit("Nos");
     setCustomCategory("");
     setSensorType("");
     setCustomSensorType("");
@@ -376,6 +535,8 @@ export function InventoryStockPanel() {
     setMinQuantity("");
     setUnitPrice("");
     setUnitPriceWithGst("");
+    setPriceInputIncludesGst(false);
+    setQuantityPerDm(1);
     setEntryDate(new Date().toISOString().split("T")[0]);
     setNotes("");
   };
@@ -457,6 +618,8 @@ export function InventoryStockPanel() {
     setEditingId(item.id);
     
     setCategory(item.category);
+    setInventoryGroup(getInventoryGroup(item));
+    setInventoryUnit(getInventoryUnit(item.notes));
     setCustomCategory("");
 
     if (item.sensor_type) {
@@ -481,6 +644,11 @@ export function InventoryStockPanel() {
     const unitValue = Number(item.unit_price) || 0;
     setUnitPrice(unitValue);
     setUnitPriceWithGst(getUnitValueWithGst(unitValue));
+    setPriceInputIncludesGst(parseInventoryEntryNotes(item.notes).gst_included === true);
+    const existingBom = bomItems.find((bom) =>
+      bom.category.trim().toLowerCase().replace(/[^a-z0-9]/g, "") === item.category.trim().toLowerCase().replace(/[^a-z0-9]/g, ""),
+    );
+    setQuantityPerDm(existingBom?.quantity_per_kit ?? 1);
     setEntryDate(item.entry_date || new Date().toISOString().split("T")[0]);
     setNotes(getStockRemark(item.notes));
     setIsModalOpen(true);
@@ -547,6 +715,11 @@ export function InventoryStockPanel() {
       toast.error("Please enter a valid unit price");
       return;
     }
+    const isDataMeterItem = inventoryGroup === "Data Meter";
+    if (isDataMeterItem && (quantityPerDm === "" || Number(quantityPerDm) <= 0)) {
+      toast.error("Please enter the quantity required for one Data Meter");
+      return;
+    }
     const unitValue = Number(unitPrice);
 
     setSaving(true);
@@ -560,6 +733,11 @@ export function InventoryStockPanel() {
         entry_date: entryDate,
         notes: JSON.stringify({
           stock_note: notes.trim() || null,
+          gst_included: priceInputIncludesGst,
+          entered_unit_price: priceInputIncludesGst ? Number(unitPriceWithGst) : unitValue,
+          effective_unit_price: unitValue,
+          inventory_group: inventoryGroup,
+          inventory_unit: inventoryUnit,
         } satisfies InventoryEntryNotes),
         updated_at: new Date().toISOString(),
       };
@@ -579,9 +757,31 @@ export function InventoryStockPanel() {
         toast.success("New stock item added successfully");
       }
 
+      if (isDataMeterItem) {
+        const existingBom = bomItems.find((bom) =>
+          bom.category.trim().toLowerCase().replace(/[^a-z0-9]/g, "") === finalCategory.toLowerCase().replace(/[^a-z0-9]/g, ""),
+        );
+        const bomPayload = {
+          product_name: "Data Meter",
+          category: finalCategory,
+          sensor_type: null,
+          quantity_per_kit: Number(quantityPerDm),
+          unit: "Nos",
+          required_by_default: true,
+          min_quantity: 0,
+          active: true,
+          updated_at: new Date().toISOString(),
+        };
+        const { error: bomError } = existingBom
+          ? await supabase.from("inventory_bom_items" as any).update(bomPayload).eq("id", existingBom.id)
+          : await supabase.from("inventory_bom_items" as any).insert(bomPayload);
+        if (bomError) throw bomError;
+      }
+
       setIsModalOpen(false);
       resetForm();
       void fetchStock();
+      void fetchBom();
     } catch (e: any) {
       console.error("Save stock error:", e);
       toast.error("Failed to save stock item: " + e.message);
@@ -631,6 +831,7 @@ export function InventoryStockPanel() {
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [selectedInventoryRowKeys, setSelectedInventoryRowKeys] = useState<Set<string>>(new Set());
+  const [selectedInventoryGroups, setSelectedInventoryGroups] = useState<Set<InventoryGroup>>(new Set());
 
   const filteredStock = useMemo(() => {
     return computedStock.filter((item) => {
@@ -719,7 +920,8 @@ export function InventoryStockPanel() {
           itemName.toLowerCase().includes(searchQuery.toLowerCase()) ||
           sensorType.toLowerCase().includes(searchQuery.toLowerCase());
         const matchesCat = categoryFilter === "all" || itemName === categoryFilter;
-        return matchesSearch && matchesCat && matchesStatusFilter(status, statusFilter);
+        const matchesInventoryGroup = !expandedInventoryGroup || getInventoryGroup(stockItem || { category: itemName, notes: null }) === expandedInventoryGroup;
+        return matchesSearch && matchesCat && matchesInventoryGroup && matchesStatusFilter(status, statusFilter);
       })
       .sort((left, right) => {
         const leftQty = left.stock?.actual_quantity ?? (left.bom ? left.bom.in_stock_quantity : 0);
@@ -734,7 +936,7 @@ export function InventoryStockPanel() {
         const rightDate = new Date(right.stock?.updated_at || right.stock?.created_at || right.bom?.updated_at || right.bom?.created_at || 0).getTime();
         return rightDate - leftDate;
       });
-  }, [bomCalculations, displayStock, searchQuery, categoryFilter, statusFilter]);
+  }, [bomCalculations, displayStock, searchQuery, categoryFilter, expandedInventoryGroup, statusFilter]);
 
   const ktaMetrics = useMemo(() => {
     let totalUnitValue = 0;
@@ -758,21 +960,39 @@ export function InventoryStockPanel() {
       }
     });
 
-    const requiredComponents = bomItems.filter((item) => item.active && item.required_by_default && item.quantity_per_kit > 0);
-    const completeDmCount = requiredComponents.length
-      ? Math.min(...requiredComponents.map((bom) => {
-          const available = materialStock
-            .filter((stockItem) =>
-              stockItem.category.trim().toLowerCase() === bom.category.trim().toLowerCase() &&
-              (stockItem.sensor_type || "").trim().toLowerCase() === (bom.sensor_type || "").trim().toLowerCase(),
-            )
-            .reduce((sum, stockItem) => sum + Math.max(0, Number(stockItem.actual_quantity) || 0), 0);
-          return Math.floor(available / bom.quantity_per_kit);
-        }))
-      : 0;
+    const completeDmCount = Math.min(...DATA_METER_REQUIREMENTS.map((acceptedNames) => {
+      const available = materialStock
+        .filter((item) => acceptedNames.some((name) => item.category.trim().toLowerCase().replace(/[^a-z0-9]/g, "") === name.replace(/[^a-z0-9]/g, "")))
+        .reduce((sum, item) => sum + Math.max(0, Number(item.actual_quantity) || 0), 0);
+      const quantityPerKit = bomItems.find((bom) =>
+        acceptedNames.some((name) => bom.category.trim().toLowerCase().replace(/[^a-z0-9]/g, "") === name.replace(/[^a-z0-9]/g, "")),
+      )?.quantity_per_kit || 1;
+      return Math.floor(available / quantityPerKit);
+    }));
 
     return { totalItems: completeDmCount, totalUnitValue, totalValuation, lowStockCount, outOfStockCount, bulkOrderQuantity };
   }, [bomItems, computedStock]);
+
+  const inventoryGroupSummaries = useMemo(() => INVENTORY_GROUPS.map((group) => {
+    const items = computedStock.filter((item) => !isBulkOrderItem(item) && getInventoryGroup(item) === group);
+    const quantitiesByUnit = items.reduce((totals, item) => {
+      const unit = getInventoryUnit(item.notes);
+      totals.set(unit, (totals.get(unit) || 0) + Math.max(0, Number(item.actual_quantity) || 0));
+      return totals;
+    }, new Map<InventoryUnit, number>());
+    const stockValue = items.reduce((sum, item) => {
+      const unitValue = Number(item.unit_price) || 0;
+      return sum + Math.max(0, Number(item.actual_quantity) || 0) * getUnitValueWithGst(unitValue);
+    }, 0);
+    return {
+      group,
+      itemCount: items.length,
+      quantity: group === "Data Meter"
+        ? `${ktaMetrics.totalItems} DMs ready`
+        : Array.from(quantitiesByUnit.entries()).map(([unit, quantity]) => `${quantity} ${unit}`).join(" · ") || "0",
+      stockValue,
+    };
+  }), [computedStock, ktaMetrics.totalItems]);
 
   const selectedInventoryMetrics = useMemo(() => {
     let totalUnitValue = 0;
@@ -795,6 +1015,27 @@ export function InventoryStockPanel() {
 
     return { totalUnitValue, totalStockValue, lowStockCount };
   }, [combinedInventoryRows, selectedInventoryRowKeys]);
+
+  const selectedGroupMetrics = useMemo(() => {
+    const items = computedStock.filter((item) => !isBulkOrderItem(item) && selectedInventoryGroups.has(getInventoryGroup(item)));
+    return items.reduce((metrics, item) => {
+      const quantity = Math.max(0, Number(item.actual_quantity) || 0);
+      const unitValue = Number(item.unit_price) || 0;
+      metrics.totalUnitValue += quantity * unitValue;
+      metrics.totalStockValue += quantity * getUnitValueWithGst(unitValue);
+      if (item.actual_quantity <= item.min_quantity && item.actual_quantity > 0) metrics.lowStockCount++;
+      return metrics;
+    }, { totalUnitValue: 0, totalStockValue: 0, lowStockCount: 0 });
+  }, [computedStock, selectedInventoryGroups]);
+
+  const toggleInventoryGroupSelection = (group: InventoryGroup) => {
+    setSelectedInventoryGroups((current) => {
+      const next = new Set(current);
+      if (next.has(group)) next.delete(group);
+      else next.add(group);
+      return next;
+    });
+  };
 
   const selectedRowCount = useMemo(
     () => combinedInventoryRows.filter(({ bom, stock: stockItem }) => selectedInventoryRowKeys.has(getInventoryRowKey(bom?.id, stockItem?.id))).length,
@@ -1016,7 +1257,10 @@ export function InventoryStockPanel() {
   };
 
   const downloadInventoryReportPdf = async () => {
-    if (!combinedInventoryRows.length) {
+    const reportRows = selectedInventoryGroups.size
+      ? combinedInventoryRows.filter(({ bom, stock: stockItem }) => getInventoryGroup(stockItem || { category: bom?.category || "", notes: null }) && selectedInventoryGroups.has(getInventoryGroup(stockItem || { category: bom?.category || "", notes: null })))
+      : combinedInventoryRows;
+    if (!reportRows.length) {
       toast.error("No inventory rows available for report");
       return;
     }
@@ -1024,12 +1268,12 @@ export function InventoryStockPanel() {
     try {
       const reportDate =
         savedBulkOrderPlan?.order_date ||
-        combinedInventoryRows
+        reportRows
           .map(({ stock: stockItem, bom }) => stockItem?.updated_at || stockItem?.created_at || bom?.updated_at || bom?.created_at)
           .filter((value): value is string => Boolean(value))
           .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ||
         getTodayDateValue();
-      const rows = combinedInventoryRows.map(({ bom, stock: stockItem }) => {
+      const rows = reportRows.map(({ bom, stock: stockItem }) => {
         const component = bom?.category || stockItem?.category || "-";
         const sensorType = bom?.sensor_type || stockItem?.sensor_type || "";
         const stockQuantity = stockItem?.actual_quantity ?? (bom ? bom.in_stock_quantity : 0);
@@ -1505,7 +1749,7 @@ export function InventoryStockPanel() {
               Total Stock Items
             </p>
             <p className="text-2xl font-extrabold text-text-primary">
-              {ktaMetrics.totalItems} <span className="text-xs font-normal text-text-muted">DMs</span>
+              {selectedInventoryGroups.size ? (selectedInventoryGroups.has("Data Meter") ? ktaMetrics.totalItems : 0) : ktaMetrics.totalItems} <span className="text-xs font-normal text-text-muted">DMs</span>
             </p>
           </div>
           <div className="w-10 h-10 rounded-xl bg-violet/10 flex items-center justify-center text-violet">
@@ -1519,13 +1763,13 @@ export function InventoryStockPanel() {
         >
           <div className="space-y-1">
             <p className="text-xs text-text-secondary font-medium uppercase tracking-wider">
-              {selectedRowCount ? `Selected Valuation (${selectedRowCount})` : "Total Valuation"}
+              {selectedInventoryGroups.size ? `Selected Category Valuation (${selectedInventoryGroups.size})` : selectedRowCount ? `Selected Valuation (${selectedRowCount})` : "Total Valuation"}
             </p>
             <p className="text-sm font-bold text-text-primary">
-              Unit Value: ₹{(selectedRowCount ? selectedInventoryMetrics.totalUnitValue : ktaMetrics.totalUnitValue).toLocaleString("en-IN")}
+              Unit Value: ₹{(selectedInventoryGroups.size ? selectedGroupMetrics.totalUnitValue : selectedRowCount ? selectedInventoryMetrics.totalUnitValue : ktaMetrics.totalUnitValue).toLocaleString("en-IN")}
             </p>
             <p className="text-lg font-extrabold text-emerald-400 flex items-center">
-              Stock Value: ₹{(selectedRowCount ? selectedInventoryMetrics.totalStockValue : ktaMetrics.totalValuation).toLocaleString("en-IN")}
+              Stock Value: ₹{(selectedInventoryGroups.size ? selectedGroupMetrics.totalStockValue : selectedRowCount ? selectedInventoryMetrics.totalStockValue : ktaMetrics.totalValuation).toLocaleString("en-IN")}
             </p>
           </div>
           <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-400">
@@ -1543,10 +1787,10 @@ export function InventoryStockPanel() {
         >
           <div className="space-y-1">
             <p className="text-xs text-text-secondary font-medium uppercase tracking-wider">
-              {selectedRowCount ? "Selected Low Stock Warnings" : "Low Stock Warnings"}
+              {selectedInventoryGroups.size || selectedRowCount ? "Selected Low Stock Warnings" : "Low Stock Warnings"}
             </p>
             <p className="text-2xl font-extrabold text-amber-400">
-              {(selectedRowCount ? selectedInventoryMetrics.lowStockCount : ktaMetrics.lowStockCount)} <span className="text-xs font-normal text-text-muted">items</span>
+              {(selectedInventoryGroups.size ? selectedGroupMetrics.lowStockCount : selectedRowCount ? selectedInventoryMetrics.lowStockCount : ktaMetrics.lowStockCount)} <span className="text-xs font-normal text-text-muted">items</span>
             </p>
           </div>
           <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-400">
@@ -1603,58 +1847,17 @@ export function InventoryStockPanel() {
 
       </div>
 
-      {/* Control Bar: Filters & Add Stock Action */}
-      <Card className="p-4 border border-border/80 bg-surface flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3 w-full lg:w-auto flex-1">
-          <div className="relative w-full sm:w-72">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-            <Input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search categories or models..."
-              className="pl-9 bg-surface-raised/40 text-xs h-9"
-            />
-          </div>
-
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <SlidersHorizontal size={14} className="text-text-muted hidden sm:inline" />
-            <Select
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              className="bg-surface-raised/40 text-xs h-9 w-full sm:w-52"
-            >
-              <option value="all">All Categories</option>
-              {PREDEFINED_CATEGORIES.map((cat) => (
-                <option key={cat} value={cat}>
-                  {cat}
-                </option>
-              ))}
-            </Select>
-          </div>
-
-          <Select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-            className="bg-surface-raised/40 text-xs h-9 w-full sm:w-44"
-            aria-label="Filter by stock status"
-          >
-            <option value="all">All Status</option>
-            <option value="out">Out of Stock ({ktaMetrics.outOfStockCount})</option>
-            <option value="low">Low Stock ({ktaMetrics.lowStockCount})</option>
-            <option value="available">Available</option>
-          </Select>
-        </div>
-
+      <Card className="p-4 border border-border/80 bg-surface flex items-center justify-end">
         <div className="flex items-center justify-end gap-2 w-full lg:w-auto shrink-0">
           <Button
             type="button"
             onClick={() => void downloadInventoryReportPdf()}
             variant="outline"
             className="h-9 px-3 text-xs flex items-center gap-1 cursor-pointer"
-            title="Download full inventory PDF report"
+            title={selectedInventoryGroups.size ? "Download selected category PDF report" : "Download full inventory PDF report"}
           >
             <FileText size={14} />
-            Report
+            {selectedInventoryGroups.size ? `Report (${selectedInventoryGroups.size})` : "Report"}
           </Button>
           <Button
             onClick={fetchStock}
@@ -1675,14 +1878,111 @@ export function InventoryStockPanel() {
       </Card>
 
       <Card className="border border-border/80 bg-surface overflow-hidden">
+        <div className="p-4 border-b border-border/70">
+          <h2 className="text-base font-bold text-text-primary">Inventory Cost by Category</h2>
+          <p className="mt-1 text-xs text-text-secondary">Click a category row to view its item details. Category cost is shown with GST.</p>
+        </div>
+        <div className="max-w-full overflow-x-hidden">
+          <table className="w-full min-w-[620px] table-fixed text-left text-xs">
+            <thead className="bg-surface-raised/40 text-[10px] uppercase tracking-wider text-text-secondary">
+              <tr><th className="p-3 text-center">Select</th><th className="p-3">Category</th><th className="p-3 text-center">Total</th><th className="p-3 text-center">Items</th><th className="p-3 text-right">Cost (with GST)</th><th className="p-3 text-right">Details</th></tr>
+            </thead>
+            <tbody className="divide-y divide-border/40">
+              {inventoryGroupSummaries.map((summary) => (
+                <Fragment key={summary.group}>
+                <tr onClick={() => setExpandedInventoryGroup((current) => current === summary.group ? null : summary.group)} className="cursor-pointer transition-colors hover:bg-violet/10">
+                  <td className="p-3 text-center"><input type="checkbox" checked={selectedInventoryGroups.has(summary.group)} onClick={(event) => event.stopPropagation()} onChange={() => toggleInventoryGroupSelection(summary.group)} aria-label={`Select ${summary.group}`} className="h-3.5 w-3.5 accent-violet" /></td>
+                  <td className="p-3 font-bold text-text-primary">{summary.group}</td>
+                  <td className="p-3 text-center font-mono font-bold">{summary.quantity}</td>
+                  <td className="p-3 text-center font-mono">{summary.itemCount}</td>
+                  <td className="p-3 text-right font-mono font-bold text-emerald-400">₹{summary.stockValue.toLocaleString("en-IN")}</td>
+                  <td className="p-3 text-right text-violet font-semibold">{expandedInventoryGroup === summary.group ? "Hide items" : "View items"}</td>
+                </tr>
+                {expandedInventoryGroup === summary.group && <tr className="bg-violet/5">
+                  <td colSpan={6} className="max-w-0 p-3">
+                    <div className="w-full max-w-full min-w-0 overflow-x-auto overflow-y-auto overscroll-x-contain rounded-lg border border-violet/20 [scrollbar-color:theme(colors.violet.DEFAULT)_theme(colors.surface.raised)] [scrollbar-width:auto]" title="Scroll horizontally to view all columns">
+                      <p className="sticky left-0 z-20 w-fit whitespace-nowrap px-3 py-1 text-[10px] text-text-muted">← Scroll horizontally to view all columns →</p>
+                      <div className="grid min-w-[1130px] grid-cols-[3rem_8rem_minmax(12rem,1fr)_6rem_7rem_6rem_7rem_7rem_7rem_8rem_8rem_9rem_6rem] bg-surface-raised/40 text-[10px] uppercase tracking-wider text-text-secondary">
+                        <span className="sticky left-0 z-10 bg-surface-raised/95 p-3 text-center">Select</span><span className="sticky left-[3rem] z-10 bg-surface-raised/95 p-3">Entry Date</span><span className="sticky left-[11rem] z-10 bg-surface-raised/95 p-3">Component</span><span className="p-3 text-center">Unit</span><span className="p-3 text-center">Qty / Kit</span><span className="p-3 text-center">In Stock</span><span className="p-3 text-center">Min Threshold</span><span className="p-3 text-center">Bulk Order</span><span className="p-3 text-center">Shortage</span><span className="p-3 text-center">Status</span><span className="p-3 text-right">Unit Value</span><span className="p-3 text-right">Stock Value</span><span className="p-3 text-center">Actions</span>
+                      </div>
+                      <div className="min-w-[1130px] divide-y divide-border/40">
+                      {combinedInventoryRows.map(({ bom, stock: stockItem }) => {
+                        const rowKey = getInventoryRowKey(bom?.id, stockItem?.id);
+                        const itemName = bom?.category || stockItem?.category || "-";
+                        const quantity = stockItem?.actual_quantity ?? (bom ? bom.in_stock_quantity : 0);
+                        const minQuantity = stockItem?.min_quantity ?? bom?.min_quantity ?? 0;
+                        const status = getInventoryStatus(quantity, minQuantity);
+                        const unitValue = getUnitValueWithGst(Number(stockItem?.unit_price) || 0);
+                        return <div key={`inline-${bom?.id || stockItem?.id || itemName}`} className="grid min-w-[1130px] grid-cols-[3rem_8rem_minmax(12rem,1fr)_6rem_7rem_6rem_7rem_7rem_7rem_8rem_8rem_9rem_6rem] items-center text-xs">
+                          <span className="sticky left-0 z-[1] bg-surface p-3 text-center"><input type="checkbox" checked={selectedInventoryRowKeys.has(rowKey)} onChange={() => toggleInventoryRowSelection(rowKey)} aria-label={`Select ${itemName}`} className="h-3.5 w-3.5 accent-violet" /></span>
+                          <span className="sticky left-[3rem] z-[1] whitespace-nowrap bg-surface p-3 text-text-secondary font-mono">{stockItem?.entry_date ? formatDisplayDate(stockItem.entry_date) : "-"}</span>
+                          <span className="sticky left-[11rem] z-[1] bg-surface p-3 font-semibold text-text-primary">{itemName}{(bom?.sensor_type || stockItem?.sensor_type) ? <span className="block text-[10px] text-violet">{bom?.sensor_type || stockItem?.sensor_type}</span> : null}</span>
+                          <span className="p-3 text-center font-mono">{stockItem ? getInventoryUnit(stockItem.notes) : bom?.unit || "-"}</span>
+                          <span className="p-3 text-center font-mono">{bom ? `${bom.quantity_per_kit} ${bom.unit}` : "-"}</span>
+                          <span className="p-3 text-center font-mono font-bold">{quantity}</span>
+                          <span className="p-3 text-center font-mono">{minQuantity}</span>
+                          <span className="p-3 text-center font-mono font-bold text-rose-300">{bom ? bom.bulk_order_quantity : "-"}</span>
+                          <span className="p-3 text-center font-mono text-rose-300">{bom ? bom.shortage_quantity : "-"}</span>
+                          <span className="p-3 text-center"><Badge className={status === "AVAILABLE" ? "text-emerald-400" : status === "LOW STOCK" ? "text-amber-300" : "text-rose-300"}>{status}</Badge></span>
+                          <span className="p-3 text-right font-mono">{stockItem ? `₹${unitValue.toLocaleString("en-IN")}` : "-"}</span>
+                          <span className="p-3 text-right font-mono font-bold text-emerald-400">{stockItem ? `₹${(Math.max(0, Number(stockItem.actual_quantity) || 0) * unitValue).toLocaleString("en-IN")}` : "-"}</span>
+                          <span className="p-3"><span className="flex justify-center gap-1">{stockItem ? <><button type="button" onClick={() => handleEditItem(stockItem)} className="p-1.5 text-text-secondary hover:text-violet" title="Edit inventory item"><Edit2 size={13} /></button><button type="button" onClick={() => void handleDeleteItem(stockItem.id, stockItem.category)} className="p-1.5 text-text-secondary hover:text-rose-300" title="Delete inventory item"><Trash2 size={13} /></button></> : bom ? <><button type="button" onClick={() => handleEditBomItem(bom)} className="p-1.5 text-text-secondary hover:text-violet" title="Edit BOM item"><Edit2 size={13} /></button><button type="button" onClick={() => void handleDeleteBomItem(bom)} className="p-1.5 text-text-secondary hover:text-rose-300" title="Delete BOM item"><Trash2 size={13} /></button></> : null}</span></span>
+                        </div>;
+                      })}
+                      </div>
+                    </div>
+                  </td>
+                </tr>}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      <Card className="border border-border/80 bg-surface overflow-hidden">
+        <div className="border-b border-border/70 p-4">
+          <h2 className="text-base font-bold text-text-primary">Device Order ↔ Current Stock</h2>
+          <p className="mt-1 text-xs text-text-secondary">Live matching of device order names and required stock across Data Meter, Sensors, and Accessories.</p>
+        </div>
+        <div className="overflow-x-auto">
+          {orderInventoryMatches.length === 0 ? (
+            <p className="p-5 text-xs text-text-muted">No submitted device orders found.</p>
+          ) : (
+            <table className="w-full min-w-[760px] text-left text-xs">
+              <thead className="bg-surface-raised/40 text-[10px] uppercase tracking-wider text-text-secondary">
+                <tr><th className="p-3">Device order name</th><th className="p-3 text-center">Data Meter</th><th className="p-3 text-center">Sensors</th><th className="p-3 text-center">Accessories</th><th className="p-3 text-center">Overall</th><th className="p-3 text-right">Required</th></tr>
+              </thead>
+              <tbody className="divide-y divide-border/40">
+                {orderInventoryMatches.map((match) => {
+                  const missing = match.requirements.filter((requirement) => !requirement.ready).map((requirement) => `${requirement.category} (${requirement.available}/${requirement.required})`);
+                  const renderGroupStatus = (group: InventoryGroup) => {
+                    const ready = match.groupReady[group];
+                    return <Badge className={ready === true ? "text-emerald-400" : ready === false ? "text-rose-300" : "text-text-muted"}>{ready === true ? "AVAILABLE" : ready === false ? "SHORTAGE" : "N/A"}</Badge>;
+                  };
+                  return <tr key={match.order.id}>
+                    <td className="p-3 font-semibold text-text-primary">{match.order.material_name}</td>
+                    <td className="p-3 text-center">{renderGroupStatus("Data Meter")}</td>
+                    <td className="p-3 text-center">{renderGroupStatus("Sensors")}</td>
+                    <td className="p-3 text-center">{renderGroupStatus("Accessories")}</td>
+                    <td className="p-3 text-center"><Badge className={match.ready ? "text-emerald-400" : "text-rose-300"}>{match.ready ? "READY" : "WAITING"}</Badge></td>
+                    <td className="max-w-[24rem] p-3 text-right text-[10px] text-text-muted">{missing.length ? missing.join(", ") : `${match.quantity} kit${match.quantity === 1 ? "" : "s"} fully matched`}</td>
+                  </tr>;
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </Card>
+
+      {false && expandedInventoryGroup && <div className="mt-3 w-full">
+      <Card className="max-h-[90vh] w-full overflow-auto border border-border/80 bg-surface">
         <div className="p-4 border-b border-border/70 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div>
-            <h2 className="text-base font-bold text-text-primary">Data Meter BOM Planning</h2>
-            <p className="text-xs text-text-secondary mt-1">Enter the bulk order Data Meter quantity and see component demand, current stock, and shortages.</p>
+            <h2 className="text-base font-bold text-text-primary">{expandedInventoryGroup} Items</h2>
+            <p className="text-xs text-text-secondary mt-1">Item-level stock details for {expandedInventoryGroup}.</p>
           </div>
-          <Button type="button" onClick={() => { resetBomForm(); setIsBomModalOpen(true); }} className="h-9 px-3 text-xs bg-violet hover:bg-violet-dark text-white flex items-center gap-1.5">
-            <Plus size={14} /> Add DM Component
-          </Button>
+          <Button type="button" variant="outline" onClick={() => setExpandedInventoryGroup(null)} className="h-9 px-3 text-xs">Close</Button>
         </div>
 
         <div className="px-4 py-3 border-b border-border/70 bg-violet/5 text-[11px] text-text-secondary grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1733,6 +2033,7 @@ export function InventoryStockPanel() {
                   </th>
                   <th className="p-3">Entry Date</th>
                   <th className="p-3">Component</th>
+                  <th className="p-3 text-center">Unit</th>
                   <th className="p-3 text-center">Qty / Kit</th>
                   <th className="p-3 text-center">In Stock</th>
                   <th className="p-3 text-center">Min Threshold</th>
@@ -1740,7 +2041,6 @@ export function InventoryStockPanel() {
                   <th className="p-3 text-center">Shortage</th>
                   <th className="p-3 text-center">Status</th>
                   <th className="p-3 text-right">Unit Value</th>
-                  <th className="p-3 text-right">Unit Value with GST</th>
                   <th className="p-3 text-right">Stock Value</th>
                   <th className="p-3 text-center">Actions</th>
                 </tr>
@@ -1749,11 +2049,13 @@ export function InventoryStockPanel() {
                 {combinedInventoryRows.map(({ bom, stock: stockItem }) => {
                   const rowKey = getInventoryRowKey(bom?.id, stockItem?.id);
                   const itemName = bom?.category || stockItem?.category || "-";
+                  const inventoryUnit = stockItem ? getInventoryUnit(stockItem.notes) : bom?.unit || "-";
                   const stockQuantity = stockItem?.actual_quantity ?? (bom ? bom.in_stock_quantity : 0);
                   const minQuantity = stockItem?.min_quantity ?? bom?.min_quantity ?? 0;
                   const status = getInventoryStatus(stockQuantity, minQuantity);
                   const unitValue = Number(stockItem?.unit_price) || 0;
                   const unitValueWithGst = getUnitValueWithGst(unitValue);
+                  const displayedUnitValue = unitValueWithGst;
                   return (
                     <tr
                       key={`${bom?.id || "stock"}-${stockItem?.id || itemName}`}
@@ -1776,15 +2078,15 @@ export function InventoryStockPanel() {
                       </td>
                       <td className="p-3 whitespace-nowrap text-text-secondary font-mono">{stockItem?.entry_date ? formatDisplayDate(stockItem.entry_date) : "-"}</td>
                       <td className="p-3 font-semibold text-text-primary">{itemName}{(bom?.sensor_type || stockItem?.sensor_type) ? <span className="block text-[10px] text-violet">{bom?.sensor_type || stockItem?.sensor_type}</span> : null}</td>
+                      <td className="p-3 text-center font-mono">{inventoryUnit}</td>
                       <td className="p-3 text-center font-mono">{bom ? `${bom.quantity_per_kit} ${bom.unit}` : "-"}</td>
                       <td className="p-3 text-center font-mono font-bold">{stockQuantity}</td>
                       <td className="p-3 text-center font-mono">{minQuantity}</td>
                       <td className="p-3 text-center font-mono font-bold text-rose-300">{bom ? bom.bulk_order_quantity : "-"}</td>
                       <td className="p-3 text-center font-mono text-rose-300">{bom ? bom.shortage_quantity : "-"}</td>
                       <td className="p-3 text-center whitespace-nowrap"><Badge className={status === "AVAILABLE" ? "text-emerald-400" : status === "LOW STOCK" ? "text-amber-300" : "text-rose-300"}>{status}</Badge></td>
-                      <td className="p-3 text-right font-mono">{stockItem ? `₹${unitValue.toLocaleString("en-IN")}` : "-"}</td>
-                      <td className="p-3 text-right font-mono">{stockItem ? `₹${unitValueWithGst.toLocaleString("en-IN")}` : "-"}</td>
-                      <td className="p-3 text-right font-mono font-bold text-emerald-400">{stockItem ? `₹${(Math.max(0, Number(stockItem.actual_quantity)) * unitValueWithGst).toLocaleString("en-IN")}` : "-"}</td>
+                      <td className="p-3 text-right font-mono">{stockItem ? `₹${displayedUnitValue.toLocaleString("en-IN")}` : "-"}</td>
+                      <td className="p-3 text-right font-mono font-bold text-emerald-400">{stockItem ? `₹${(Math.max(0, Number(stockItem.actual_quantity)) * displayedUnitValue).toLocaleString("en-IN")}` : "-"}</td>
                       <td className="p-3"><div className="flex justify-center gap-1">
                         {stockItem ? <><button type="button" onClick={() => handleEditItem(stockItem)} className="p-1.5 text-text-secondary hover:text-violet" title="Edit inventory item"><Edit2 size={13} /></button><button type="button" onClick={() => void handleDeleteItem(stockItem.id, stockItem.category)} className="p-1.5 text-text-secondary hover:text-rose-300" title="Delete inventory item"><Trash2 size={13} /></button></> : bom ? <><button type="button" onClick={() => handleEditBomItem(bom)} className="p-1.5 text-text-secondary hover:text-violet" title="Edit BOM item"><Edit2 size={13} /></button><button type="button" onClick={() => void handleDeleteBomItem(bom)} className="p-1.5 text-text-secondary hover:text-rose-300" title="Delete BOM item"><Trash2 size={13} /></button></> : null}
                       </div></td>
@@ -1796,6 +2098,7 @@ export function InventoryStockPanel() {
           )}
         </div>
       </Card>
+      </div>}
 
       {false && <Card className="border border-border/80 bg-surface overflow-hidden">
         {loading ? (
@@ -2233,10 +2536,10 @@ export function InventoryStockPanel() {
                   />
                 </div>
 
-                {/* Category Input */}
+                {/* Item Name */}
                 <div className="space-y-1">
                   <Label className="text-text-secondary font-semibold">
-                    Item Category <span className="text-rose-400">*</span>
+                    Item Name <span className="text-rose-400">*</span>
                   </Label>
                   <Input
                     value={category}
@@ -2245,7 +2548,7 @@ export function InventoryStockPanel() {
                       setSensorType("");
                     }}
                     list="inventory-category-options"
-                    placeholder="Select or rename category..."
+                    placeholder="Enter item name..."
                     className="bg-surface-raised/50 h-9"
                     required
                   />
@@ -2258,6 +2561,39 @@ export function InventoryStockPanel() {
                   </datalist>
                 </div>
               </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <Label className="text-text-secondary font-semibold">Category <span className="text-rose-400">*</span></Label>
+                  <Select value={inventoryGroup} onChange={(e) => setInventoryGroup(e.target.value as InventoryGroup)} className="bg-surface-raised/50 h-9" required>
+                    {INVENTORY_GROUPS.map((group) => <option key={group} value={group}>{group}</option>)}
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-text-secondary font-semibold">Inventory Unit <span className="text-rose-400">*</span></Label>
+                  <Select value={inventoryUnit} onChange={(e) => setInventoryUnit(e.target.value as InventoryUnit)} className="bg-surface-raised/50 h-9" required>
+                    {INVENTORY_UNITS.map((unit) => <option key={unit} value={unit}>{unit}</option>)}
+                  </Select>
+                </div>
+              </div>
+
+              {inventoryGroup === "Data Meter" && (
+                <div className="space-y-1 rounded-lg border border-violet/25 bg-violet/5 p-3">
+                  <Label className="text-text-secondary font-semibold">
+                    Qty Required for 1 Data Meter <span className="text-rose-400">*</span>
+                  </Label>
+                  <Input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={quantityPerDm}
+                    onChange={(e) => setQuantityPerDm(e.target.value === "" ? "" : Number(e.target.value))}
+                    className="bg-surface-raised/50 h-9"
+                    required
+                  />
+                  <p className="text-[10px] text-text-muted">This can be updated later. DM capacity uses stock quantity divided by this value.</p>
+                </div>
+              )}
 
               {/* Model Dropdown (Proxy or Vibration) */}
               {(category.startsWith("Proxy") || category === "Vibration Sensor") && (
@@ -2362,14 +2698,14 @@ export function InventoryStockPanel() {
 
                 <div className="space-y-1">
                   <Label className="text-text-secondary font-semibold">
-                    Unit Value (Without GST) (₹) <span className="text-rose-400">*</span>
+                    Unit Price {priceInputIncludesGst ? "(With GST)" : "(Without GST)"} (₹) <span className="text-rose-400">*</span>
                   </Label>
                   <Input
                     type="number"
                     min="0"
                     step="0.01"
-                    value={unitPrice}
-                    onChange={(e) => handleUnitValueChange(e.target.value)}
+                    value={priceInputIncludesGst ? unitPriceWithGst : unitPrice}
+                    onChange={(e) => priceInputIncludesGst ? handleUnitValueWithGstChange(e.target.value) : handleUnitValueChange(e.target.value)}
                     placeholder="e.g. 1500"
                     className="bg-surface-raised/50 h-9"
                     required
@@ -2378,18 +2714,16 @@ export function InventoryStockPanel() {
 
                 <div className="space-y-1">
                   <Label className="text-text-secondary font-semibold">
-                    Unit Value with GST (₹) <span className="text-rose-400">*</span>
+                    Price Type <span className="text-rose-400">*</span>
                   </Label>
-                  <Input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={unitPriceWithGst}
-                    onChange={(e) => handleUnitValueWithGstChange(e.target.value)}
-                    placeholder="e.g. 1770"
+                  <Select
+                    value={priceInputIncludesGst ? "with_gst" : "without_gst"}
+                    onChange={(e) => setPriceInputIncludesGst(e.target.value === "with_gst")}
                     className="bg-surface-raised/50 h-9"
-                    required
-                  />
+                  >
+                    <option value="without_gst">Without GST</option>
+                    <option value="with_gst">With GST</option>
+                  </Select>
                 </div>
               </div>
 
