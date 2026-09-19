@@ -360,13 +360,10 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit, requ
               return;
             }
 
-            if (shouldShow("Factory Operations")) {
-              const check = validateFactoryOperationsForm(data);
-              if (!check.isValid) {
-                toast.error(check.errorMsg || "Mandatory fields missing in Factory Operations Form.");
-                return;
-              }
-            }
+            // Persist the current draft first so partially completed Factory Operations
+            // data remains visible in Factory Form Data after assessment submission.
+            const draftSaved = await save(data);
+            if (!draftSaved) return;
 
             if (onSubmit) await onSubmit();
             if (requireDeviceOrderCompletion) return;
@@ -665,12 +662,13 @@ export function validateFactoryOperationsForm(data: Record<string, any>): { isVa
     }
   }
 
-  // 5. Technicians are optional, but every added technician must be complete.
+  // 5. At least one technician is required, and every technician must be complete.
   const technicians = data.factory_op_technicians ?? [];
+  if (!technicians.length) {
+    return { isValid: false, errorMsg: "At least one Technician / Engineering Team entry is required.", invalidSection: "technicians" };
+  }
   for (let i = 0; i < technicians.length; i++) {
     const technician = technicians[i];
-    const hasAnyDetail = [technician?.name, technician?.contact, technician?.email].some((value) => !isBlank(value));
-    if (!hasAnyDetail) continue;
     if (isBlank(technician?.name)) {
       return { isValid: false, errorMsg: `Technician #${i + 1} Name is required.`, invalidSection: "technicians" };
     }
@@ -1167,7 +1165,7 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
               <h4 className="font-syne text-xs font-bold uppercase tracking-wider text-text-primary">
                 Technicians & Engineering Team
               </h4>
-              <p className="text-[10px] text-text-dim mt-1">If you add any technician detail, name, mobile, and email are all required.</p>
+              <p className="text-[10px] text-text-dim mt-1">At least one technician is required. Name, mobile, and email are mandatory for every technician.</p>
             </div>
             <Button
               type="button"

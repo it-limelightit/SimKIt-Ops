@@ -1940,41 +1940,6 @@ export function InventoryStockPanel() {
         </div>
       </Card>
 
-      <Card className="border border-border/80 bg-surface overflow-hidden">
-        <div className="border-b border-border/70 p-4">
-          <h2 className="text-base font-bold text-text-primary">Device Order ↔ Current Stock</h2>
-          <p className="mt-1 text-xs text-text-secondary">Live matching of device order names and required stock across Data Meter, Sensors, and Accessories.</p>
-        </div>
-        <div className="overflow-x-auto">
-          {orderInventoryMatches.length === 0 ? (
-            <p className="p-5 text-xs text-text-muted">No submitted device orders found.</p>
-          ) : (
-            <table className="w-full min-w-[760px] text-left text-xs">
-              <thead className="bg-surface-raised/40 text-[10px] uppercase tracking-wider text-text-secondary">
-                <tr><th className="p-3">Device order name</th><th className="p-3 text-center">Data Meter</th><th className="p-3 text-center">Sensors</th><th className="p-3 text-center">Accessories</th><th className="p-3 text-center">Overall</th><th className="p-3 text-right">Required</th></tr>
-              </thead>
-              <tbody className="divide-y divide-border/40">
-                {orderInventoryMatches.map((match) => {
-                  const missing = match.requirements.filter((requirement) => !requirement.ready).map((requirement) => `${requirement.category} (${requirement.available}/${requirement.required})`);
-                  const renderGroupStatus = (group: InventoryGroup) => {
-                    const ready = match.groupReady[group];
-                    return <Badge className={ready === true ? "text-emerald-400" : ready === false ? "text-rose-300" : "text-text-muted"}>{ready === true ? "AVAILABLE" : ready === false ? "SHORTAGE" : "N/A"}</Badge>;
-                  };
-                  return <tr key={match.order.id}>
-                    <td className="p-3 font-semibold text-text-primary">{match.order.material_name}</td>
-                    <td className="p-3 text-center">{renderGroupStatus("Data Meter")}</td>
-                    <td className="p-3 text-center">{renderGroupStatus("Sensors")}</td>
-                    <td className="p-3 text-center">{renderGroupStatus("Accessories")}</td>
-                    <td className="p-3 text-center"><Badge className={match.ready ? "text-emerald-400" : "text-rose-300"}>{match.ready ? "READY" : "WAITING"}</Badge></td>
-                    <td className="max-w-[24rem] p-3 text-right text-[10px] text-text-muted">{missing.length ? missing.join(", ") : `${match.quantity} kit${match.quantity === 1 ? "" : "s"} fully matched`}</td>
-                  </tr>;
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </Card>
-
       {false && expandedInventoryGroup && <div className="mt-3 w-full">
       <Card className="max-h-[90vh] w-full overflow-auto border border-border/80 bg-surface">
         <div className="p-4 border-b border-border/70 flex flex-col lg:flex-row lg:items-center justify-between gap-3">

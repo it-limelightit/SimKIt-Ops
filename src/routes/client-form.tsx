@@ -420,26 +420,27 @@ function ClientFormPage() {
       });
     }
 
-    // 5. Technicians are optional, but every added technician must be complete.
+    // 5. At least one technician is required, and every technician must be complete.
     const technicians = formData.factory_op_technicians || [];
-    technicians.forEach((technician: any, idx: number) => {
-      const hasAnyDetail = [technician?.name, technician?.contact, technician?.email]
-        .some((value) => typeof value === "string" && value.trim());
-      if (!hasAnyDetail) return;
-
-      if (!technician?.name || !technician.name.trim()) {
-        errs[`tech_${idx}_name`] = `Technician #${idx + 1} Name is required`;
-        sections.add("technicians");
-      }
-      if (!technician?.contact || !technician.contact.trim()) {
-        errs[`tech_${idx}_contact`] = `Technician #${idx + 1} Mobile Contact is required`;
-        sections.add("technicians");
-      }
-      if (!technician?.email || !technician.email.trim()) {
-        errs[`tech_${idx}_email`] = `Technician #${idx + 1} Email is required`;
-        sections.add("technicians");
-      }
-    });
+    if (technicians.length === 0) {
+      errs.technicians = "At least 1 Technician / Engineering Team details entry is required";
+      sections.add("technicians");
+    } else {
+      technicians.forEach((technician: any, idx: number) => {
+        if (!technician?.name || !technician.name.trim()) {
+          errs[`tech_${idx}_name`] = `Technician #${idx + 1} Name is required`;
+          sections.add("technicians");
+        }
+        if (!technician?.contact || !technician.contact.trim()) {
+          errs[`tech_${idx}_contact`] = `Technician #${idx + 1} Mobile Contact is required`;
+          sections.add("technicians");
+        }
+        if (!technician?.email || !technician.email.trim()) {
+          errs[`tech_${idx}_email`] = `Technician #${idx + 1} Email is required`;
+          sections.add("technicians");
+        }
+      });
+    }
 
     // 6. Shift Panel (Mandatory: remaining fields name, startTime, endTime)
     const shifts = formData.factory_op_shifts || [];
@@ -825,7 +826,7 @@ function ClientFormPage() {
                     <h4 className="text-xs font-mono font-bold uppercase text-text-secondary flex items-center gap-1.5">
                       Technicians & Engineers Details
                     </h4>
-                    <p className="text-[10px] text-text-dim mt-1">If you add any technician detail, name, contact, and email are all required.</p>
+                    <p className="text-[10px] text-text-dim mt-1">At least one technician is required. Name, mobile, and email are mandatory for every technician.</p>
                   </div>
                   <Button
                     variant="secondary"
