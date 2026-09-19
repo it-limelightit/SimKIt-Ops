@@ -5,10 +5,21 @@ import {
   Button,
   Card,
   Input,
+  Label,
 } from "@/components/ui-kit";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { usePhaseData } from "@/lib/use-phase-data";
 import { advanceSiteVisitStatus } from "@/lib/site-metadata";
+import { jsPDF } from "jspdf";
+import { Download, FileText } from "lucide-react";
 
 type Props = {
   siteId: string;
@@ -21,6 +32,77 @@ type Props = {
   viewerEmail?: string | null;
 };
 
+function formatCertificateDate(value: string) {
+  if (!value) return "";
+  const [year, month, day] = value.split("-");
+  if (!year || !month || !day) return value;
+  return `${day}/${month}/${year}`;
+}
+
+function makeDownloadFilename(companyName: string, extension: "doc" | "pdf") {
+  const safeCompany = companyName
+    .trim()
+    .replace(/[^a-z0-9]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "company";
+  return `Installation-Commissioning-Certificate-${safeCompany}.${extension}`;
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function getCertificateSections(companyName: string, certificateDate: string) {
+  return {
+    title: "Installation and Commissioning Certificate",
+    subtitle: "(Implementation of Shopfloor Insight & Monitoring Kit - SIM Kit)",
+    dateLine: `Date: ${certificateDate}`,
+    toLines: [
+      "To,",
+      "National Productivity Council (NPC)",
+      "(Under Ministry of Commerce & Industry, Government of India)",
+    ],
+    subject: "Subject: Certification of Successful Installation & Commissioning of SIM Kit",
+    greeting: "Dear Sir,",
+    paragraphs: [
+      "This is to certify that the Shopfloor Insight & Monitoring Kit (SIM Kit) has been successfully installed and commissioned at our facility under the project \"Scaling up Industry 4.0 Transformation in Gujarat's Manufacturing Sector.\"",
+      "We are pleased to confirm that:",
+    ],
+    bullets: [
+      "The SIM Kit device has been successfully installed and integrated with our machine.",
+      "Machine data acquisition has commenced, and real-time data is being captured.",
+      "The digital dashboard has been developed and is fully functional, providing clear visualization of operational parameters.",
+      "The system is currently operational across its key modules, including:",
+      "Overall Equipment Effectiveness (OEE) Monitoring",
+      "Breakdown Analysis",
+      "Condition Monitoring",
+      "Energy Monitoring",
+    ],
+    closingParagraphs: [
+      "With the implementation of SIM Kit, we are now able to monitor machine performance, analyze downtime, track energy consumption, and make informed decisions through data-driven insights. The initiative has significantly improved our shopfloor visibility and strengthened our journey towards Industry 4.0 adoption.",
+      "We appreciate the efforts of the Service Provider Startup, LimelightIT Research PVT LTD, for their technical support and smooth execution of the installation. We also extend our gratitude to the National Productivity Council (NPC) for their guidance and support throughout the project.",
+      "This certificate is issued as a confirmation of successful installation, commissioning, and operationalization of the SIM Kit system at our unit.",
+    ],
+    signOffLines: ["With regards,", `For ${companyName}`, "Authorized Signatory", "Name:", "Designation:", "Company Seal"],
+  };
+}
+
 export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit, onCommissioned, requireApproval = false, viewerEmail }: Props) {
   const { data, patch, save, loaded, lastSaved, saving } = usePhaseData<Record<string, any>>(
     "commissioning",
@@ -30,7 +112,16 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit, o
   );
   const [approvalRequest, setApprovalRequest] = useState<{ id: string; drive_link: string; status: string } | null>(null);
   const [reviewing, setReviewing] = useState(false);
+  const [certificateDialogOpen, setCertificateDialogOpen] = useState(false);
+  const [certificateCompanyName, setCertificateCompanyName] = useState("");
+  const [certificateDate, setCertificateDate] = useState(() => new Date().toISOString().slice(0, 10));
+  // Approval can only be requested after the commissioning Word certificate has been downloaded.
+  const [certificateWordDownloaded, setCertificateWordDownloaded] = useState(false);
   const canReview = ["patidarnit21@gmail.com", "info@limelightit.io"].includes((viewerEmail || "").toLowerCase());
+
+  useEffect(() => {
+    setCertificateWordDownloaded(false);
+  }, [siteId]);
 
   useEffect(() => {
     if (!requireApproval && !canReview) return;
@@ -59,6 +150,89 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit, o
   }, [canReview, requireApproval, siteId]);
 
   const nowIso = () => new Date().toISOString();
+
+  const openCertificateDialog = async () => {
+    const { data: site } = await supabase
+      .from("sites")
+      .select("company_name,name")
+      .eq("id", siteId)
+      .maybeSingle();
+    setCertificateCompanyName(site?.company_name || site?.name || "");
+    setCertificateDate(new Date().toISOString().slice(0, 10));
+    setCertificateDialogOpen(true);
+  };
+
+  const validateCertificateFields = () => {
+    if (!certificateCompanyName.trim()) {
+      toast.error("Company name is required.");
+      return null;
+    }
+    if (!certificateDate) {
+      toast.error("Date is required.");
+      return null;
+    }
+    return { companyName: certificateCompanyName.trim(), certificateDate: formatCertificateDate(certificateDate) };
+  };
+
+  const downloadCertificateWord = () => {
+    const fields = validateCertificateFields();
+    if (!fields) return;
+    const certificate = getCertificateSections(fields.companyName, fields.certificateDate);
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(certificate.title)}</title><style>
+      @page { size: A4; margin: 0.45in 0.65in; } body { font-family: "Times New Roman", serif; font-size: 10.5pt; line-height: 1.12; color: #000; }
+      h1 { font-size: 14.5pt; font-weight: bold; text-align: center; margin: 0 0 2pt; } .subtitle { text-align: center; margin: 0 0 12pt; } .date { text-align: right; margin: 0 0 12pt; }
+      .subject { font-weight: bold; margin: 12pt 0; } p { margin: 0 0 5pt; } ul { margin: 0 0 6pt 0.28in; padding: 0; } li { margin: 0 0 2pt; padding-left: 0.06in; } .signoff { margin-top: 12pt; } .signoff p { margin: 0 0 4pt; }
+    </style></head><body><h1>${escapeHtml(certificate.title)}</h1><p class="subtitle">${escapeHtml(certificate.subtitle)}</p><p class="date">${escapeHtml(certificate.dateLine)}</p>${certificate.toLines.map((line) => `<p>${escapeHtml(line)}</p>`).join("")}<p class="subject">${escapeHtml(certificate.subject)}</p><p>${escapeHtml(certificate.greeting)}</p>${certificate.paragraphs.map((line) => `<p>${escapeHtml(line)}</p>`).join("")}<ul>${certificate.bullets.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>${certificate.closingParagraphs.map((line) => `<p>${escapeHtml(line)}</p>`).join("")}<div class="signoff">${certificate.signOffLines.map((line) => `<p>${escapeHtml(line)}</p>`).join("")}</div></body></html>`;
+    downloadBlob(new Blob(["\ufeff", html], { type: "application/msword;charset=utf-8" }), makeDownloadFilename(fields.companyName, "doc"));
+    setCertificateWordDownloaded(true);
+    toast.success("Word certificate downloaded.");
+  };
+
+  const downloadCertificatePdf = () => {
+    const fields = validateCertificateFields();
+    if (!fields) return;
+    const certificate = getCertificateSections(fields.companyName, fields.certificateDate);
+    const pdf = new jsPDF({ unit: "pt", format: "a4" });
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const margin = 46;
+    const maxWidth = pageWidth - margin * 2;
+    let y = 42;
+    const addWrappedText = (text: string, options: { size?: number; bold?: boolean; align?: "left" | "center" | "right"; gap?: number; lineGap?: number } = {}) => {
+      pdf.setFont("times", options.bold ? "bold" : "normal");
+      pdf.setFontSize(options.size ?? 10.5);
+      pdf.splitTextToSize(text, maxWidth).forEach((line: string) => {
+        if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
+        const align = options.align ?? "left";
+        pdf.text(line, align === "center" ? pageWidth / 2 : align === "right" ? pageWidth - margin : margin, y, { align });
+        y += (options.size ?? 10.5) + (options.lineGap ?? 1.8);
+      });
+      y += options.gap ?? 3;
+    };
+    const addBulletText = (text: string) => {
+      pdf.setFont("times", "normal"); pdf.setFontSize(10.5);
+      const bulletX = margin + 18, textX = margin + 34;
+      const lines = pdf.splitTextToSize(text, pageWidth - margin - textX);
+      if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
+      pdf.text("•", bulletX, y);
+      lines.forEach((line: string, index: number) => {
+        if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
+        pdf.text(line, textX, y);
+        if (index < lines.length - 1) y += 12.3;
+      });
+      y += 14.2;
+    };
+    addWrappedText(certificate.title, { size: 14.5, bold: true, align: "center", gap: 1 });
+    addWrappedText(certificate.subtitle, { align: "center", gap: 12 });
+    addWrappedText(certificate.dateLine, { align: "right", gap: 12 });
+    certificate.toLines.forEach((line) => addWrappedText(line, { gap: 0 })); y += 6;
+    addWrappedText(certificate.subject, { bold: true, gap: 12 }); addWrappedText(certificate.greeting);
+    certificate.paragraphs.forEach((line) => addWrappedText(line)); certificate.bullets.forEach(addBulletText); y += 1;
+    certificate.closingParagraphs.forEach((line) => addWrappedText(line)); y += 8;
+    certificate.signOffLines.forEach((line) => addWrappedText(line, { gap: 0 }));
+    pdf.save(makeDownloadFilename(fields.companyName, "pdf"));
+    toast.success("PDF certificate downloaded.");
+  };
 
   const isCommissioned = 
     !!data.coordination_done && 
@@ -133,6 +307,12 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit, o
     /^https?:\/\/(?:drive|docs)\.google\.com\//i.test(value.trim());
 
   const submitForApproval = async () => {
+    // Keep the certificate requirement separate from Drive-link validation so both checks must pass.
+    if (!certificateWordDownloaded) {
+      toast.error("Please download the Word certificate before requesting commissioning approval.");
+      return;
+    }
+
     const driveLink = String(data.commissioning_drive_link || "").trim();
     if (!isGoogleDriveLink(driveLink)) {
       toast.error("Please enter a valid Google Drive link before submitting.");
@@ -212,6 +392,35 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit, o
 
   return (
     <>
+      <Dialog open={certificateDialogOpen} onOpenChange={setCertificateDialogOpen}>
+        <DialogContent className="z-[130] border-border bg-surface text-text-primary sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-syne uppercase tracking-tight">Create Commission Certificate</DialogTitle>
+            <DialogDescription className="text-text-secondary">
+              Enter the certificate details. This information is used only for the downloaded file.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Company Name</Label>
+              <Input value={certificateCompanyName} onChange={(event) => setCertificateCompanyName(event.target.value)} placeholder="Enter company name" />
+            </div>
+            <div>
+              <Label>Date</Label>
+              <Input type="date" value={certificateDate} onChange={(event) => setCertificateDate(event.target.value)} />
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:space-x-0">
+            <Button type="button" variant="secondary" onClick={downloadCertificateWord}>
+              <Download size={16} /> Download Word
+            </Button>
+            <Button type="button" onClick={downloadCertificatePdf}>
+              <Download size={16} /> Download PDF
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="flex items-center justify-end gap-2 text-xs text-text-secondary pb-2">
         {saving ? (
           <span className="flex items-center gap-1">
@@ -241,6 +450,26 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit, o
           </Badge>
         </div>
 
+        <div className="rounded-xl border border-violet/25 bg-violet/5 p-4 sm:p-5">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-text-primary">Step 1: Create your commissioning certificate</p>
+              <p className="mt-1 text-xs leading-5 text-text-secondary">
+                Download the certificate first, then complete the commissioning confirmation and approval details below.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full shrink-0 sm:w-auto"
+              onClick={() => void openCertificateDialog()}
+            >
+              <FileText size={16} />
+              Create Commission Certificate
+            </Button>
+          </div>
+        </div>
+
         {!isApprovalApproved && (
           <div className="flex items-start gap-3 p-4 bg-lime-dim/5 border border-lime/20 rounded-xl">
             <input
@@ -251,7 +480,7 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit, o
               onChange={(e) => handleToggleCommissioned(e.target.checked)}
             />
             <label htmlFor="confirm-commissioned-checkbox" className="text-base font-semibold text-text-primary select-none cursor-pointer">
-              I have commissioned
+              Step 2: I have commissioned
             </label>
           </div>
         )}
@@ -263,7 +492,7 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit, o
         ) : requireApproval && (
           <div className="space-y-2">
             <label htmlFor="commissioning-drive-link" className="text-sm font-semibold text-text-primary">
-              Google Drive Link <span className="text-red-500">*</span>
+              Step 3: Google Drive Link <span className="text-red-500">*</span>
             </label>
             <Input
               id="commissioning-drive-link"
@@ -281,6 +510,7 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit, o
             </p>
           </div>
         )}
+
       </Card>
 
       {canReview && approvalRequest?.status === "pending" && (
