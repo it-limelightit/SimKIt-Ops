@@ -640,6 +640,7 @@ function BusinessConsultantPage() {
             </div>
           </div>
 
+          {false && <>
           {/* Client Form Sharing */}
           <div className="bg-surface-raised/40 p-4 rounded-xl border border-border/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
@@ -721,6 +722,8 @@ function BusinessConsultantPage() {
               </div>
             </div>
           </div>
+
+          </>}
 
           {cleanNotes && (
             <div className="pt-4 border-t border-border/60 flex gap-2 text-sm text-text-secondary">

@@ -205,7 +205,9 @@ export function Overview() {
 
     // Parse client share details
     const siteMeta = parseSiteMetadata(site.task_notes);
-    setClientShareEmail(siteMeta.client_email || "");
+    // Do not display a previously saved client email when opening the dual-role
+    // Consultant modal; the address remains stored for sending functionality.
+    setClientShareEmail("");
     if (siteMeta.client_token) {
       setGeneratedLink(`${window.location.origin}/client-form?token=${siteMeta.client_token}`);
     } else {
@@ -399,6 +401,27 @@ export function Overview() {
       return;
     }
 
+    // The dual-role portal must advance the site's lifecycle status as well as
+    // save the assessment row. Otherwise the old "Not Started Yet" metadata
+    // overrides the submitted assessment and displays 0% progress.
+    const siteMeta = parseSiteMetadata(site.task_notes);
+    const { error: siteStatusError } = await supabase
+      .from("sites")
+      .update({
+        task_notes: serializeSiteMetadata(site.task_notes, {
+          ...siteMeta,
+          status: "Assessed",
+          status_source: "manager",
+        }),
+        consultant_stage: null,
+      } as never)
+      .eq("id", site.id);
+
+    if (siteStatusError) {
+      toast.error("Assessment was saved, but its site status could not be updated.");
+      return;
+    }
+
     await notifyAfterNewFactoryFormSubmission(site.id, existingData, {
       ...existingData,
       assessment_phase_submitted: true,
@@ -416,6 +439,7 @@ export function Overview() {
     });
 
     setModalSubmittedPhases(prev => new Set([...prev, "assessment"]));
+    setModalProgress(prev => ({ ...prev, assessment: 100 }));
     setModalTab("installation");
     toast.success("Assessment phase submitted.");
     await loadData();
@@ -2903,6 +2927,7 @@ return (
                     </div>
                   </div>
 
+                  {false && <>
                   {/* Client Form Sharing */}
                   <div className="bg-surface/50 p-4 rounded-xl border border-border flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
@@ -2984,6 +3009,8 @@ return (
                       </div>
                     </div>
                   </div>
+
+                  </>}
 
                   {modalCleanNotes && (
                     <div className="pt-4 border-t border-border/60 flex gap-2 text-sm text-text-secondary">

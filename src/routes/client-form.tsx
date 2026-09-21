@@ -497,6 +497,9 @@ function ClientFormPage() {
           token: token || "",
           assessmentData: {
             ...formData,
+            // Client submissions reach this point only after all required Factory
+            // Form fields pass validation, so they are complete and visible to Manager.
+            factory_operations_done: true,
             assessment_phase_submitted: true,
             factory_form_submitted_at: new Date().toISOString(),
           }

@@ -490,7 +490,9 @@ export function FactoryDataPanel() {
           submittedMonth: assess?.updated_at ? assess.updated_at.slice(0, 7) : "",
         };
       })
-      .filter(s => s.isSubmitted)
+      // Pending Factory Forms are not displayed, irrespective of whether the
+      // assessment was handled by a Field Associate or a dual-role user.
+      .filter(s => s.isSubmitted && s.isDone)
       .sort((a, b) => {
         if (a.credentialCreated !== b.credentialCreated) {
           return a.credentialCreated ? 1 : -1;
