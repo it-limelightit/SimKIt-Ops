@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
@@ -21,6 +21,14 @@ import { useAuth } from "@/lib/auth-store";
 import { advanceSiteVisitStatus, parseSiteMetadata, serializeSiteMetadata } from "@/lib/site-metadata";
 import { Plus, Trash2, Users, Wrench, AlertTriangle, ChevronDown, ChevronUp, Building2, Check, Mail, Clock } from "lucide-react";
 import { notifyAfterNewFactoryFormSubmission } from "@/lib/factory-form-notification";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 type Props = {
   siteId: string;
@@ -59,6 +67,19 @@ export function getAppointmentTimingStatus(scheduledDateStr: string | null, sche
 
 export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit, requireDeviceOrderCompletion = false, children }: Props) {
   const { data, patch, save, loaded, lastSaved, saving } = usePhaseData<AData>("assessment", siteId, workerId, {});
+  const factoryCompletionDefaultApplied = useRef(false);
+  const [factoryValidationError, setFactoryValidationError] = useState<string | null>(null);
+
+  // Each time this Assessment is opened, start the Factory Operations completion
+  // control as selected. The associate may still change it during this visit.
+  useEffect(() => {
+    if (!loaded || factoryCompletionDefaultApplied.current) return;
+    factoryCompletionDefaultApplied.current = true;
+    if (!data.factory_operations_done) {
+      patch({ factory_operations_done: true });
+    }
+  }, [loaded, data.factory_operations_done, patch]);
+
   const validateSectionLinks = async (sectionName: string, defaultSectionKeys: string[]) => {
     for (const key of defaultSectionKeys) {
       const { data: mediaRows } = await supabase
@@ -330,8 +351,8 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit, requ
             <div className="mt-6 space-y-6 animate-in fade-in duration-200">
               <FactoryOperationsCardContent data={data} patch={patch} siteId={siteId} />
               <CompleteJobRow
-                checked={!!data.factory_operations_done}
-                onToggle={() => patch({ factory_operations_done: !data.factory_operations_done })}
+                checked={data.factory_operations_done !== false}
+                onToggle={() => patch({ factory_operations_done: data.factory_operations_done === false })}
                 validate={() => {
                   const check = validateFactoryOperationsForm(data);
                   if (!check.isValid) {
@@ -360,25 +381,34 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit, requ
               return;
             }
 
-            if (shouldShow("Factory Operations")) {
-              const check = validateFactoryOperationsForm(data);
-              if (!check.isValid) {
-                toast.error(check.errorMsg || "Mandatory fields missing in Factory Operations Form.");
-                return;
-              }
+            const factoryFormCheck = validateFactoryOperationsForm(data);
+            if (data.factory_operations_done !== false && !factoryFormCheck.isValid) {
+              setFactoryValidationError(factoryFormCheck.errorMsg || "Mandatory fields are missing in the Factory Operations Form.");
+              return;
             }
+
+            // Every valid Factory Form must explicitly persist its completion flag
+            // on the first submission as well as after a later pending-form refill.
+            const dataToSave = factoryFormCheck.isValid
+              ? { ...data, factory_operations_done: true }
+              : data;
+
+            // Persist the current draft first so partially completed Factory Operations
+            // data remains visible in Factory Form Data after assessment submission.
+            const draftSaved = await save(dataToSave);
+            if (!draftSaved) return;
 
             if (onSubmit) await onSubmit();
             if (requireDeviceOrderCompletion) return;
 
             const nextData = {
-              ...data,
+              ...dataToSave,
               assessment_phase_submitted: true,
               assessment_details_submitted: true,
               factory_form_submitted_at: new Date().toISOString(),
             };
             const saved = await save(nextData);
-            if (saved) await notifyAfterNewFactoryFormSubmission(siteId, data, nextData);
+            if (saved) await notifyAfterNewFactoryFormSubmission(siteId, dataToSave, nextData);
             toast.success("Assessment phase submitted.");
           }}
           className="w-full sm:w-auto text-base py-3 px-8"
@@ -386,6 +416,41 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit, requ
           Submit Assessment Phase
         </Button>
       </div>
+
+      <Dialog open={!!factoryValidationError} onOpenChange={(open) => !open && setFactoryValidationError(null)}>
+        <DialogContent className="z-[130] border-border bg-surface text-text-primary sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-syne uppercase tracking-tight">Complete Factory Form or Mark Pending</DialogTitle>
+            <DialogDescription className="text-text-secondary">
+              You marked Factory Operations as complete, but a required detail is missing: {factoryValidationError}
+              <br /><br />
+              Complete the form, or mark it pending to submit the assessment without Factory Form data appearing in the Manager dashboard.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:space-x-0">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setFactoryValidationError(null);
+                setExpandedSections({ "Factory Operations": true });
+              }}
+            >
+              Complete Factory Form
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                setFactoryValidationError(null);
+                patch({ factory_operations_done: false });
+                toast.message("Factory Form marked pending. Submit the assessment when ready.");
+              }}
+            >
+              Mark Factory Form Pending
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
@@ -665,12 +730,13 @@ export function validateFactoryOperationsForm(data: Record<string, any>): { isVa
     }
   }
 
-  // 5. Technicians are optional, but every added technician must be complete.
+  // 5. At least one technician is required, and every technician must be complete.
   const technicians = data.factory_op_technicians ?? [];
+  if (!technicians.length) {
+    return { isValid: false, errorMsg: "At least one Technician / Engineering Team entry is required.", invalidSection: "technicians" };
+  }
   for (let i = 0; i < technicians.length; i++) {
     const technician = technicians[i];
-    const hasAnyDetail = [technician?.name, technician?.contact, technician?.email].some((value) => !isBlank(value));
-    if (!hasAnyDetail) continue;
     if (isBlank(technician?.name)) {
       return { isValid: false, errorMsg: `Technician #${i + 1} Name is required.`, invalidSection: "technicians" };
     }
@@ -1167,7 +1233,7 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
               <h4 className="font-syne text-xs font-bold uppercase tracking-wider text-text-primary">
                 Technicians & Engineering Team
               </h4>
-              <p className="text-[10px] text-text-dim mt-1">If you add any technician detail, name, mobile, and email are all required.</p>
+              <p className="text-[10px] text-text-dim mt-1">At least one technician is required. Name, mobile, and email are mandatory for every technician.</p>
             </div>
             <Button
               type="button"

@@ -490,7 +490,9 @@ export function FactoryDataPanel() {
           submittedMonth: assess?.updated_at ? assess.updated_at.slice(0, 7) : "",
         };
       })
-      .filter(s => s.isSubmitted)
+      // Pending Factory Forms are not displayed, irrespective of whether the
+      // assessment was handled by a Field Associate or a dual-role user.
+      .filter(s => s.isSubmitted && s.isDone)
       .sort((a, b) => {
         if (a.credentialCreated !== b.credentialCreated) {
           return a.credentialCreated ? 1 : -1;
@@ -833,7 +835,29 @@ export function FactoryDataPanel() {
       }
     }
 
-    // 5. Shift Validation
+    // 5. Technician / Engineering Team Validation
+    const technicians = editData.factory_op_technicians || [];
+    if (technicians.length === 0) {
+      toast.error("Validation Error: At least 1 Technician / Engineering Team entry is required");
+      return;
+    }
+    for (let idx = 0; idx < technicians.length; idx++) {
+      const technician = technicians[idx];
+      if (!technician.name || !technician.name.trim()) {
+        toast.error(`Validation Error: Technician #${idx + 1} Name is required`);
+        return;
+      }
+      if (!technician.contact || !technician.contact.trim()) {
+        toast.error(`Validation Error: Technician #${idx + 1} Mobile Contact is required`);
+        return;
+      }
+      if (!technician.email || !technician.email.trim()) {
+        toast.error(`Validation Error: Technician #${idx + 1} Email Address is required`);
+        return;
+      }
+    }
+
+    // 6. Shift Validation
     const shifts = editData.factory_op_shifts || [];
     if (shifts.length === 0) {
       toast.error("Validation Error: At least 1 Shift timing entry is required");
@@ -859,7 +883,7 @@ export function FactoryDataPanel() {
       }
     }
 
-    // 6. Electricity Board
+    // 7. Electricity Board
     if (!editData.factory_op_electricity_board || !editData.factory_op_electricity_board.trim()) {
       toast.error("Validation Error: Electricity Board selection is required");
       return;
