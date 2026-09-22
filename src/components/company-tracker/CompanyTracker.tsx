@@ -187,7 +187,8 @@ export function CompanyTracker() {
     setBusy(false);
     if (error) return toast.error(error.message);
     toast.success("Company removed from the tracker.");
-    void load();
+    setMonitorDetails(null);
+    await load();
   };
   const addComment = async () => {
     if (!commentFor || !comment.trim()) return toast.error("Enter a comment.");
@@ -218,7 +219,8 @@ export function CompanyTracker() {
     setBusy(false);
     if (error) return toast.error(error.message);
     toast.success("Stage updated.");
-    void load();
+    setMonitorDetails(null);
+    await load();
   };
   const movePrevious = async (item: Tracker) => {
     const text = window.prompt(
@@ -233,7 +235,8 @@ export function CompanyTracker() {
     setBusy(false);
     if (error) return toast.error(error.message);
     toast.success("Company moved to the previous stage.");
-    void load();
+    setMonitorDetails(null);
+    await load();
   };
   const saveMonitoring = async (outcome?: "work" | "leave") => {
     if (!monitorFor) return;
@@ -251,7 +254,8 @@ export function CompanyTracker() {
         : `Day ${day} saved as ${data}.`,
     );
     setMonitorFor(null);
-    void load();
+    setMonitorDetails(null);
+    await load();
   };
   const openMonitoring = (item: Tracker, num: number) => {
     const existing = item.monitoring_days.find((x) => x.day_number === num);
@@ -268,13 +272,17 @@ export function CompanyTracker() {
     });
     setBusy(false);
     if (error) return toast.error(error.message);
-    toast.success(
-      data === "Monitoring"
-        ? "Issue Resolution complete — moved to Monitoring."
-        : "Checklist saved. Complete all items to start Monitoring.",
-    );
+    const completedChecks = checklistFields.filter((field) => issueChecks[field]).length;
+    if (data === "Monitoring") {
+      toast.success("All six checks are complete — moved to Monitoring.");
+    } else {
+      toast.error(
+        `${completedChecks} of 6 checks selected. Complete all six checks to start Monitoring.`,
+      );
+    }
     setIssueFor(null);
-    void load();
+    setMonitorDetails(null);
+    await load();
   };
   const openIssueResolution = (item: Tracker) => {
     setIssueFor(item);
@@ -493,8 +501,14 @@ export function CompanyTracker() {
         >
           <TrackerCard
             item={monitorDetails}
-            onComment={() => setCommentFor(monitorDetails)}
-            onViewComments={() => setCommentsView(monitorDetails)}
+            onComment={() => {
+              setMonitorDetails(null);
+              setCommentFor(monitorDetails);
+            }}
+            onViewComments={() => {
+              setMonitorDetails(null);
+              setCommentsView(monitorDetails);
+            }}
             onMove={() => move(monitorDetails)}
             onMovePrevious={() => movePrevious(monitorDetails)}
             onMonitor={(n) => openMonitoring(monitorDetails, n)}
@@ -595,7 +609,9 @@ function Kpi({
 function MonitoringSummaryCard({ item, onOpen }: { item: Tracker; onOpen: () => void }) {
   const failed = item.monitoring_days.some((day) => day.result === "red");
   const totalDays = failed ? 11 : 6;
-  const issueChecksComplete = checklistFields.filter((field) => item.issue_checklist?.[field]).length;
+  const issueChecksComplete = checklistFields.filter(
+    (field) => item.issue_checklist?.[field],
+  ).length;
   return (
     <button
       type="button"
@@ -617,7 +633,9 @@ function MonitoringSummaryCard({ item, onOpen }: { item: Tracker; onOpen: () => 
       {item.stage === "Issue Resolution" && (
         <div className="mt-3 flex items-center justify-between gap-2">
           <span className="text-[10px] font-medium text-text-secondary">Resolution checklist</span>
-          <span className="font-mono text-[10px] text-text-primary">{issueChecksComplete} / 6 selected</span>
+          <span className="font-mono text-[10px] text-text-primary">
+            {issueChecksComplete} / 6 selected
+          </span>
         </div>
       )}
       {item.stage === "Monitoring" && (
