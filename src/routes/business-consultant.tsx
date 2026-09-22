@@ -2,17 +2,61 @@ import { useEffect, useRef, useState } from "react";
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-store";
-import { Badge, Button, ProgressBar, Skeleton, Select, Label, Card, Input } from "@/components/ui-kit";
+import {
+  Badge,
+  Button,
+  ProgressBar,
+  Skeleton,
+  Select,
+  Label,
+  Card,
+  Input,
+} from "@/components/ui-kit";
 import { AssessmentTab } from "@/components/business-consultant/AssessmentTab";
 import { InstallationTab } from "@/components/business-consultant/InstallationTab";
 import { CommissioningTab } from "@/components/business-consultant/CommissioningTab";
-import { LogOut, Check, CheckCircle2, CircleX, MapPin, Calendar, Clock, BookOpen, Boxes, Sun, Moon, User, Phone, Mail, Lock, Wrench, Building2, Layers, BarChart3, Activity, TrendingUp } from "lucide-react";
+import {
+  LogOut,
+  Check,
+  CheckCircle2,
+  CircleX,
+  MapPin,
+  Calendar,
+  Clock,
+  BookOpen,
+  Boxes,
+  Sun,
+  Moon,
+  User,
+  Phone,
+  Mail,
+  Lock,
+  Wrench,
+  Building2,
+  Layers,
+  BarChart3,
+  Activity,
+  TrendingUp,
+  KanbanSquare,
+  ClipboardList,
+} from "lucide-react";
 import { parseTaskNotes } from "@/components/staff/TasksPanel";
-import { parseSiteMetadata, recordStatusActivityLog, serializeSiteMetadata } from "@/lib/site-metadata";
+import {
+  parseSiteMetadata,
+  recordStatusActivityLog,
+  serializeSiteMetadata,
+} from "@/lib/site-metadata";
 import { toast } from "sonner";
 import { InventoryPanel } from "@/components/inventory/InventoryPanel";
+import { CompanyTracker } from "@/components/company-tracker/CompanyTracker";
 import { OrderTab } from "@/components/business-consultant/OrderTab";
-import { getCanonicalStatus, getAssessmentPendingReasons, getDisplayPhaseProgress, getSubmittedLogisticsOrder, hasDeviceOrder } from "@/utils/status";
+import {
+  getCanonicalStatus,
+  getAssessmentPendingReasons,
+  getDisplayPhaseProgress,
+  getSubmittedLogisticsOrder,
+  hasDeviceOrder,
+} from "@/utils/status";
 import { notifyAfterNewFactoryFormSubmission } from "@/lib/factory-form-notification";
 
 export const Route = createFileRoute("/business-consultant")({
@@ -21,28 +65,43 @@ export const Route = createFileRoute("/business-consultant")({
   component: BusinessConsultantPage,
 });
 
-type Site = { id: string; name: string; company_name: string | null; city: string | null; address: string | null; assigned_at: string | null; appt_date: string | null; appt_time: string | null; task_notes: string | null; consultant_stage: string | null };
+type Site = {
+  id: string;
+  name: string;
+  company_name: string | null;
+  city: string | null;
+  address: string | null;
+  assigned_at: string | null;
+  appt_date: string | null;
+  appt_time: string | null;
+  task_notes: string | null;
+  consultant_stage: string | null;
+};
 
 function BusinessConsultantPage() {
   const navigate = useNavigate();
   const { ready, userId, email, role, profile, signOut } = useAuth();
 
-  const [view, setView] = useState<"dashboard" | "submission" | "inventory">("dashboard");
+  const [view, setView] = useState<"dashboard" | "submission" | "inventory" | "tracker">("dashboard");
   const [sitesList, setSitesList] = useState<Site[]>([]);
-  const [sitesWithProgress, setSitesWithProgress] = useState<Array<Site & {
-    aPct: number;
-    iPct: number;
-    cPct: number;
-    overall: number;
-    status: "Complete" | "Working" | "Pending";
-    derivedStatus: string;
-    assessmentPendingReasons: string[];
-    submitted: {
-      assessment: boolean;
-      installation: boolean;
-      commissioning: boolean;
-    };
-  }>>([]);
+  const [sitesWithProgress, setSitesWithProgress] = useState<
+    Array<
+      Site & {
+        aPct: number;
+        iPct: number;
+        cPct: number;
+        overall: number;
+        status: "Complete" | "Working" | "Pending";
+        derivedStatus: string;
+        assessmentPendingReasons: string[];
+        submitted: {
+          assessment: boolean;
+          installation: boolean;
+          commissioning: boolean;
+        };
+      }
+    >
+  >([]);
   const [selectedSiteId, setSelectedSiteId] = useState<string>("");
   const [selectedFactoryId, setSelectedFactoryId] = useState<string>("");
   const [site, setSite] = useState<Site | null | undefined>(undefined);
@@ -65,11 +124,14 @@ function BusinessConsultantPage() {
 
     setSendingEmail(true);
     try {
-      const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      const token =
+        Math.random().toString(36).substring(2, 15) +
+        Math.random().toString(36).substring(2, 15) +
+        Math.random().toString(36).substring(2, 15);
       const { error } = await supabase.rpc("save_client_invitation", {
         site_id: site.id,
         client_email: clientShareEmail.trim(),
-        token_val: token
+        token_val: token,
       });
 
       if (error) {
@@ -83,8 +145,8 @@ function BusinessConsultantPage() {
           email: clientShareEmail.trim(),
           token: token,
           siteName: site.company_name || site.name,
-          origin: window.location.origin
-        }
+          origin: window.location.origin,
+        },
       });
 
       if (res.success) {
@@ -93,9 +155,9 @@ function BusinessConsultantPage() {
             description: `Verify Ethereal mailbox here: ${res.previewUrl}`,
             action: {
               label: "Open Mail Inbox",
-              onClick: () => window.open(res.previewUrl!, "_blank")
+              onClick: () => window.open(res.previewUrl!, "_blank"),
             },
-            duration: 15000
+            duration: 15000,
           });
         } else {
           toast.success("Invitation email sent successfully to the client!");
@@ -113,12 +175,15 @@ function BusinessConsultantPage() {
   const handleGenerateShareLink = async () => {
     if (!site) return;
     try {
-      const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      const token =
+        Math.random().toString(36).substring(2, 15) +
+        Math.random().toString(36).substring(2, 15) +
+        Math.random().toString(36).substring(2, 15);
 
       const { error } = await supabase.rpc("save_client_invitation", {
         site_id: site.id,
         client_email: clientShareEmail.trim(),
-        token_val: token
+        token_val: token,
       });
 
       if (error) {
@@ -171,7 +236,9 @@ function BusinessConsultantPage() {
     if (!userId) return;
     const { data, error } = await supabase
       .from("sites")
-      .select("id,name,company_name,city,address,assigned_at,appt_date,appt_time,task_notes,consultant_stage")
+      .select(
+        "id,name,company_name,city,address,assigned_at,appt_date,appt_time,task_notes,consultant_stage",
+      )
       .or(`assigned_worker_id.eq.${userId},task_notes.ilike.%"${userId}"%`)
       .order("assigned_at", { ascending: false });
 
@@ -189,33 +256,40 @@ function BusinessConsultantPage() {
       return;
     }
 
-    const siteIds = data.map(s => s.id);
+    const siteIds = data.map((s) => s.id);
     const [aRes, iRes, cRes, mRes] = await Promise.all([
       supabase.from("assessment").select("site_id,data").in("site_id", siteIds),
       supabase.from("installation").select("site_id,data").in("site_id", siteIds),
       supabase.from("commissioning").select("site_id,data").in("site_id", siteIds),
-      supabase.from("inventory_materials").select("state,notes,submitted,material_name,created_at")
+      supabase.from("inventory_materials").select("state,notes,submitted,material_name,created_at"),
     ]);
 
-    const aMap = new Map((aRes.data ?? []).map(r => [r.site_id, r]));
-    const iMap = new Map((iRes.data ?? []).map(r => [r.site_id, r]));
-    const cMap = new Map((cRes.data ?? []).map(r => [r.site_id, r]));
+    const aMap = new Map((aRes.data ?? []).map((r) => [r.site_id, r]));
+    const iMap = new Map((iRes.data ?? []).map((r) => [r.site_id, r]));
+    const cMap = new Map((cRes.data ?? []).map((r) => [r.site_id, r]));
     const materials = mRes.data ?? [];
 
-    const sitesData = data.map(s => {
+    const sitesData = data.map((s) => {
       const aData = aMap.get(s.id)?.data;
       const iData = iMap.get(s.id)?.data;
       const cData = cMap.get(s.id)?.data;
 
       const aPctRaw = pctCount(aData, ASSESSMENT_KEYS);
-      const iPctRaw = iData?.installation_phase_submitted ? 100 : pctCount(iData, INSTALLATION_KEYS);
-      const cPctRaw = cData?.commissioning_phase_submitted ? 100 : pctCount(cData, COMMISSIONING_KEYS);
+      const iPctRaw = iData?.installation_phase_submitted
+        ? 100
+        : pctCount(iData, INSTALLATION_KEYS);
+      const cPctRaw = cData?.commissioning_phase_submitted
+        ? 100
+        : pctCount(cData, COMMISSIONING_KEYS);
       const submitted = {
         assessment: !!aData?.assessment_phase_submitted || aPctRaw === 100,
         installation: !!iData?.installation_phase_submitted || iPctRaw === 100,
         commissioning: !!cData?.commissioning_phase_submitted,
       };
-      const assessmentPendingReasons = getAssessmentPendingReasons(aData, hasDeviceOrder(s, aData, materials));
+      const assessmentPendingReasons = getAssessmentPendingReasons(
+        aData,
+        hasDeviceOrder(s, aData, materials),
+      );
 
       const derivedStatus = getCanonicalStatus(s, aMap, iMap, cMap, materials);
 
@@ -246,7 +320,7 @@ function BusinessConsultantPage() {
         status,
         derivedStatus,
         assessmentPendingReasons,
-        submitted
+        submitted,
       };
     });
 
@@ -255,7 +329,7 @@ function BusinessConsultantPage() {
     setSitesWithProgress(sitesData);
 
     if (sitesData.length > 0) {
-      const currentStillExists = sitesData.find(s => s.id === selectedSiteId);
+      const currentStillExists = sitesData.find((s) => s.id === selectedSiteId);
       if (!currentStillExists) {
         setSite(sitesData[0]);
         setSelectedSiteId(sitesData[0].id);
@@ -284,7 +358,7 @@ function BusinessConsultantPage() {
         },
         () => {
           void fetchSites();
-        }
+        },
       )
       .on(
         "postgres_changes",
@@ -295,7 +369,7 @@ function BusinessConsultantPage() {
         },
         () => {
           void fetchSites();
-        }
+        },
       )
       .on(
         "postgres_changes",
@@ -306,7 +380,7 @@ function BusinessConsultantPage() {
         },
         () => {
           void fetchSites();
-        }
+        },
       )
       .on(
         "postgres_changes",
@@ -317,7 +391,7 @@ function BusinessConsultantPage() {
         },
         () => {
           void fetchSites();
-        }
+        },
       )
       .on(
         "postgres_changes",
@@ -328,7 +402,7 @@ function BusinessConsultantPage() {
         },
         () => {
           void fetchSites();
-        }
+        },
       )
       .subscribe();
 
@@ -340,7 +414,7 @@ function BusinessConsultantPage() {
   const handleSiteChange = (id: string) => {
     setSelectedSiteId(id);
     setSelectedFactoryId(id);
-    const found = sitesList.find(s => s.id === id);
+    const found = sitesList.find((s) => s.id === id);
     if (found) {
       setSite(found);
     }
@@ -353,8 +427,12 @@ function BusinessConsultantPage() {
 
   const { cleanNotes } = parseTaskNotes(site?.task_notes ?? null);
   const meta = parseSiteMetadata(site?.task_notes ?? null);
-  const selectedSiteWithProgress = sitesWithProgress.find(s => s.id === site?.id);
-  const displayedStatus = selectedSiteWithProgress?.derivedStatus || site?.consultant_stage || meta.status || "Not Started Yet";
+  const selectedSiteWithProgress = sitesWithProgress.find((s) => s.id === site?.id);
+  const displayedStatus =
+    selectedSiteWithProgress?.derivedStatus ||
+    site?.consultant_stage ||
+    meta.status ||
+    "Not Started Yet";
   const displayedStatusLabel =
     displayedStatus === "Pending Assignment" || displayedStatus === "Not Started Yet"
       ? "Pending Assessment"
@@ -446,21 +524,24 @@ function BusinessConsultantPage() {
       .maybeSingle();
 
     const existingData = (assessmentRow?.data ?? {}) as Record<string, any>;
-    const { error } = await supabase
-      .from("assessment")
-      .upsert({
+    const { error } = await supabase.from("assessment").upsert(
+      {
         site_id: site.id,
         worker_id: userId,
         data: {
           ...existingData,
           assessment_phase_submitted: true,
           assessment_details_submitted: true,
-          factory_form_submitted_at: existingData.factory_form_submitted_at || new Date().toISOString(),
+          factory_form_submitted_at:
+            existingData.factory_form_submitted_at || new Date().toISOString(),
           device_order_completed: true,
-          device_order_completed_at: existingData.device_order_completed_at || new Date().toISOString(),
+          device_order_completed_at:
+            existingData.device_order_completed_at || new Date().toISOString(),
         },
         updated_at: new Date().toISOString(),
-      }, { onConflict: "site_id" });
+      },
+      { onConflict: "site_id" },
+    );
 
     if (error) {
       toast.error("Device order saved, but assessment status could not be completed.");
@@ -478,7 +559,7 @@ function BusinessConsultantPage() {
 
     const statusSaved = await updateSiteAssociateStatus("Assessed");
     if (!statusSaved) return;
-    setSubmittedPhases(prev => new Set([...prev, "assessment"]));
+    setSubmittedPhases((prev) => new Set([...prev, "assessment"]));
     setTab("installation");
     toast.success("Assessment phase submitted.");
     await fetchSites();
@@ -493,17 +574,18 @@ function BusinessConsultantPage() {
     });
 
     const nextSubmitted = new Set<string>();
-    if ((site as any).submitted?.assessment || (site as any).aPct === 100) nextSubmitted.add("assessment");
-    if ((site as any).submitted?.installation || (site as any).iPct === 100) nextSubmitted.add("installation");
+    if ((site as any).submitted?.assessment || (site as any).aPct === 100)
+      nextSubmitted.add("assessment");
+    if ((site as any).submitted?.installation || (site as any).iPct === 100)
+      nextSubmitted.add("installation");
     if ((site as any).submitted?.commissioning) nextSubmitted.add("commissioning");
     setSubmittedPhases(nextSubmitted);
 
-    const nextForwardTab =
-      !nextSubmitted.has("assessment")
-        ? "assessment"
-        : !nextSubmitted.has("installation")
-          ? "installation"
-          : "commissioning";
+    const nextForwardTab = !nextSubmitted.has("assessment")
+      ? "assessment"
+      : !nextSubmitted.has("installation")
+        ? "installation"
+        : "commissioning";
     const siteChanged = lastTabbedSiteIdRef.current !== site.id;
 
     if (siteChanged) {
@@ -531,7 +613,9 @@ function BusinessConsultantPage() {
     return (
       <Shell onSignOut={signOut} onGoToDashboard={() => setView("dashboard")}>
         <div className="card-surface mt-12 text-center">
-          <h2 className="text-2xl font-bold text-lime uppercase tracking-wider font-syne">Awaiting approval</h2>
+          <h2 className="text-2xl font-bold text-lime uppercase tracking-wider font-syne">
+            Awaiting approval
+          </h2>
           <p className="mt-3 text-sm text-text-secondary">
             Your account is pending manager activation. Check back soon.
           </p>
@@ -542,7 +626,14 @@ function BusinessConsultantPage() {
 
   if (view === "dashboard") {
     return (
-      <Shell onSignOut={signOut} profileName={profile?.name ?? undefined} onGoToDashboard={() => setView("dashboard")} onGoToInventory={() => setView("inventory")}>
+      <Shell
+        onSignOut={signOut}
+        profileName={profile?.name ?? undefined}
+        onGoToDashboard={() => setView("dashboard")}
+        onGoToInventory={() => setView("inventory")}
+        onGoToTracker={() => setView("tracker")}
+        assignmentsActive
+      >
         <div className="mt-8">
           <ConsultantDashboard sites={sitesWithProgress} onSelectSite={selectSiteFromDashboard} />
         </div>
@@ -552,17 +643,47 @@ function BusinessConsultantPage() {
 
   if (view === "inventory") {
     return (
-      <Shell onSignOut={signOut} profileName={profile?.name ?? undefined} onGoToDashboard={() => setView("dashboard")} onGoToInventory={() => setView("inventory")} inventoryActive>
-        <div className="py-9"><InventoryPanel /></div>
+      <Shell
+        onSignOut={signOut}
+        profileName={profile?.name ?? undefined}
+        onGoToDashboard={() => setView("dashboard")}
+        onGoToInventory={() => setView("inventory")}
+        onGoToTracker={() => setView("tracker")}
+        inventoryActive
+      >
+        <div className="py-9">
+          <InventoryPanel />
+        </div>
+      </Shell>
+    );
+  }
+
+  if (view === "tracker") {
+    return (
+      <Shell
+        onSignOut={signOut}
+        profileName={profile?.name ?? undefined}
+        onGoToDashboard={() => setView("dashboard")}
+        onGoToInventory={() => setView("inventory")}
+        onGoToTracker={() => setView("tracker")}
+        trackerActive
+      >
+        <div className="py-9"><CompanyTracker /></div>
       </Shell>
     );
   }
 
   if (!site) {
     return (
-      <Shell onSignOut={signOut} showDashboardBtn={true} onGoToDashboard={() => setView("dashboard")}>
+      <Shell
+        onSignOut={signOut}
+        showDashboardBtn={true}
+        onGoToDashboard={() => setView("dashboard")}
+      >
         <div className="card-surface mt-12 text-center">
-          <h2 className="text-2xl font-bold text-lime uppercase tracking-wider font-syne">No site assigned</h2>
+          <h2 className="text-2xl font-bold text-lime uppercase tracking-wider font-syne">
+            No site assigned
+          </h2>
           <p className="mt-3 text-sm text-text-secondary">
             Task will be assigned. Check back soon.
           </p>
@@ -571,7 +692,9 @@ function BusinessConsultantPage() {
     );
   }
 
-  const overall = Math.round((progress.assessment + progress.installation + progress.commissioning) / 3);
+  const overall = Math.round(
+    (progress.assessment + progress.installation + progress.commissioning) / 3,
+  );
 
   // Submission-only: no dependency on progress %
   const isAssessmentDone = submittedPhases.has("assessment");
@@ -584,9 +707,13 @@ function BusinessConsultantPage() {
   ] as const;
 
   return (
-    <Shell onSignOut={signOut} profileName={profile?.name ?? undefined} showDashboardBtn={true} onGoToDashboard={() => setView("dashboard")}>
+    <Shell
+      onSignOut={signOut}
+      profileName={profile?.name ?? undefined}
+      showDashboardBtn={true}
+      onGoToDashboard={() => setView("dashboard")}
+    >
       <div className="mt-8 space-y-6">
-
         {/* Factory Details Box matching Mockup */}
         <div className="bg-surface/50 backdrop-blur-md p-6 rounded-xl border border-border hover:border-lime/20 transition-all duration-300 shadow-[0_4px_30px_rgba(0,0,0,0.05)] space-y-6">
           <div className="flex items-center justify-between border-b border-border/60 pb-3">
@@ -598,7 +725,20 @@ function BusinessConsultantPage() {
                 {site.name}
               </h3>
             </div>
-            <Badge tone={displayedStatus === "Submitted" || displayedStatus === "Commissioned" || displayedStatus === "Billing" || displayedStatus === "Completion" ? "success" : displayedStatus === "Dropped / Rejected" ? "danger" : displayedStatusLabel === "Pending Assessment" ? "info" : "warning"}>
+            <Badge
+              tone={
+                displayedStatus === "Submitted" ||
+                displayedStatus === "Commissioned" ||
+                displayedStatus === "Billing" ||
+                displayedStatus === "Completion"
+                  ? "success"
+                  : displayedStatus === "Dropped / Rejected"
+                    ? "danger"
+                    : displayedStatusLabel === "Pending Assessment"
+                      ? "info"
+                      : "warning"
+              }
+            >
               {displayedStatusLabel}
             </Badge>
           </div>
@@ -608,9 +748,15 @@ function BusinessConsultantPage() {
             <div className="bg-surface-raised/40 p-4 rounded-xl border border-border/80 flex gap-3">
               <MapPin className="text-lime w-5 h-5 shrink-0 mt-0.5" />
               <div>
-                <div className="font-mono text-[9px] uppercase tracking-wider text-text-secondary">Location & Address</div>
-                <p className="mt-1 font-semibold text-text-primary text-sm leading-snug">{site.address || "—"}</p>
-                <span className="inline-block mt-2 font-mono text-[10px] bg-surface px-2 py-0.5 border border-border rounded text-text-secondary font-bold uppercase">{site.city || "—"}</span>
+                <div className="font-mono text-[9px] uppercase tracking-wider text-text-secondary">
+                  Location & Address
+                </div>
+                <p className="mt-1 font-semibold text-text-primary text-sm leading-snug">
+                  {site.address || "—"}
+                </p>
+                <span className="inline-block mt-2 font-mono text-[10px] bg-surface px-2 py-0.5 border border-border rounded text-text-secondary font-bold uppercase">
+                  {site.city || "—"}
+                </span>
               </div>
             </div>
 
@@ -618,12 +764,19 @@ function BusinessConsultantPage() {
             <div className="bg-surface-raised/40 p-4 rounded-xl border border-border/80 flex gap-3">
               <User className="text-lime w-5 h-5 shrink-0 mt-0.5" />
               <div className="flex-1 min-w-0">
-                <div className="font-mono text-[9px] uppercase tracking-wider text-text-secondary">Primary Contact</div>
-                {(meta.c1_name || meta.c1_mobile || meta.c1_email) ? (
+                <div className="font-mono text-[9px] uppercase tracking-wider text-text-secondary">
+                  Primary Contact
+                </div>
+                {meta.c1_name || meta.c1_mobile || meta.c1_email ? (
                   <div className="mt-1 space-y-1 text-sm">
-                    {meta.c1_name && <p className="font-semibold text-text-primary truncate">{meta.c1_name}</p>}
+                    {meta.c1_name && (
+                      <p className="font-semibold text-text-primary truncate">{meta.c1_name}</p>
+                    )}
                     {meta.c1_mobile && (
-                      <a href={`tel:${meta.c1_mobile}`} className="text-lime hover:underline font-mono text-xs flex items-center gap-1.5 mt-0.5 font-bold">
+                      <a
+                        href={`tel:${meta.c1_mobile}`}
+                        className="text-lime hover:underline font-mono text-xs flex items-center gap-1.5 mt-0.5 font-bold"
+                      >
                         <Phone size={11} /> {meta.c1_mobile}
                       </a>
                     )}
@@ -640,90 +793,95 @@ function BusinessConsultantPage() {
             </div>
           </div>
 
-          {false && <>
-          {/* Client Form Sharing */}
-          <div className="bg-surface-raised/40 p-4 rounded-xl border border-border/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <Mail className="text-lime w-5 h-5 shrink-0" />
-              <div>
-                <h4 className="font-syne font-bold text-xs uppercase tracking-wider text-text-primary">
-                  Client Self-Submission Link
-                </h4>
-                <p className="text-[10px] text-text-secondary mt-0.5">
-                  Generate a secure access key to invite the client to fill their factory details directly.
-                </p>
-              </div>
-            </div>
+          {false && (
+            <>
+              {/* Client Form Sharing */}
+              <div className="bg-surface-raised/40 p-4 rounded-xl border border-border/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <Mail className="text-lime w-5 h-5 shrink-0" />
+                  <div>
+                    <h4 className="font-syne font-bold text-xs uppercase tracking-wider text-text-primary">
+                      Client Self-Submission Link
+                    </h4>
+                    <p className="text-[10px] text-text-secondary mt-0.5">
+                      Generate a secure access key to invite the client to fill their factory
+                      details directly.
+                    </p>
+                  </div>
+                </div>
 
-            <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center w-full md:max-w-lg">
-              <div className="flex-1 col-span-2">
-                <Input
-                  placeholder="Client email address"
-                  value={clientShareEmail}
-                  onChange={(e) => setClientShareEmail(e.target.value)}
-                  className="h-8 text-xs bg-surface"
-                />
+                <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center w-full md:max-w-lg">
+                  <div className="flex-1 col-span-2">
+                    <Input
+                      placeholder="Client email address"
+                      value={clientShareEmail}
+                      onChange={(e) => setClientShareEmail(e.target.value)}
+                      className="h-8 text-xs bg-surface"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={handleGenerateShareLink}
+                      className="py-1 px-3 text-xs bg-surface border border-border text-text-primary hover:bg-surface-raised font-bold uppercase tracking-wider shrink-0"
+                    >
+                      Link Only
+                    </Button>
+                    <Button
+                      onClick={handleSendEmail}
+                      disabled={sendingEmail}
+                      className="py-1 px-3 text-xs bg-lime text-black hover:bg-lime/90 font-bold uppercase tracking-wider shrink-0"
+                    >
+                      {sendingEmail ? "Sending..." : "Send Mail"}
+                    </Button>
+                    {generatedLink && (
+                      <Button
+                        onClick={handleCopyLink}
+                        className="py-1 px-3 text-xs bg-surface border border-border text-text-primary hover:bg-surface-raised shrink-0 font-mono"
+                      >
+                        Copy
+                      </Button>
+                    )}
+                  </div>
+                </div>
               </div>
-              <div className="flex gap-2">
-                <Button
-                  onClick={handleGenerateShareLink}
-                  className="py-1 px-3 text-xs bg-surface border border-border text-text-primary hover:bg-surface-raised font-bold uppercase tracking-wider shrink-0"
-                >
-                  Link Only
-                </Button>
-                <Button
-                  onClick={handleSendEmail}
-                  disabled={sendingEmail}
-                  className="py-1 px-3 text-xs bg-lime text-black hover:bg-lime/90 font-bold uppercase tracking-wider shrink-0"
-                >
-                  {sendingEmail ? "Sending..." : "Send Mail"}
-                </Button>
-                {generatedLink && (
-                  <Button
-                    onClick={handleCopyLink}
-                    className="py-1 px-3 text-xs bg-surface border border-border text-text-primary hover:bg-surface-raised shrink-0 font-mono"
-                  >
-                    Copy
-                  </Button>
-                )}
+
+              <div className="grid gap-4 md:grid-cols-2 pt-4 border-t border-border/60 items-center">
+                {/* Appointment Pills */}
+                <div className="flex flex-wrap gap-2">
+                  <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-text-secondary bg-surface-raised px-3 py-1.5 border border-border rounded-full font-semibold shadow-sm">
+                    <Calendar size={13} className="text-lime shrink-0" />
+                    Appt: {site.appt_date ? site.appt_date : "Not scheduled"}
+                  </span>
+                  <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-text-secondary bg-surface-raised px-3 py-1.5 border border-border rounded-full font-semibold shadow-sm">
+                    <Clock size={13} className="text-lime shrink-0" />
+                    Time: {site.appt_time ? site.appt_time.slice(0, 5) : "No time set"}
+                  </span>
+                </div>
+
+                {/* Update Stage dropdown */}
+                <div className="flex flex-col gap-1.5 md:items-end">
+                  <div className="flex items-center gap-2 w-full md:max-w-xs justify-between md:justify-end">
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-text-secondary font-bold shrink-0">
+                      Workflow Stage:
+                    </span>
+                    <Select
+                      value={site.consultant_stage ?? ""}
+                      onChange={(e) => {
+                        const stage = e.target.value;
+                        if (stage === "Billing" || stage === "Completion")
+                          void updateConsultantStage(stage);
+                      }}
+                      className="py-1 px-2 text-xs h-8 max-w-[160px]"
+                    >
+                      <option value="">Select reached…</option>
+                      <option value="Billing">Billing</option>
+                      <option value="Completion">Completion</option>
+                    </Select>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2 pt-4 border-t border-border/60 items-center">
-            {/* Appointment Pills */}
-            <div className="flex flex-wrap gap-2">
-              <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-text-secondary bg-surface-raised px-3 py-1.5 border border-border rounded-full font-semibold shadow-sm">
-                <Calendar size={13} className="text-lime shrink-0" />
-                Appt: {site.appt_date ? site.appt_date : "Not scheduled"}
-              </span>
-              <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-text-secondary bg-surface-raised px-3 py-1.5 border border-border rounded-full font-semibold shadow-sm">
-                <Clock size={13} className="text-lime shrink-0" />
-                Time: {site.appt_time ? site.appt_time.slice(0, 5) : "No time set"}
-              </span>
-            </div>
-
-            {/* Update Stage dropdown */}
-            <div className="flex flex-col gap-1.5 md:items-end">
-              <div className="flex items-center gap-2 w-full md:max-w-xs justify-between md:justify-end">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-text-secondary font-bold shrink-0">Workflow Stage:</span>
-                <Select
-                  value={site.consultant_stage ?? ""}
-                  onChange={(e) => {
-                    const stage = e.target.value;
-                    if (stage === "Billing" || stage === "Completion") void updateConsultantStage(stage);
-                  }}
-                  className="py-1 px-2 text-xs h-8 max-w-[160px]"
-                >
-                  <option value="">Select reached…</option>
-                  <option value="Billing">Billing</option>
-                  <option value="Completion">Completion</option>
-                </Select>
-              </div>
-            </div>
-          </div>
-
-          </>}
+            </>
+          )}
 
           {cleanNotes && (
             <div className="pt-4 border-t border-border/60 flex gap-2 text-sm text-text-secondary">
@@ -754,12 +912,13 @@ function BusinessConsultantPage() {
                   }
                   setTab(s.k);
                 }}
-                className={`relative flex-1 h-[58px] bg-surface/80 backdrop-blur-sm border rounded-xl overflow-hidden flex items-center px-5 transition-all duration-300 ${isLocked
+                className={`relative flex-1 h-[58px] bg-surface/80 backdrop-blur-sm border rounded-xl overflow-hidden flex items-center px-5 transition-all duration-300 ${
+                  isLocked
                     ? "opacity-50 border-border/40 cursor-not-allowed"
                     : isActive
                       ? "border-lime ring-2 ring-lime/20 scale-[1.02] shadow-[0_0_20px_rgba(200,255,74,0.1)] cursor-pointer"
                       : "border-border hover:border-border-bright hover:bg-surface-raised/20 cursor-pointer"
-                  }`}
+                }`}
               >
                 <div
                   className="absolute left-0 top-0 bottom-0 bg-gradient-to-r from-lime/30 to-mint/30 transition-all duration-500 ease-out"
@@ -770,7 +929,9 @@ function BusinessConsultantPage() {
                     {isLocked ? (
                       <Lock size={12} className="text-text-secondary" />
                     ) : (
-                      <span className={`w-2 h-2 rounded-full ${isActive ? "bg-lime animate-pulse" : "bg-text-dim"}`} />
+                      <span
+                        className={`w-2 h-2 rounded-full ${isActive ? "bg-lime animate-pulse" : "bg-text-dim"}`}
+                      />
                     )}
                     {s.label}
                   </span>
@@ -785,9 +946,15 @@ function BusinessConsultantPage() {
 
         {/* Phase Name Label matching Mockup */}
         <div className="pt-4 border-t border-border">
-          <p className="font-mono text-[10px] uppercase tracking-widest text-text-secondary font-bold mb-2">Phase Name</p>
+          <p className="font-mono text-[10px] uppercase tracking-widest text-text-secondary font-bold mb-2">
+            Phase Name
+          </p>
           <h2 className="text-2xl uppercase tracking-tight font-extrabold text-text-primary font-syne">
-            {tab === "assessment" ? "Assessment Visit" : tab === "installation" ? "Installation Phase" : "Commissioning Phase"}
+            {tab === "assessment"
+              ? "Assessment Visit"
+              : tab === "installation"
+                ? "Installation Phase"
+                : "Commissioning Phase"}
           </h2>
         </div>
       </div>
@@ -805,15 +972,18 @@ function BusinessConsultantPage() {
             </AssessmentTab>
           </>
         )}
-        {tab === "installation" && (
-          !isAssessmentDone ? (
+        {tab === "installation" &&
+          (!isAssessmentDone ? (
             <Card className="p-8 text-center space-y-4 border border-border flex flex-col items-center">
               <div className="w-12 h-12 rounded-full bg-surface-raised border border-border flex items-center justify-center text-text-secondary">
                 <Lock size={20} />
               </div>
-              <h3 className="text-lg font-bold text-text-primary font-syne uppercase">Phase Locked</h3>
+              <h3 className="text-lg font-bold text-text-primary font-syne uppercase">
+                Phase Locked
+              </h3>
               <p className="text-sm text-text-secondary max-w-md mx-auto">
-                Please complete or submit the Assessment Visit phase first. Once assessment is completed, the Installation phase will unlock automatically.
+                Please complete or submit the Assessment Visit phase first. Once assessment is
+                completed, the Installation phase will unlock automatically.
               </p>
               <Button onClick={() => setTab("assessment")}>Go to Assessment</Button>
             </Card>
@@ -824,24 +994,26 @@ function BusinessConsultantPage() {
               onSubmit={async () => {
                 const statusSaved = await updateSiteAssociateStatus("Installed");
                 if (!statusSaved) return;
-                setSubmittedPhases(prev => new Set([...prev, "installation"]));
-                setProgress(prev => ({ ...prev, installation: 100 }));
+                setSubmittedPhases((prev) => new Set([...prev, "installation"]));
+                setProgress((prev) => ({ ...prev, installation: 100 }));
                 setTab("commissioning");
                 toast.success("Installation phase submitted.");
                 void fetchSites();
               }}
             />
-          )
-        )}
-        {tab === "commissioning" && (
-          !isInstallationDone ? (
+          ))}
+        {tab === "commissioning" &&
+          (!isInstallationDone ? (
             <Card className="p-8 text-center space-y-4 border border-border flex flex-col items-center">
               <div className="w-12 h-12 rounded-full bg-surface-raised border border-border flex items-center justify-center text-text-secondary">
                 <Lock size={20} />
               </div>
-              <h3 className="text-lg font-bold text-text-primary font-syne uppercase">Phase Locked</h3>
+              <h3 className="text-lg font-bold text-text-primary font-syne uppercase">
+                Phase Locked
+              </h3>
               <p className="text-sm text-text-secondary max-w-md mx-auto">
-                Please complete or submit the Installation phase first. Once installation is completed, the Commissioning phase will unlock automatically.
+                Please complete or submit the Installation phase first. Once installation is
+                completed, the Commissioning phase will unlock automatically.
               </p>
               <Button onClick={() => setTab("installation")}>Go to Installation</Button>
             </Card>
@@ -853,10 +1025,8 @@ function BusinessConsultantPage() {
               onCommissioned={updateSiteCommissioned}
               onSubmit={fetchSites}
             />
-          )
-        )}
+          ))}
       </main>
-
     </Shell>
   );
 }
@@ -867,57 +1037,92 @@ function siteStatusStyle(status: string) {
     case "Commissioned":
     case "Billing":
     case "Completion":
-    case "Running": return { bg: "bg-lime/10", text: "text-lime", border: "border-lime/20" };
+    case "Running":
+      return { bg: "bg-lime/10", text: "text-lime", border: "border-lime/20" };
     case "Dropped / Rejected":
-    case "Reject": return { bg: "bg-coral-dim", text: "text-coral", border: "border-coral/20" };
+    case "Reject":
+      return { bg: "bg-coral-dim", text: "text-coral", border: "border-coral/20" };
     case "Panel Dispatched":
-    case "Shipped": return { bg: "bg-violet/10", text: "text-violet", border: "border-violet/20" };
+    case "Shipped":
+      return { bg: "bg-violet/10", text: "text-violet", border: "border-violet/20" };
     case "Certification Pending":
-    case "Verification": return { bg: "bg-[#1D4ED8]/10", text: "text-[#1D4ED8]", border: "border-[#1D4ED8]/20" };
+    case "Verification":
+      return { bg: "bg-[#1D4ED8]/10", text: "text-[#1D4ED8]", border: "border-[#1D4ED8]/20" };
     case "Installed":
-    case "Installation": return { bg: "bg-warning/10", text: "text-warning", border: "border-warning/20" };
-    case "Concept": return { bg: "bg-warning/8", text: "text-warning", border: "border-warning/20" };
+    case "Installation":
+      return { bg: "bg-warning/10", text: "text-warning", border: "border-warning/20" };
+    case "Concept":
+      return { bg: "bg-warning/8", text: "text-warning", border: "border-warning/20" };
     case "Assessed":
-    case "Assessment & Visit": return { bg: "bg-[#C4E1F6]/20", text: "text-[#1D4ED8]", border: "border-[#1D4ED8]/20" };
+    case "Assessment & Visit":
+      return { bg: "bg-[#C4E1F6]/20", text: "text-[#1D4ED8]", border: "border-[#1D4ED8]/20" };
     case "Pending Assignment":
-    case "Assigned": return { bg: "bg-[#800000]/10", text: "text-[#D07070]", border: "border-[#800000]/20" };
-    case "Pending Assessment": return { bg: "bg-indigo-600/10", text: "text-indigo-600", border: "border-indigo-600/20" };
-    case "Not Started Yet": return { bg: "bg-indigo-600/10", text: "text-indigo-600", border: "border-indigo-600/20" };
-    default: return { bg: "bg-surface-raised", text: "text-text-secondary", border: "border-border" };
+    case "Assigned":
+      return { bg: "bg-[#800000]/10", text: "text-[#D07070]", border: "border-[#800000]/20" };
+    case "Pending Assessment":
+      return { bg: "bg-indigo-600/10", text: "text-indigo-600", border: "border-indigo-600/20" };
+    case "Not Started Yet":
+      return { bg: "bg-indigo-600/10", text: "text-indigo-600", border: "border-indigo-600/20" };
+    default:
+      return { bg: "bg-surface-raised", text: "text-text-secondary", border: "border-border" };
   }
 }
 
 function consultantStatusLabel(status: string) {
-  return status === "Pending Assignment" || status === "Not Started Yet" ? "Pending Assessment" : status;
+  return status === "Pending Assignment" || status === "Not Started Yet"
+    ? "Pending Assessment"
+    : status;
 }
 
 function ConsultantDashboard({
   sites,
-  onSelectSite
+  onSelectSite,
 }: {
-  sites: Array<Site & { aPct: number; iPct: number; cPct: number; overall: number; status: "Complete" | "Working" | "Pending"; derivedStatus: string; assessmentPendingReasons: string[]; submitted: { assessment: boolean; installation: boolean; commissioning: boolean } }>;
+  sites: Array<
+    Site & {
+      aPct: number;
+      iPct: number;
+      cPct: number;
+      overall: number;
+      status: "Complete" | "Working" | "Pending";
+      derivedStatus: string;
+      assessmentPendingReasons: string[];
+      submitted: { assessment: boolean; installation: boolean; commissioning: boolean };
+    }
+  >;
   onSelectSite: (siteId: string) => void;
 }) {
   const [selectedKpi, setSelectedKpi] = useState<string>("not_started");
 
   const totalSites = sites.length;
-  const countNotStarted = sites.filter(s => s.derivedStatus === "Not Started Yet" || s.derivedStatus === "Pending Assignment").length;
-  const countAssessed = sites.filter(s => s.derivedStatus === "Assessed").length;
-  const countDeviceOrder = sites.filter(s => s.derivedStatus === "Panel Dispatched" || s.derivedStatus === "Device Order").length;
-  const countInstalled = sites.filter(s => s.derivedStatus === "Installed").length;
+  const countNotStarted = sites.filter(
+    (s) => s.derivedStatus === "Not Started Yet" || s.derivedStatus === "Pending Assignment",
+  ).length;
+  const countAssessed = sites.filter((s) => s.derivedStatus === "Assessed").length;
+  const countDeviceOrder = sites.filter(
+    (s) => s.derivedStatus === "Panel Dispatched" || s.derivedStatus === "Device Order",
+  ).length;
+  const countInstalled = sites.filter((s) => s.derivedStatus === "Installed").length;
   // Commissioned also includes the final Submitted / Certification Pending
   // lifecycle states, but never a site that is still Installed.
   const isCommissionedLifecycle = (site: (typeof sites)[number]) =>
     ["Commissioned", "Submitted", "Certification Pending"].includes(site.derivedStatus);
   const countCommissioned = sites.filter(isCommissionedLifecycle).length;
-  const countSubmitted = sites.filter(s => s.derivedStatus === "Submitted").length;
-  const countCertification = sites.filter(s => s.derivedStatus === "Certification Pending").length;
-  const countUnsubmitted = sites.filter(s => s.derivedStatus === "Unsubmitted").length;
-  const countDropped = sites.filter(s => s.derivedStatus === "Dropped / Rejected").length;
-  const countClosed = sites.filter(s => s.derivedStatus === "Submitted" || s.derivedStatus === "Dropped / Rejected").length;
+  const countSubmitted = sites.filter((s) => s.derivedStatus === "Submitted").length;
+  const countCertification = sites.filter(
+    (s) => s.derivedStatus === "Certification Pending",
+  ).length;
+  const countUnsubmitted = sites.filter((s) => s.derivedStatus === "Unsubmitted").length;
+  const countDropped = sites.filter((s) => s.derivedStatus === "Dropped / Rejected").length;
+  const countClosed = sites.filter(
+    (s) => s.derivedStatus === "Submitted" || s.derivedStatus === "Dropped / Rejected",
+  ).length;
 
-  const avgOverallProgress = totalSites > 0 ? Math.round(sites.reduce((acc, s) => acc + (s.overall || 0), 0) / totalSites) : 0;
-  const getShare = (count: number) => totalSites > 0 ? Math.round((count / totalSites) * 100) : 0;
+  const avgOverallProgress =
+    totalSites > 0
+      ? Math.round(sites.reduce((acc, s) => acc + (s.overall || 0), 0) / totalSites)
+      : 0;
+  const getShare = (count: number) => (totalSites > 0 ? Math.round((count / totalSites) * 100) : 0);
 
   const kpiCards = [
     {
@@ -928,7 +1133,8 @@ function ConsultantDashboard({
       desc: "All assigned factories",
       icon: Layers,
       badgeStyle: "text-lime bg-lime/10 border-lime/30",
-      activeBorder: "border-lime ring-2 ring-lime/20 bg-surface scale-[1.02] shadow-[0_0_20px_rgba(200,255,74,0.15)]",
+      activeBorder:
+        "border-lime ring-2 ring-lime/20 bg-surface scale-[1.02] shadow-[0_0_20px_rgba(200,255,74,0.15)]",
       barColor: "bg-lime",
       dotStyle: "bg-lime",
     },
@@ -979,7 +1185,8 @@ function ConsultantDashboard({
       desc: "Commissioned only",
       icon: CheckCircle2,
       badgeStyle: "text-emerald-600 bg-emerald-50 border-emerald-200",
-      activeBorder: "border-emerald-500 ring-2 ring-emerald-500/10 bg-surface scale-[1.02] shadow-md",
+      activeBorder:
+        "border-emerald-500 ring-2 ring-emerald-500/10 bg-surface scale-[1.02] shadow-md",
       dotStyle: "bg-emerald-500",
     },
     {
@@ -1049,8 +1256,12 @@ function ConsultantDashboard({
     <div className="space-y-6 animate-in fade-in duration-200">
       <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <p className="font-mono text-[10px] uppercase tracking-widest text-lime/80 font-bold">Overview</p>
-          <h1 className="mt-1 text-3xl uppercase tracking-tight font-extrabold font-syne text-text-primary">My Assignments</h1>
+          <p className="font-mono text-[10px] uppercase tracking-widest text-lime/80 font-bold">
+            Overview
+          </p>
+          <h1 className="mt-1 text-3xl uppercase tracking-tight font-extrabold font-syne text-text-primary">
+            My Assignments
+          </h1>
         </div>
         {selectedKpi && (
           <button
@@ -1099,7 +1310,9 @@ function ConsultantDashboard({
               <div className="w-full bg-surface-raised h-1 rounded-full mt-3 overflow-hidden">
                 <div
                   className={`h-full ${k.barColor} transition-all duration-500`}
-                  style={{ width: k.id === "total" ? `${avgOverallProgress}%` : `${getShare(k.value)}%` }}
+                  style={{
+                    width: k.id === "total" ? `${avgOverallProgress}%` : `${getShare(k.value)}%`,
+                  }}
                 />
               </div>
             </button>
@@ -1163,7 +1376,9 @@ function ConsultantDashboard({
       {/* Sites List Header */}
       <div className="flex flex-col gap-3 border-b border-border pb-2 pt-2 sm:flex-row sm:items-center sm:justify-between">
         <span className="text-xs font-mono text-text-secondary uppercase tracking-wider font-bold">
-          {selectedKpi ? `${filterLabels[selectedKpi] ?? "Filtered Sites"} (${filteredSites.length})` : `All Assigned Sites (${sites.length})`}
+          {selectedKpi
+            ? `${filterLabels[selectedKpi] ?? "Filtered Sites"} (${filteredSites.length})`
+            : `All Assigned Sites (${sites.length})`}
         </span>
         <Select
           value={selectedKpi || "total"}
@@ -1190,7 +1405,9 @@ function ConsultantDashboard({
         </div>
       ) : filteredSites.length === 0 ? (
         <div className="border border-border rounded-[10px] bg-surface px-6 py-12 text-center space-y-3">
-          <p className="text-text-secondary text-sm font-semibold">No sites currently in stage "{filterLabels[selectedKpi] ?? "Filtered Sites"}".</p>
+          <p className="text-text-secondary text-sm font-semibold">
+            No sites currently in stage "{filterLabels[selectedKpi] ?? "Filtered Sites"}".
+          </p>
           <button
             onClick={() => setSelectedKpi("")}
             className="text-xs text-lime underline font-mono font-bold cursor-pointer"
@@ -1205,12 +1422,20 @@ function ConsultantDashboard({
             const displayStatus = consultantStatusLabel(managerStatus);
             const st = siteStatusStyle(displayStatus);
             return (
-              <div key={s.id} className="border border-border rounded-[10px] bg-surface px-5 py-4 hover:bg-surface-raised/30 transition-colors shadow-xs">
+              <div
+                key={s.id}
+                className="border border-border rounded-[10px] bg-surface px-5 py-4 hover:bg-surface-raised/30 transition-colors shadow-xs"
+              >
                 <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                   {/* Company name + location */}
                   <div className="flex-1 min-w-0">
-                    <div className="font-bold text-text-primary text-base leading-tight">{s.name}</div>
-                    <div className="text-xs text-text-secondary mt-0.5">{s.city || "—"}{s.address ? ` · ${s.address}` : ""}</div>
+                    <div className="font-bold text-text-primary text-base leading-tight">
+                      {s.name}
+                    </div>
+                    <div className="text-xs text-text-secondary mt-0.5">
+                      {s.city || "—"}
+                      {s.address ? ` · ${s.address}` : ""}
+                    </div>
                     {s.appt_date ? (
                       <div className="mt-1.5 text-[10px] font-mono text-text-secondary">
                         Appt: <span className="text-text-primary font-semibold">{s.appt_date}</span>
@@ -1224,13 +1449,19 @@ function ConsultantDashboard({
                   {/* Overall progress */}
                   <div className="sm:w-48 shrink-0">
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-[10px] font-mono text-text-secondary uppercase tracking-wider">Progress</span>
-                      <span className="font-mono text-xs font-bold text-text-primary">{s.overall}%</span>
+                      <span className="text-[10px] font-mono text-text-secondary uppercase tracking-wider">
+                        Progress
+                      </span>
+                      <span className="font-mono text-xs font-bold text-text-primary">
+                        {s.overall}%
+                      </span>
                     </div>
                     <ProgressBar value={s.overall} />
                     <div className="flex gap-2 mt-1.5 text-[9px] font-mono text-text-secondary">
-                      <span>A: {s.aPct}%</span><span>·</span>
-                      <span>I: {s.iPct}%</span><span>·</span>
+                      <span>A: {s.aPct}%</span>
+                      <span>·</span>
+                      <span>I: {s.iPct}%</span>
+                      <span>·</span>
                       <span>C: {s.cPct}%</span>
                     </div>
                   </div>
@@ -1238,7 +1469,9 @@ function ConsultantDashboard({
                   {/* Manager status badge */}
                   <div className="sm:w-36 shrink-0 flex flex-col items-start gap-1 sm:items-center">
                     {managerStatus ? (
-                      <span className={`inline-block rounded-[5px] border px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-wider ${st.bg} ${st.text} ${st.border}`}>
+                      <span
+                        className={`inline-block rounded-[5px] border px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-wider ${st.bg} ${st.text} ${st.border}`}
+                      >
                         {displayStatus}
                       </span>
                     ) : (
@@ -1246,13 +1479,14 @@ function ConsultantDashboard({
                     )}
                   </div>
 
-                  {s.assessmentPendingReasons.length > 0 && (managerStatus === "Assessed" || managerStatus === "Panel Dispatched") && (
-                    <div className="sm:w-28 shrink-0 flex sm:justify-center">
-                      <span className="inline-block rounded-[5px] border border-warning/20 bg-warning/8 px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider text-warning">
-                        {s.assessmentPendingReasons.join(", ")}
-                      </span>
-                    </div>
-                  )}
+                  {s.assessmentPendingReasons.length > 0 &&
+                    (managerStatus === "Assessed" || managerStatus === "Panel Dispatched") && (
+                      <div className="sm:w-28 shrink-0 flex sm:justify-center">
+                        <span className="inline-block rounded-[5px] border border-warning/20 bg-warning/8 px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider text-warning">
+                          {s.assessmentPendingReasons.join(", ")}
+                        </span>
+                      </div>
+                    )}
 
                   {/* Action button */}
                   <div className="sm:w-36 shrink-0 flex sm:justify-end">
@@ -1274,7 +1508,15 @@ function ConsultantDashboard({
   );
 }
 
-function PhaseSubmittedCard({ label, onNext, nextLabel }: { label: string; onNext: () => void; nextLabel: string }) {
+function PhaseSubmittedCard({
+  label,
+  onNext,
+  nextLabel,
+}: {
+  label: string;
+  onNext: () => void;
+  nextLabel: string;
+}) {
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center border-1.5 border-lime/20 bg-lime-dim rounded-[10px]">
       <div className="flex h-16 w-16 items-center justify-center rounded-full bg-lime/20 text-lime mb-6">
@@ -1301,6 +1543,9 @@ function Shell({
   onGoToDashboard,
   onGoToInventory,
   inventoryActive,
+  onGoToTracker,
+  trackerActive,
+  assignmentsActive,
 }: {
   children: React.ReactNode;
   onSignOut: () => void;
@@ -1309,13 +1554,16 @@ function Shell({
   onGoToDashboard?: () => void;
   onGoToInventory?: () => void;
   inventoryActive?: boolean;
+  onGoToTracker?: () => void;
+  trackerActive?: boolean;
+  assignmentsActive?: boolean;
 }) {
   const [themeMode, setThemeMode] = useState<"light" | "dark">("light");
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem("themeMode");
-      const initial = (stored === "dark" || stored === "light") ? stored : "light";
+      const initial = stored === "dark" || stored === "light" ? stored : "light";
       setThemeMode(initial);
       const root = document.documentElement;
       if (initial === "light") {
@@ -1341,18 +1589,25 @@ function Shell({
   return (
     <div className="min-h-screen bg-background text-text-primary font-sans antialiased">
       <div className="sticky top-0 z-40 border-b border-border bg-surface/90 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl h-14 items-center justify-between px-6">
+        <div className="mx-auto flex min-h-14 max-w-6xl items-center justify-between gap-3 px-3 py-2 sm:px-6">
           <button
             onClick={onGoToDashboard}
-            className="flex items-center gap-2 font-syne font-bold uppercase tracking-wider text-lime cursor-pointer bg-transparent border-0 outline-none"
+            className="flex shrink-0 items-center gap-2 font-syne font-bold uppercase tracking-wider text-lime cursor-pointer bg-transparent border-0 outline-none"
           >
-            <span className="flex h-5 w-5 items-center justify-center rounded-[4px] bg-lime text-bg text-[10px] font-extrabold font-mono">⬡</span>
-            <span>SIM-KIT OPS</span>
+            <span className="flex h-5 w-5 items-center justify-center rounded-[4px] bg-lime text-bg text-[10px] font-extrabold font-mono">
+              ⬡
+            </span>
+            <span className="hidden sm:inline">SIM-KIT OPS</span>
           </button>
-          <div className="flex items-center gap-3">
-            {onGoToInventory && (
-              <Button variant={inventoryActive ? "primary" : "ghost"} onClick={onGoToInventory} className="py-1 px-3 text-xs">
-                <Boxes size={14} /><span className="hidden sm:inline">Inventory</span>
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
+            {onGoToDashboard && (
+              <Button variant={assignmentsActive ? "primary" : "ghost"} onClick={onGoToDashboard} className="py-1 px-3 text-xs">
+                <ClipboardList size={14} /><span className="hidden sm:inline">Assignments</span>
+              </Button>
+            )}
+            {onGoToTracker && (
+              <Button variant={trackerActive ? "primary" : "ghost"} onClick={onGoToTracker} className="py-1 px-3 text-xs">
+                <KanbanSquare size={14} /><span className="hidden sm:inline">Company Tracker</span>
               </Button>
             )}
             {showDashboardBtn && (
@@ -1370,11 +1625,15 @@ function Shell({
               className="text-text-secondary hover:text-lime transition-colors p-1.5 cursor-pointer bg-transparent border-0 outline-none flex items-center justify-center"
               title={themeMode === "light" ? "Switch to Dark Mode" : "Switch to Light Mode"}
             >
-              {themeMode === "light" ? <Moon size={16} strokeWidth={2} /> : <Sun size={16} strokeWidth={2} />}
+              {themeMode === "light" ? (
+                <Moon size={16} strokeWidth={2} />
+              ) : (
+                <Sun size={16} strokeWidth={2} />
+              )}
             </button>
-            <Button variant="ghost" onClick={onSignOut} className="py-1 px-3 text-xs">
+            <Button variant="ghost" onClick={onSignOut} className="py-1 px-2 sm:px-3 text-xs">
               <LogOut size={14} />
-              <span>Sign out</span>
+              <span className="hidden sm:inline">Sign out</span>
             </Button>
           </div>
         </div>
@@ -1384,10 +1643,7 @@ function Shell({
   );
 }
 
-const ASSESSMENT_KEYS = [
-  "media_uploaded",
-  "factory_operations_done",
-];
+const ASSESSMENT_KEYS = ["media_uploaded", "factory_operations_done"];
 const INSTALLATION_KEYS = ["delivery_confirmed", "coordination_done", "photos_uploaded"];
 const COMMISSIONING_KEYS = [
   "coordination_done",

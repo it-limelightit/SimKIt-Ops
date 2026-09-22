@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ManagerRouteImport } from './routes/manager'
+import { Route as CompanyTrackerRouteImport } from './routes/company-tracker'
 import { Route as ClientFormRouteImport } from './routes/client-form'
 import { Route as BusinessConsultantRouteImport } from './routes/business-consultant'
 import { Route as AuthRouteImport } from './routes/auth'
@@ -22,11 +23,17 @@ import { Route as ManagerPerformanceRouteImport } from './routes/manager.perform
 import { Route as ManagerLogisticRouteImport } from './routes/manager.logistic'
 import { Route as ManagerFactoryDataRouteImport } from './routes/manager.factory-data'
 import { Route as ManagerDriveLinksRouteImport } from './routes/manager.drive-links'
+import { Route as ManagerCompanyTrackerRouteImport } from './routes/manager.company-tracker'
 import { Route as ManagerBusinessConsultantsRouteImport } from './routes/manager.business-consultants'
 
 const ManagerRoute = ManagerRouteImport.update({
   id: '/manager',
   path: '/manager',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CompanyTrackerRoute = CompanyTrackerRouteImport.update({
+  id: '/company-tracker',
+  path: '/company-tracker',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ClientFormRoute = ClientFormRouteImport.update({
@@ -89,6 +96,11 @@ const ManagerDriveLinksRoute = ManagerDriveLinksRouteImport.update({
   path: '/drive-links',
   getParentRoute: () => ManagerRoute,
 } as any)
+const ManagerCompanyTrackerRoute = ManagerCompanyTrackerRouteImport.update({
+  id: '/company-tracker',
+  path: '/company-tracker',
+  getParentRoute: () => ManagerRoute,
+} as any)
 const ManagerBusinessConsultantsRoute =
   ManagerBusinessConsultantsRouteImport.update({
     id: '/business-consultants',
@@ -101,8 +113,10 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/business-consultant': typeof BusinessConsultantRoute
   '/client-form': typeof ClientFormRoute
+  '/company-tracker': typeof CompanyTrackerRoute
   '/manager': typeof ManagerRouteWithChildren
   '/manager/business-consultants': typeof ManagerBusinessConsultantsRoute
+  '/manager/company-tracker': typeof ManagerCompanyTrackerRoute
   '/manager/drive-links': typeof ManagerDriveLinksRoute
   '/manager/factory-data': typeof ManagerFactoryDataRoute
   '/manager/logistic': typeof ManagerLogisticRoute
@@ -117,7 +131,9 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/business-consultant': typeof BusinessConsultantRoute
   '/client-form': typeof ClientFormRoute
+  '/company-tracker': typeof CompanyTrackerRoute
   '/manager/business-consultants': typeof ManagerBusinessConsultantsRoute
+  '/manager/company-tracker': typeof ManagerCompanyTrackerRoute
   '/manager/drive-links': typeof ManagerDriveLinksRoute
   '/manager/factory-data': typeof ManagerFactoryDataRoute
   '/manager/logistic': typeof ManagerLogisticRoute
@@ -133,8 +149,10 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/business-consultant': typeof BusinessConsultantRoute
   '/client-form': typeof ClientFormRoute
+  '/company-tracker': typeof CompanyTrackerRoute
   '/manager': typeof ManagerRouteWithChildren
   '/manager/business-consultants': typeof ManagerBusinessConsultantsRoute
+  '/manager/company-tracker': typeof ManagerCompanyTrackerRoute
   '/manager/drive-links': typeof ManagerDriveLinksRoute
   '/manager/factory-data': typeof ManagerFactoryDataRoute
   '/manager/logistic': typeof ManagerLogisticRoute
@@ -151,8 +169,10 @@ export interface FileRouteTypes {
     | '/auth'
     | '/business-consultant'
     | '/client-form'
+    | '/company-tracker'
     | '/manager'
     | '/manager/business-consultants'
+    | '/manager/company-tracker'
     | '/manager/drive-links'
     | '/manager/factory-data'
     | '/manager/logistic'
@@ -167,7 +187,9 @@ export interface FileRouteTypes {
     | '/auth'
     | '/business-consultant'
     | '/client-form'
+    | '/company-tracker'
     | '/manager/business-consultants'
+    | '/manager/company-tracker'
     | '/manager/drive-links'
     | '/manager/factory-data'
     | '/manager/logistic'
@@ -182,8 +204,10 @@ export interface FileRouteTypes {
     | '/auth'
     | '/business-consultant'
     | '/client-form'
+    | '/company-tracker'
     | '/manager'
     | '/manager/business-consultants'
+    | '/manager/company-tracker'
     | '/manager/drive-links'
     | '/manager/factory-data'
     | '/manager/logistic'
@@ -199,6 +223,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   BusinessConsultantRoute: typeof BusinessConsultantRoute
   ClientFormRoute: typeof ClientFormRoute
+  CompanyTrackerRoute: typeof CompanyTrackerRoute
   ManagerRoute: typeof ManagerRouteWithChildren
 }
 
@@ -209,6 +234,13 @@ declare module '@tanstack/react-router' {
       path: '/manager'
       fullPath: '/manager'
       preLoaderRoute: typeof ManagerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/company-tracker': {
+      id: '/company-tracker'
+      path: '/company-tracker'
+      fullPath: '/company-tracker'
+      preLoaderRoute: typeof CompanyTrackerRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/client-form': {
@@ -295,6 +327,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ManagerDriveLinksRouteImport
       parentRoute: typeof ManagerRoute
     }
+    '/manager/company-tracker': {
+      id: '/manager/company-tracker'
+      path: '/company-tracker'
+      fullPath: '/manager/company-tracker'
+      preLoaderRoute: typeof ManagerCompanyTrackerRouteImport
+      parentRoute: typeof ManagerRoute
+    }
     '/manager/business-consultants': {
       id: '/manager/business-consultants'
       path: '/business-consultants'
@@ -307,6 +346,7 @@ declare module '@tanstack/react-router' {
 
 interface ManagerRouteChildren {
   ManagerBusinessConsultantsRoute: typeof ManagerBusinessConsultantsRoute
+  ManagerCompanyTrackerRoute: typeof ManagerCompanyTrackerRoute
   ManagerDriveLinksRoute: typeof ManagerDriveLinksRoute
   ManagerFactoryDataRoute: typeof ManagerFactoryDataRoute
   ManagerLogisticRoute: typeof ManagerLogisticRoute
@@ -319,6 +359,7 @@ interface ManagerRouteChildren {
 
 const ManagerRouteChildren: ManagerRouteChildren = {
   ManagerBusinessConsultantsRoute: ManagerBusinessConsultantsRoute,
+  ManagerCompanyTrackerRoute: ManagerCompanyTrackerRoute,
   ManagerDriveLinksRoute: ManagerDriveLinksRoute,
   ManagerFactoryDataRoute: ManagerFactoryDataRoute,
   ManagerLogisticRoute: ManagerLogisticRoute,
@@ -337,6 +378,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   BusinessConsultantRoute: BusinessConsultantRoute,
   ClientFormRoute: ClientFormRoute,
+  CompanyTrackerRoute: CompanyTrackerRoute,
   ManagerRoute: ManagerRouteWithChildren,
 }
 export const routeTree = rootRouteImport
