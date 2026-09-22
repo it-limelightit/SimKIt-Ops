@@ -6,6 +6,7 @@ import {
   ClipboardCheck,
   MessageSquare,
   Plus,
+  RotateCcw,
   Search,
   Trash2,
   Users,
@@ -40,7 +41,7 @@ const checklistFields = [
   "Availability",
   "Performance",
   "Energy",
-  "OAE",
+  "OEE",
 ] as const;
 const stageStyles: Record<
   Stage,
@@ -61,7 +62,9 @@ type Tracker = {
   stage_changed_at: string;
   company_name: string;
   city: string | null;
+  assignee_id: string;
   assignee_name: string | null;
+  issue_checklist: Record<string, boolean>;
   comments: Array<{
     id: string;
     body: string;
@@ -92,6 +95,7 @@ export function CompanyTracker() {
   const [items, setItems] = useState<Tracker[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
+  const [assigneeFilter, setAssigneeFilter] = useState("");
   const [isManager, setIsManager] = useState(false);
   const [options, setOptions] = useState<Options>({ sites: [], users: [] });
   const [assignOpen, setAssignOpen] = useState(false);
@@ -103,8 +107,11 @@ export function CompanyTracker() {
   const [commentsView, setCommentsView] = useState<Tracker | null>(null);
   const [comment, setComment] = useState("");
   const [monitorFor, setMonitorFor] = useState<Tracker | null>(null);
+  const [monitorDetails, setMonitorDetails] = useState<Tracker | null>(null);
   const [day, setDay] = useState(1);
   const [checks, setChecks] = useState<Record<string, boolean>>({});
+  const [issueFor, setIssueFor] = useState<Tracker | null>(null);
+  const [issueChecks, setIssueChecks] = useState<Record<string, boolean>>({});
   const trackerDb = supabase as unknown as TrackerRpc;
   const load = useCallback(async () => {
     if (!userId) return;
@@ -126,14 +133,18 @@ export function CompanyTracker() {
   useEffect(() => {
     if (ready && userId) void load();
   }, [ready, userId, load]);
+  const scopedItems = useMemo(
+    () => items.filter((item) => !assigneeFilter || item.assignee_id === assigneeFilter),
+    [items, assigneeFilter],
+  );
   const filtered = useMemo(
     () =>
-      items.filter((item) =>
+      scopedItems.filter((item) =>
         `${item.company_name} ${item.city ?? ""} ${item.assignee_name ?? ""}`
           .toLowerCase()
           .includes(query.toLowerCase()),
       ),
-    [items, query],
+    [scopedItems, query],
   );
   const assignableSites = useMemo(
     () =>
@@ -142,10 +153,12 @@ export function CompanyTracker() {
       ),
     [options.sites, assignmentSearch],
   );
-  const total = items.length,
-    converted = items.filter((x) => x.stage === "Converted").length,
-    pending = items.filter((x) => x.stage === "Issue Resolution").length,
-    progress = items.filter((x) => !["Issue Resolution", "Converted"].includes(x.stage)).length;
+  const total = scopedItems.length,
+    converted = scopedItems.filter((x) => x.stage === "Converted").length,
+    pending = scopedItems.filter((x) => x.stage === "Issue Resolution").length,
+    progress = scopedItems.filter(
+      (x) => !["Issue Resolution", "Converted"].includes(x.stage),
+    ).length;
   const assign = async () => {
     if (!siteId || !assigneeId) return toast.error("Select a company and assignee.");
     setBusy(true);
@@ -207,13 +220,28 @@ export function CompanyTracker() {
     toast.success("Stage updated.");
     void load();
   };
-  const saveMonitoring = async () => {
+  const movePrevious = async (item: Tracker) => {
+    const text = window.prompt(
+      `Comment required to move ${item.company_name} to the previous stage:`,
+    );
+    if (!text?.trim()) return;
+    setBusy(true);
+    const { error } = await trackerDb.rpc("company_tracker_move_previous", {
+      _tracker_id: item.id,
+      _comment: text,
+    });
+    setBusy(false);
+    if (error) return toast.error(error.message);
+    toast.success("Company moved to the previous stage.");
+    void load();
+  };
+  const saveMonitoring = async (outcome?: "work" | "leave") => {
     if (!monitorFor) return;
     setBusy(true);
-    const { error, data } = await trackerDb.rpc("company_tracker_save_monitoring", {
+    const { error, data } = await trackerDb.rpc("company_tracker_complete_monitoring_day", {
       _tracker_id: monitorFor.id,
       _day_number: day,
-      _checklist: checks,
+      _outcome: outcome ?? (checks.outcome === "leave" ? "leave" : "work"),
     });
     setBusy(false);
     if (error) return toast.error(error.message);
@@ -230,6 +258,27 @@ export function CompanyTracker() {
     setMonitorFor(item);
     setDay(num);
     setChecks(existing?.checklist ?? {});
+  };
+  const saveIssueResolution = async () => {
+    if (!issueFor) return;
+    setBusy(true);
+    const { error, data } = await trackerDb.rpc("company_tracker_complete_issue_resolution", {
+      _tracker_id: issueFor.id,
+      _checklist: issueChecks,
+    });
+    setBusy(false);
+    if (error) return toast.error(error.message);
+    toast.success(
+      data === "Monitoring"
+        ? "Issue Resolution complete — moved to Monitoring."
+        : "Checklist saved. Complete all items to start Monitoring.",
+    );
+    setIssueFor(null);
+    void load();
+  };
+  const openIssueResolution = (item: Tracker) => {
+    setIssueFor(item);
+    setIssueChecks(item.issue_checklist ?? {});
   };
   if (!ready || loading)
     return (
@@ -269,21 +318,37 @@ export function CompanyTracker() {
           value={total ? `${((converted / total) * 100).toFixed(1)}%` : "0%"}
         />
       </div>
-      <div className="flex max-w-xl items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 shadow-sm transition-colors focus-within:border-lime/60 focus-within:ring-4 focus-within:ring-lime/10">
-        <Search size={16} className="text-text-secondary" />
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search companies..."
-          className="border-0 p-0 text-sm focus:ring-0"
-        />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="flex w-full max-w-xl items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 shadow-sm transition-colors focus-within:border-lime/60 focus-within:ring-4 focus-within:ring-lime/10">
+          <Search size={16} className="text-text-secondary" />
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search companies..."
+            className="border-0 p-0 text-sm focus:ring-0"
+          />
+        </div>
+        {isManager && (
+          <Select
+            value={assigneeFilter}
+            onChange={(e) => setAssigneeFilter(e.target.value)}
+            className="w-full sm:w-56"
+          >
+            <option value="">All field associates</option>
+            {options.users.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.name}
+              </option>
+            ))}
+          </Select>
+        )}
       </div>
       <div className="overflow-x-auto rounded-xl pb-3 [scrollbar-color:var(--border)_transparent] [scrollbar-width:thin]">
         <div className="grid min-w-max grid-flow-col auto-cols-[280px] grid-rows-1 gap-4">
           {stages.map((stage, index) => (
             <section
               key={stage}
-              className={`min-h-[500px] rounded-2xl border border-border border-t-4 ${stageStyles[stage].accent} bg-surface-raised/30 p-4 shadow-sm`}
+              className={`flex h-[calc(100vh-330px)] min-h-[500px] flex-col rounded-2xl border border-border border-t-4 ${stageStyles[stage].accent} bg-surface-raised/30 p-4 shadow-sm`}
             >
               <div className="mb-4 border-b border-border pb-3">
                 <div className="flex items-center justify-between gap-2">
@@ -301,19 +366,14 @@ export function CompanyTracker() {
                   <p className="mt-1.5 text-[10px] text-text-secondary">Daily checklist progress</p>
                 )}
               </div>
-              <div className="space-y-3">
+              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1 [scrollbar-color:var(--border)_transparent] [scrollbar-width:thin]">
                 {filtered
                   .filter((x) => x.stage === stage)
                   .map((item) => (
-                    <TrackerCard
+                    <MonitoringSummaryCard
                       key={item.id}
                       item={item}
-                      onComment={() => setCommentFor(item)}
-                      onViewComments={() => setCommentsView(item)}
-                      onMove={() => move(item)}
-                      onMonitor={(n) => openMonitoring(item, n)}
-                      onDelete={() => deleteTracker(item)}
-                      canDelete={isManager}
+                      onOpen={() => setMonitorDetails(item)}
                     />
                   ))}
                 {!filtered.some((x) => x.stage === stage) && (
@@ -426,32 +486,82 @@ export function CompanyTracker() {
           </div>
         </Modal>
       )}
+      {monitorDetails && (
+        <Modal
+          title={`Monitoring · ${monitorDetails.company_name}`}
+          onClose={() => setMonitorDetails(null)}
+        >
+          <TrackerCard
+            item={monitorDetails}
+            onComment={() => setCommentFor(monitorDetails)}
+            onViewComments={() => setCommentsView(monitorDetails)}
+            onMove={() => move(monitorDetails)}
+            onMovePrevious={() => movePrevious(monitorDetails)}
+            onMonitor={(n) => openMonitoring(monitorDetails, n)}
+            onIssueResolution={() => openIssueResolution(monitorDetails)}
+            onDelete={() => deleteTracker(monitorDetails)}
+            canDelete={isManager}
+            canMovePrevious={isManager}
+          />
+        </Modal>
+      )}
+      {issueFor && (
+        <Modal
+          title={`Issue Resolution · ${issueFor.company_name}`}
+          onClose={() => setIssueFor(null)}
+        >
+          <p className="mb-4 text-sm text-text-secondary">
+            Complete all six checks to automatically start Monitoring.
+          </p>
+          <div className="space-y-3">
+            {checklistFields.map((field, index) => (
+              <div key={field} className="rounded-lg border border-border bg-surface px-3 py-2.5">
+                <Checkbox
+                  label={
+                    <span>
+                      <span className="mr-2 font-mono text-[10px] text-lime">
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
+                      {field}
+                    </span>
+                  }
+                  checked={!!issueChecks[field]}
+                  onCheckedChange={(value) =>
+                    setIssueChecks((current) => ({ ...current, [field]: value }))
+                  }
+                />
+              </div>
+            ))}
+          </div>
+          <div className="mt-6 flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setIssueFor(null)}>
+              Cancel
+            </Button>
+            <Button disabled={busy} onClick={saveIssueResolution}>
+              Save checklist
+            </Button>
+          </div>
+        </Modal>
+      )}
       {monitorFor && (
         <Modal
           title={`${monitorFor.company_name} · Day ${day}`}
           onClose={() => setMonitorFor(null)}
         >
           <p className="mb-4 text-sm text-text-secondary">
-            Complete all items for a green day. Missing items mark this day red.
+            Record one outcome for today. You can complete only one monitoring day per calendar day.
           </p>
-          <div className="space-y-3">
-            {checklistFields.map((field) => (
-              <Checkbox
-                key={field}
-                label={field}
-                checked={!!checks[field]}
-                onCheckedChange={(value) =>
-                  setChecks((current) => ({ ...current, [field]: value }))
-                }
-              />
-            ))}
+          <div className="grid grid-cols-2 gap-3">
+            <Button variant="danger" disabled={busy} onClick={() => void saveMonitoring("leave")}>
+              Leave
+            </Button>
+            <Button disabled={busy} onClick={() => void saveMonitoring("work")}>
+              Work perfect
+            </Button>
           </div>
-          <div className="mt-6 flex justify-end gap-2">
+          <div className="mt-4 flex justify-end">
             <Button variant="ghost" onClick={() => setMonitorFor(null)}>
               Cancel
-            </Button>
-            <Button disabled={busy} onClick={saveMonitoring}>
-              Save Day
             </Button>
           </div>
         </Modal>
@@ -482,25 +592,91 @@ function Kpi({
     </Card>
   );
 }
+function MonitoringSummaryCard({ item, onOpen }: { item: Tracker; onOpen: () => void }) {
+  const failed = item.monitoring_days.some((day) => day.result === "red");
+  const totalDays = failed ? 11 : 6;
+  const issueChecksComplete = checklistFields.filter((field) => item.issue_checklist?.[field]).length;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="w-full rounded-xl border border-border bg-surface p-3.5 text-left shadow-sm transition-all hover:border-violet/40 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-violet/30"
+    >
+      <h3 className="break-words text-sm font-bold leading-5 text-text-primary">
+        {item.company_name}
+      </h3>
+      <p className="mt-1 break-words text-[11px] text-text-secondary">
+        {item.city || "No city"} · {item.assignee_name || "Unassigned"}
+      </p>
+      <p className="mt-3 border-t border-border pt-2.5 text-[10px] font-medium text-text-secondary">
+        Last change{" "}
+        <span className="text-text-primary">
+          {new Date(item.stage_changed_at).toLocaleDateString()}
+        </span>
+      </p>
+      {item.stage === "Issue Resolution" && (
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <span className="text-[10px] font-medium text-text-secondary">Resolution checklist</span>
+          <span className="font-mono text-[10px] text-text-primary">{issueChecksComplete} / 6 selected</span>
+        </div>
+      )}
+      {item.stage === "Monitoring" && (
+        <>
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <span className="text-[10px] font-medium text-text-secondary">Monitoring</span>
+            <span className="font-mono text-[10px] text-text-primary">
+              {item.monitoring_days.length} / {totalDays}
+            </span>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {Array.from({ length: totalDays }, (_, index) => {
+              const day = item.monitoring_days.find((entry) => entry.day_number === index + 1);
+              return (
+                <span
+                  key={index}
+                  title={`Day ${index + 1}${day?.result ? `: ${day.result}` : ": pending"}`}
+                  className={`flex h-6 w-6 items-center justify-center rounded-full text-[9px] font-bold ${day?.result === "green" ? "bg-mint text-bg" : day?.result === "red" ? "bg-coral text-white" : "border border-border bg-surface-raised text-text-dim"}`}
+                >
+                  {index + 1}
+                </span>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </button>
+  );
+}
 function TrackerCard({
   item,
   onComment,
   onViewComments,
   onMove,
+  onMovePrevious,
   onMonitor,
+  onIssueResolution,
   onDelete,
   canDelete,
+  canMovePrevious,
 }: {
   item: Tracker;
   onComment: () => void;
   onViewComments: () => void;
   onMove: () => void;
+  onMovePrevious: () => void;
   onMonitor: (n: number) => void;
+  onIssueResolution: () => void;
   onDelete: () => void;
   canDelete: boolean;
+  canMovePrevious: boolean;
 }) {
   const failed = item.monitoring_days.some((d) => d.result === "red"),
     totalDays = failed ? 11 : 6;
+  const issueComplete = checklistFields.every((field) => item.issue_checklist?.[field]);
+  const monitoringDayToday = Math.max(
+    1,
+    Math.floor((Date.now() - new Date(item.stage_changed_at).getTime()) / 86400000) + 1,
+  );
   const [showComments] = useState(false);
   return (
     <Card className="group space-y-4 border border-border bg-surface p-4 shadow-sm transition-all duration-150 hover:border-border-bright hover:shadow-md">
@@ -518,6 +694,28 @@ function TrackerCard({
           {new Date(item.stage_changed_at).toLocaleDateString()}
         </span>
       </p>
+      {item.stage === "Issue Resolution" && (
+        <div className="rounded-xl border border-border bg-surface-raised/40 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <p className="text-[10px] font-medium text-text-secondary">Resolution checklist</p>
+              <p className="mt-1 text-[11px] text-text-primary">
+                {checklistFields.filter((field) => item.issue_checklist?.[field]).length} / 6 items
+                complete
+              </p>
+            </div>
+            <Badge tone={issueComplete ? "success" : "warning"}>
+              {issueComplete ? "Ready" : "Required"}
+            </Badge>
+          </div>
+          <button
+            onClick={onIssueResolution}
+            className="mt-3 w-full rounded-md border border-border bg-surface px-2 py-1.5 text-[10px] font-bold text-lime transition-colors hover:border-lime/50 hover:bg-lime/10"
+          >
+            Complete checklist
+          </button>
+        </div>
+      )}
       {item.stage === "Monitoring" && (
         <div className="rounded-xl border border-border bg-surface-raised/40 p-3">
           <div className="mb-2.5 flex items-center justify-between text-[10px] font-medium text-text-secondary">
@@ -533,8 +731,13 @@ function TrackerCard({
                 <button
                   key={i}
                   onClick={() => onMonitor(i + 1)}
-                  title={`Monitoring day ${i + 1}${d?.result ? `: ${d.result}` : ": pending"}`}
-                  className={`h-6 w-6 rounded-full text-[9px] font-bold shadow-sm transition-transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-lime/50 ${d?.result === "green" ? "bg-mint text-bg" : d?.result === "red" ? "bg-coral text-white" : "border border-border bg-surface text-text-secondary hover:border-lime/60 hover:bg-lime/10"}`}
+                  disabled={i + 1 !== monitoringDayToday}
+                  title={
+                    i + 1 === monitoringDayToday
+                      ? `Complete monitoring day ${i + 1}`
+                      : `Monitoring day ${i + 1} is available on its calendar day`
+                  }
+                  className={`h-6 w-6 rounded-full text-[9px] font-bold shadow-sm transition-transform focus:outline-none focus:ring-2 focus:ring-lime/50 disabled:cursor-not-allowed disabled:opacity-60 ${d?.result === "green" ? "bg-mint text-bg" : d?.result === "red" ? "bg-coral text-white" : i + 1 === monitoringDayToday ? "border border-border bg-surface text-text-secondary hover:scale-110 hover:border-lime/60 hover:bg-lime/10" : "border border-border bg-surface-raised text-text-dim"}`}
                 >
                   {i + 1}
                 </button>
@@ -550,18 +753,28 @@ function TrackerCard({
         >
           <MessageSquare size={13} className="shrink-0" /> {item.comments.length} comments
         </button>
-        <button
-          onClick={onComment}
-          className="rounded-md px-1.5 py-1 text-left text-[10px] font-bold text-text-secondary transition-colors hover:bg-lime/10 hover:text-lime focus:outline-none focus:ring-2 focus:ring-lime/30"
-        >
-          Add comment
-        </button>
-        {item.stage !== "Converted" && (
+        {item.stage !== "Issue Resolution" && item.stage !== "Monitoring" && (
+          <button
+            onClick={onComment}
+            className="rounded-md px-1.5 py-1 text-left text-[10px] font-bold text-text-secondary transition-colors hover:bg-lime/10 hover:text-lime focus:outline-none focus:ring-2 focus:ring-lime/30"
+          >
+            Add comment
+          </button>
+        )}
+        {!(["Issue Resolution", "Monitoring", "Converted"] as string[]).includes(item.stage) && (
           <button
             onClick={onMove}
             className="rounded-md px-1.5 py-1 text-left text-[10px] font-bold text-lime transition-colors hover:bg-lime/10 focus:outline-none focus:ring-2 focus:ring-lime/30"
           >
             Next stage
+          </button>
+        )}
+        {canMovePrevious && item.stage !== "Issue Resolution" && (
+          <button
+            onClick={onMovePrevious}
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-left text-[10px] font-bold text-text-secondary transition-colors hover:bg-surface-raised focus:outline-none focus:ring-2 focus:ring-lime/30"
+          >
+            <RotateCcw size={12} /> Previous stage
           </button>
         )}
         {canDelete && (
