@@ -1,16 +1,27 @@
 import { useState, useEffect } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useAuth } from "@/lib/auth-store";
-import { LayoutDashboard, MapPin, Users, BarChart3, LogOut, Activity, Menu, X, Folder, PanelLeftClose, PanelLeftOpen, Boxes, Sun, Moon, ClipboardList } from "lucide-react";
+import {
+  LayoutDashboard,
+  MapPin,
+  Users,
+  BarChart3,
+  LogOut,
+  Activity,
+  Menu,
+  X,
+  Folder,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Boxes,
+  Sun,
+  Moon,
+  ClipboardList,
+  KanbanSquare,
+} from "lucide-react";
 import { Button } from "../ui-kit";
 
-export function StaffShell({
-  children,
-  role,
-}: {
-  children: React.ReactNode;
-  role: "supervisor";
-}) {
+export function StaffShell({ children, role }: { children: React.ReactNode; role: "supervisor" }) {
   const { signOut, profile } = useAuth();
   const path = useRouterState({ select: (s) => s.location.pathname });
   const [isOpen, setIsOpen] = useState(false);
@@ -23,7 +34,7 @@ export function StaffShell({
   useEffect(() => {
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem("themeMode");
-      const initial = (stored === "dark" || stored === "light") ? stored : "light";
+      const initial = stored === "dark" || stored === "light" ? stored : "light";
       setThemeMode(initial);
       const root = document.documentElement;
       if (initial === "light") {
@@ -54,6 +65,7 @@ export function StaffShell({
     { to: `${base}/factory-data`, label: "Factory Form Data", icon: ClipboardList },
     { to: `${base}/performance`, label: "Performance", icon: Activity },
     { to: `${base}/drive-links`, label: "Links of Drive", icon: Folder, href: DRIVE_URL },
+    { to: `${base}/company-tracker`, label: "Company Tracker", icon: KanbanSquare },
     { to: `${base}/logistic`, label: "Logistic", icon: Boxes },
     { to: `${base}/reports`, label: "Report and Logs", icon: BarChart3 },
   ];
@@ -62,8 +74,13 @@ export function StaffShell({
     <div className="flex min-h-screen flex-col md:flex-row bg-background text-text-primary">
       {/* Mobile Header */}
       <header className="flex h-16 items-center justify-between border-b border-border bg-surface px-6 md:hidden">
-        <Link to={base as "/manager"} className="flex items-center gap-2 font-syne font-bold uppercase tracking-wider text-lime">
-          <span className="flex h-5 w-5 items-center justify-center rounded-[4px] bg-lime text-bg text-[10px] font-extrabold font-mono">⬡</span>
+        <Link
+          to={base as "/manager"}
+          className="flex items-center gap-2 font-syne font-bold uppercase tracking-wider text-lime"
+        >
+          <span className="flex h-5 w-5 items-center justify-center rounded-[4px] bg-lime text-bg text-[10px] font-extrabold font-mono">
+            ⬡
+          </span>
           <span>SIM-KIT OPS</span>
         </Link>
         <div className="flex items-center gap-1">
@@ -72,7 +89,11 @@ export function StaffShell({
             className="p-2 text-text-secondary hover:text-lime transition-colors"
             title={themeMode === "light" ? "Switch to Dark Mode" : "Switch to Light Mode"}
           >
-            {themeMode === "light" ? <Moon size={18} strokeWidth={2} /> : <Sun size={18} strokeWidth={2} />}
+            {themeMode === "light" ? (
+              <Moon size={18} strokeWidth={2} />
+            ) : (
+              <Sun size={18} strokeWidth={2} />
+            )}
           </button>
           <button
             onClick={() => setIsOpen(!isOpen)}
@@ -88,8 +109,14 @@ export function StaffShell({
       {isOpen && (
         <div className="fixed inset-0 z-50 flex flex-col bg-background text-text-primary animate-in slide-in-from-top duration-200 md:hidden">
           <div className="flex h-16 items-center justify-between border-b border-border px-6 bg-surface">
-            <Link to={base as "/manager"} className="flex items-center gap-2 font-syne font-bold uppercase tracking-wider text-lime" onClick={() => setIsOpen(false)}>
-              <span className="flex h-5 w-5 items-center justify-center rounded-[4px] bg-lime text-bg text-[10px] font-extrabold font-mono">⬡</span>
+            <Link
+              to={base as "/manager"}
+              className="flex items-center gap-2 font-syne font-bold uppercase tracking-wider text-lime"
+              onClick={() => setIsOpen(false)}
+            >
+              <span className="flex h-5 w-5 items-center justify-center rounded-[4px] bg-lime text-bg text-[10px] font-extrabold font-mono">
+                ⬡
+              </span>
               <span>SIM-KIT OPS</span>
             </Link>
             <button
@@ -105,19 +132,21 @@ export function StaffShell({
               const cls = `flex items-center gap-3 px-4 py-3 text-sm font-semibold rounded-[6px] transition-all duration-150 ${active ? "bg-lime/10 text-lime border-l-3 border-lime" : "text-text-secondary hover:bg-surface hover:text-text-primary"}`;
               if (it.href) {
                 return (
-                  <a key={it.to} href={it.href} target="_blank" rel="noopener noreferrer" onClick={() => setIsOpen(false)} className={cls}>
+                  <a
+                    key={it.to}
+                    href={it.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setIsOpen(false)}
+                    className={cls}
+                  >
                     <it.icon size={18} strokeWidth={2} />
                     {it.label}
                   </a>
                 );
               }
               return (
-                <Link
-                  key={it.to}
-                  to={it.to}
-                  onClick={() => setIsOpen(false)}
-                  className={cls}
-                >
+                <Link key={it.to} to={it.to} onClick={() => setIsOpen(false)} className={cls}>
                   <it.icon size={18} strokeWidth={2} />
                   {it.label}
                 </Link>
@@ -125,8 +154,12 @@ export function StaffShell({
             })}
           </nav>
           <div className="border-t border-border px-6 py-6 bg-surface">
-            <div className="font-mono text-[9px] text-lime mb-1 uppercase tracking-widest font-bold">{displayRole}</div>
-            <div className="text-sm font-semibold mb-3 text-text-primary">{profile?.name ?? "—"}</div>
+            <div className="font-mono text-[9px] text-lime mb-1 uppercase tracking-widest font-bold">
+              {displayRole}
+            </div>
+            <div className="text-sm font-semibold mb-3 text-text-primary">
+              {profile?.name ?? "—"}
+            </div>
             <Button
               onClick={() => {
                 setIsOpen(false);
@@ -142,14 +175,25 @@ export function StaffShell({
       )}
 
       {/* Desktop Sidebar */}
-      <aside className={`hidden shrink-0 flex-col bg-surface border-r border-border md:flex md:h-screen md:sticky md:top-0 transition-all duration-200 ${collapsed ? "w-16" : "w-60"}`}>
-        <div className={`flex items-center border-b border-border py-5 ${collapsed ? "justify-center px-0" : "justify-between px-5"}`}>
+      <aside
+        className={`hidden shrink-0 flex-col bg-surface border-r border-border md:flex md:h-screen md:sticky md:top-0 transition-all duration-200 ${collapsed ? "w-16" : "w-60"}`}
+      >
+        <div
+          className={`flex items-center border-b border-border py-5 ${collapsed ? "justify-center px-0" : "justify-between px-5"}`}
+        >
           {!collapsed && (
-            <Link to={base as "/manager"} className="flex items-center gap-2 font-syne font-bold uppercase tracking-wider text-lime">
-              <span className="flex h-5 w-5 items-center justify-center rounded-[4px] bg-lime text-bg text-[10px] font-extrabold font-mono shrink-0">⬡</span>
+            <Link
+              to={base as "/manager"}
+              className="flex items-center gap-2 font-syne font-bold uppercase tracking-wider text-lime"
+            >
+              <span className="flex h-5 w-5 items-center justify-center rounded-[4px] bg-lime text-bg text-[10px] font-extrabold font-mono shrink-0">
+                ⬡
+              </span>
               <div>
                 <div>SIM-KIT OPS</div>
-                <div className="font-mono text-[9px] uppercase tracking-widest text-text-secondary font-bold">{displayRole}</div>
+                <div className="font-mono text-[9px] uppercase tracking-widest text-text-secondary font-bold">
+                  {displayRole}
+                </div>
               </div>
             </Link>
           )}
@@ -158,7 +202,11 @@ export function StaffShell({
             className="text-text-secondary hover:text-lime transition-colors p-1 rounded-[4px] shrink-0"
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
-            {collapsed ? <PanelLeftOpen size={18} strokeWidth={1.8} /> : <PanelLeftClose size={18} strokeWidth={1.8} />}
+            {collapsed ? (
+              <PanelLeftOpen size={18} strokeWidth={1.8} />
+            ) : (
+              <PanelLeftClose size={18} strokeWidth={1.8} />
+            )}
           </button>
         </div>
         <nav className={`flex-1 py-6 space-y-1 ${collapsed ? "px-2" : "px-3"}`}>
@@ -167,30 +215,38 @@ export function StaffShell({
             const cls = `flex items-center gap-3 py-2.5 text-sm font-semibold transition-all duration-150 rounded-[6px] ${collapsed ? "justify-center px-0" : "px-4"} ${active ? "bg-lime/10 text-lime border-l-3 border-lime" : "text-text-secondary hover:bg-surface-raised hover:text-text-primary"}`;
             if (it.href) {
               return (
-                <a key={it.to} href={it.href} target="_blank" rel="noopener noreferrer" title={collapsed ? it.label : undefined} className={cls}>
+                <a
+                  key={it.to}
+                  href={it.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={collapsed ? it.label : undefined}
+                  className={cls}
+                >
                   <it.icon size={16} strokeWidth={2} />
                   {!collapsed && it.label}
                 </a>
               );
             }
             return (
-              <Link
-                key={it.to}
-                to={it.to}
-                title={collapsed ? it.label : undefined}
-                className={cls}
-              >
+              <Link key={it.to} to={it.to} title={collapsed ? it.label : undefined} className={cls}>
                 <it.icon size={16} strokeWidth={2} />
                 {!collapsed && it.label}
               </Link>
             );
           })}
         </nav>
-        <div className={`border-t border-border py-4 bg-surface-raised/30 flex items-center ${collapsed ? "justify-center px-2 flex-col gap-2" : "justify-between px-4"}`}>
+        <div
+          className={`border-t border-border py-4 bg-surface-raised/30 flex items-center ${collapsed ? "justify-center px-2 flex-col gap-2" : "justify-between px-4"}`}
+        >
           {!collapsed && (
             <div className="flex flex-col min-w-0">
-              <div className="font-mono text-[8px] uppercase tracking-wider text-text-secondary font-bold truncate">User</div>
-              <div className="text-xs font-semibold text-text-primary truncate">{profile?.name ?? "—"}</div>
+              <div className="font-mono text-[8px] uppercase tracking-wider text-text-secondary font-bold truncate">
+                User
+              </div>
+              <div className="text-xs font-semibold text-text-primary truncate">
+                {profile?.name ?? "—"}
+              </div>
             </div>
           )}
           <div className="flex items-center gap-1">
@@ -199,7 +255,11 @@ export function StaffShell({
               className="text-text-secondary hover:text-lime transition-colors p-1.5 cursor-pointer"
               title={themeMode === "light" ? "Switch to Dark Mode" : "Switch to Light Mode"}
             >
-              {themeMode === "light" ? <Moon size={16} strokeWidth={2} /> : <Sun size={16} strokeWidth={2} />}
+              {themeMode === "light" ? (
+                <Moon size={16} strokeWidth={2} />
+              ) : (
+                <Sun size={16} strokeWidth={2} />
+              )}
             </button>
             <button
               onClick={signOut}
