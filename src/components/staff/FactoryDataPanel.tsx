@@ -119,6 +119,9 @@ const FACTORY_OPERATIONS_EXPORT_KEYS = [
 ] as const;
 
 const WORKING_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const isValidPersonName = (value: unknown) => /^[A-Za-z]+(?:[ .'-][A-Za-z]+)*$/.test(String(value ?? "").trim());
+const isValidMobileNumber = (value: unknown) => /^\d{10}$/.test(String(value ?? "").replace(/\D/g, ""));
+const isValidEmailAddress = (value: unknown) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value ?? "").trim());
 
 function cleanFilledFactoryValue(value: any): any {
   if (typeof value === "string") {
@@ -462,7 +465,7 @@ export function FactoryDataPanel() {
       let start = toMinutes(formatTime24(item.startTime));
       let end = toMinutes(formatTime24(item.endTime));
       if (start < shiftStart) start += 1440;
-      if (end <= start) end += 1440;
+      while (end <= start) end += 1440;
       if (start < shiftStart || end > shiftEnd) return `Break #${index + 1} must stay within this shift's time.`;
       intervals.push({ start, end });
     }
@@ -846,12 +849,24 @@ export function FactoryDataPanel() {
         toast.error(`Validation Error: Owner #${idx + 1} Name is required`);
         return;
       }
+      if (!isValidPersonName(o.name)) {
+        toast.error(`Validation Error: Owner #${idx + 1} Name can contain letters only`);
+        return;
+      }
       if (!o.contact || !o.contact.trim()) {
         toast.error(`Validation Error: Owner #${idx + 1} Contact Mobile is required`);
         return;
       }
+      if (!isValidMobileNumber(o.contact)) {
+        toast.error(`Validation Error: Owner #${idx + 1} Contact Mobile must be exactly 10 digits`);
+        return;
+      }
       if (!o.email || !o.email.trim()) {
         toast.error(`Validation Error: Owner #${idx + 1} Email Address is required`);
+        return;
+      }
+      if (!isValidEmailAddress(o.email)) {
+        toast.error(`Validation Error: Owner #${idx + 1} Email format is invalid`);
         return;
       }
     }
@@ -868,12 +883,24 @@ export function FactoryDataPanel() {
         toast.error(`Validation Error: Technician #${idx + 1} Name is required`);
         return;
       }
+      if (!isValidPersonName(technician.name)) {
+        toast.error(`Validation Error: Technician #${idx + 1} Name can contain letters only`);
+        return;
+      }
       if (!technician.contact || !technician.contact.trim()) {
         toast.error(`Validation Error: Technician #${idx + 1} Mobile Contact is required`);
         return;
       }
+      if (!isValidMobileNumber(technician.contact)) {
+        toast.error(`Validation Error: Technician #${idx + 1} Mobile Contact must be exactly 10 digits`);
+        return;
+      }
       if (!technician.email || !technician.email.trim()) {
         toast.error(`Validation Error: Technician #${idx + 1} Email Address is required`);
+        return;
+      }
+      if (!isValidEmailAddress(technician.email)) {
+        toast.error(`Validation Error: Technician #${idx + 1} Email format is invalid`);
         return;
       }
     }

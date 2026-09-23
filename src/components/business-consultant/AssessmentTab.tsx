@@ -708,13 +708,17 @@ function getShiftBreakError(shift: any): string | null {
     let start = toMinutes(item.startTime);
     let end = toMinutes(item.endTime);
     if (start < shiftStart) start += 1440;
-    if (end <= start) end += 1440;
+    while (end <= start) end += 1440;
     if (start < shiftStart || end > shiftEnd) return `Break #${index + 1} must stay within this shift's time.`;
     intervals.push({ start, end });
   }
   intervals.sort((a, b) => a.start - b.start);
   return intervals.some((item, index) => index > 0 && item.start < intervals[index - 1].end) ? "Break times cannot overlap." : null;
 }
+
+const isValidPersonName = (value: unknown) => /^[A-Za-z]+(?:[ .'-][A-Za-z]+)*$/.test(String(value ?? "").trim());
+const isValidMobileNumber = (value: unknown) => /^\d{10}$/.test(String(value ?? "").replace(/\D/g, ""));
+const isValidEmailAddress = (value: unknown) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value ?? "").trim());
 
 export function validateFactoryOperationsForm(data: Record<string, any>): { isValid: boolean; errorMsg?: string; invalidSection?: string } {
   const isBlank = (value: unknown) => typeof value !== "string" || !value.trim();
@@ -745,11 +749,20 @@ export function validateFactoryOperationsForm(data: Record<string, any>): { isVa
     if (isBlank(o?.name)) {
       return { isValid: false, errorMsg: `Owner #${i + 1} Name is required.`, invalidSection: "owners" };
     }
+    if (!isValidPersonName(o.name)) {
+      return { isValid: false, errorMsg: `Owner #${i + 1} Name can contain letters only.`, invalidSection: "owners" };
+    }
     if (isBlank(o?.contact)) {
       return { isValid: false, errorMsg: `Owner #${i + 1} Mobile Contact is required.`, invalidSection: "owners" };
     }
+    if (!isValidMobileNumber(o.contact)) {
+      return { isValid: false, errorMsg: `Owner #${i + 1} Mobile Contact must be exactly 10 digits.`, invalidSection: "owners" };
+    }
     if (isBlank(o?.email)) {
       return { isValid: false, errorMsg: `Owner #${i + 1} Email Address is required.`, invalidSection: "owners" };
+    }
+    if (!isValidEmailAddress(o.email)) {
+      return { isValid: false, errorMsg: `Owner #${i + 1} Email format is invalid.`, invalidSection: "owners" };
     }
   }
 
@@ -763,11 +776,20 @@ export function validateFactoryOperationsForm(data: Record<string, any>): { isVa
     if (isBlank(technician?.name)) {
       return { isValid: false, errorMsg: `Technician #${i + 1} Name is required.`, invalidSection: "technicians" };
     }
+    if (!isValidPersonName(technician.name)) {
+      return { isValid: false, errorMsg: `Technician #${i + 1} Name can contain letters only.`, invalidSection: "technicians" };
+    }
     if (isBlank(technician?.contact)) {
       return { isValid: false, errorMsg: `Technician #${i + 1} Mobile Contact is required.`, invalidSection: "technicians" };
     }
+    if (!isValidMobileNumber(technician.contact)) {
+      return { isValid: false, errorMsg: `Technician #${i + 1} Mobile Contact must be exactly 10 digits.`, invalidSection: "technicians" };
+    }
     if (isBlank(technician?.email)) {
       return { isValid: false, errorMsg: `Technician #${i + 1} Email Address is required.`, invalidSection: "technicians" };
+    }
+    if (!isValidEmailAddress(technician.email)) {
+      return { isValid: false, errorMsg: `Technician #${i + 1} Email format is invalid.`, invalidSection: "technicians" };
     }
   }
 

@@ -327,7 +327,7 @@ function getShiftBreakError(shift: any): string | null {
     let start = toMinutes(item.startTime);
     let end = toMinutes(item.endTime);
     if (start < shiftStart) start += 1440;
-    if (end <= start) end += 1440;
+    while (end <= start) end += 1440;
     if (start < shiftStart || end > shiftEnd) return `Break #${index + 1} must stay within this shift's time.`;
     intervals.push({ start, end });
   }
@@ -336,6 +336,10 @@ function getShiftBreakError(shift: any): string | null {
     ? "Break times cannot overlap."
     : null;
 }
+
+const isValidPersonName = (value: unknown) => /^[A-Za-z]+(?:[ .'-][A-Za-z]+)*$/.test(String(value ?? "").trim());
+const isValidMobileNumber = (value: unknown) => /^\d{10}$/.test(String(value ?? "").replace(/\D/g, ""));
+const isValidEmailAddress = (value: unknown) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value ?? "").trim());
 
 function ClientFormPage() {
   const { token } = Route.useSearch();
@@ -439,13 +443,22 @@ function ClientFormPage() {
         if (!o.name || !o.name.trim()) {
           errs[`owner_${idx}_name`] = `Owner #${idx + 1} Name is required`;
           sections.add("owners");
+        } else if (!isValidPersonName(o.name)) {
+          errs[`owner_${idx}_name`] = `Owner #${idx + 1} Name can contain letters only`;
+          sections.add("owners");
         }
         if (!o.contact || !o.contact.trim()) {
           errs[`owner_${idx}_contact`] = `Owner #${idx + 1} Mobile Contact is required`;
           sections.add("owners");
+        } else if (!isValidMobileNumber(o.contact)) {
+          errs[`owner_${idx}_contact`] = `Owner #${idx + 1} Mobile Contact must be exactly 10 digits`;
+          sections.add("owners");
         }
         if (!o.email || !o.email.trim()) {
           errs[`owner_${idx}_email`] = `Owner #${idx + 1} Email is required`;
+          sections.add("owners");
+        } else if (!isValidEmailAddress(o.email)) {
+          errs[`owner_${idx}_email`] = `Owner #${idx + 1} Email format is invalid`;
           sections.add("owners");
         }
       });
@@ -461,13 +474,22 @@ function ClientFormPage() {
         if (!technician?.name || !technician.name.trim()) {
           errs[`tech_${idx}_name`] = `Technician #${idx + 1} Name is required`;
           sections.add("technicians");
+        } else if (!isValidPersonName(technician.name)) {
+          errs[`tech_${idx}_name`] = `Technician #${idx + 1} Name can contain letters only`;
+          sections.add("technicians");
         }
         if (!technician?.contact || !technician.contact.trim()) {
           errs[`tech_${idx}_contact`] = `Technician #${idx + 1} Mobile Contact is required`;
           sections.add("technicians");
+        } else if (!isValidMobileNumber(technician.contact)) {
+          errs[`tech_${idx}_contact`] = `Technician #${idx + 1} Mobile Contact must be exactly 10 digits`;
+          sections.add("technicians");
         }
         if (!technician?.email || !technician.email.trim()) {
           errs[`tech_${idx}_email`] = `Technician #${idx + 1} Email is required`;
+          sections.add("technicians");
+        } else if (!isValidEmailAddress(technician.email)) {
+          errs[`tech_${idx}_email`] = `Technician #${idx + 1} Email format is invalid`;
           sections.add("technicians");
         }
       });
