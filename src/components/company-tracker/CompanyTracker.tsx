@@ -101,6 +101,7 @@ export function CompanyTracker() {
   const [assignOpen, setAssignOpen] = useState(false);
   const [siteId, setSiteId] = useState("");
   const [assignmentSearch, setAssignmentSearch] = useState("");
+  const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
   const [assigneeId, setAssigneeId] = useState("");
   const [assignmentStage, setAssignmentStage] = useState<Stage>("Pending Works");
   const [busy, setBusy] = useState(false);
@@ -410,25 +411,62 @@ export function CompanyTracker() {
       {assignOpen && (
         <Modal title="Assign Company" onClose={() => setAssignOpen(false)}>
           <Label>Company</Label>
-          <div className="mb-2 flex items-center gap-2 border border-border bg-surface px-3 py-2 rounded-[6px]">
-            <Search size={14} className="text-text-secondary" />
-            <Input
-              value={assignmentSearch}
-              onChange={(e) => setAssignmentSearch(e.target.value)}
-              placeholder="Search available companies..."
-              className="border-0 p-0 focus:ring-0"
-            />
+          <div className="relative">
+            <div className="flex items-center gap-2 border border-border bg-surface px-3 py-2 rounded-[6px] focus-within:border-lime focus-within:ring-3 focus-within:ring-lime/15">
+              <Search size={14} className="shrink-0 text-text-secondary" />
+              <Input
+                value={assignmentSearch}
+                onChange={(e) => {
+                  setAssignmentSearch(e.target.value);
+                  setSiteId("");
+                  setCompanyPickerOpen(true);
+                }}
+                onFocus={() => setCompanyPickerOpen(true)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setCompanyPickerOpen(false);
+                  if (e.key === "Enter" && assignableSites.length === 1) {
+                    const [site] = assignableSites;
+                    setSiteId(site.id);
+                    setAssignmentSearch(site.name);
+                    setCompanyPickerOpen(false);
+                  }
+                }}
+                role="combobox"
+                aria-expanded={companyPickerOpen}
+                aria-controls="assignable-company-list"
+                placeholder="Search and select a company..."
+                className="border-0 p-0 focus:ring-0"
+              />
+            </div>
+            {companyPickerOpen && (
+              <div
+                id="assignable-company-list"
+                role="listbox"
+                className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-[6px] border border-border bg-surface-raised p-1 shadow-lg"
+              >
+                {assignableSites.length ? (
+                  assignableSites.map((site) => (
+                    <button
+                      key={site.id}
+                      type="button"
+                      role="option"
+                      aria-selected={site.id === siteId}
+                      onClick={() => {
+                        setSiteId(site.id);
+                        setAssignmentSearch(site.name);
+                        setCompanyPickerOpen(false);
+                      }}
+                      className="w-full rounded-[4px] px-3 py-2 text-left text-sm text-text-primary hover:bg-surface"
+                    >
+                      {site.name}
+                    </button>
+                  ))
+                ) : (
+                  <p className="px-3 py-2 text-sm text-text-secondary">No available companies found</p>
+                )}
+              </div>
+            )}
           </div>
-          <Select value={siteId} onChange={(e) => setSiteId(e.target.value)}>
-            <option value="">
-              {assignableSites.length ? "Select company" : "No available companies found"}
-            </option>
-            {assignableSites.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </Select>
           <Label className="mt-4">Assignee</Label>
           <Select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
             <option value="">Select assignee</option>
