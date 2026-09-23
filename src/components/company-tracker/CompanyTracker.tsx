@@ -691,9 +691,15 @@ function TrackerCard({
   const failed = item.monitoring_days.some((d) => d.result === "red"),
     totalDays = failed ? 11 : 6;
   const issueComplete = checklistFields.every((field) => item.issue_checklist?.[field]);
+  // Monitoring days advance at the next local calendar date, rather than after
+  // a full 24 hours from the time this stage was entered.
+  const monitoringStartDate = new Date(item.stage_changed_at);
+  monitoringStartDate.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
   const monitoringDayToday = Math.max(
     1,
-    Math.floor((Date.now() - new Date(item.stage_changed_at).getTime()) / 86400000) + 1,
+    Math.floor((today.getTime() - monitoringStartDate.getTime()) / 86400000) + 1,
   );
   const [showComments] = useState(false);
   return (
