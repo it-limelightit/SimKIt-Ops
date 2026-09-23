@@ -631,6 +631,8 @@ interface FactoryOperationsCardContentProps {
 }
 
 const COMMON_DOWNTIME_REASONS = [
+  "Lunch Break",
+  "Dinner Break",
   "Machine Breakdown",
   "Power Failure",
   "Material Shortage",
@@ -691,6 +693,27 @@ function checkShiftOverlap(shifts: any[]): boolean {
     }
   }
   return false;
+}
+
+function getShiftBreakError(shift: any): string | null {
+  if (!shift?.startTime || !shift?.endTime) return null;
+  const toMinutes = (time: string) => time.split(":").map(Number).reduce((hours, minutes) => hours * 60 + minutes);
+  const shiftStart = toMinutes(shift.startTime);
+  let shiftEnd = toMinutes(shift.endTime);
+  if (shiftEnd <= shiftStart) shiftEnd += 1440;
+  const intervals: Array<{ start: number; end: number }> = [];
+  for (let index = 0; index < (shift.breaks ?? []).length; index++) {
+    const item = shift.breaks[index];
+    if (!item?.startTime || !item?.endTime || !item?.reason?.trim()) return `Break #${index + 1} needs a start time, end time, and downtime reason.`;
+    let start = toMinutes(item.startTime);
+    let end = toMinutes(item.endTime);
+    if (start < shiftStart) start += 1440;
+    if (end <= start) end += 1440;
+    if (start < shiftStart || end > shiftEnd) return `Break #${index + 1} must stay within this shift's time.`;
+    intervals.push({ start, end });
+  }
+  intervals.sort((a, b) => a.start - b.start);
+  return intervals.some((item, index) => index > 0 && item.start < intervals[index - 1].end) ? "Break times cannot overlap." : null;
 }
 
 export function validateFactoryOperationsForm(data: Record<string, any>): { isValid: boolean; errorMsg?: string; invalidSection?: string } {
@@ -767,6 +790,8 @@ export function validateFactoryOperationsForm(data: Record<string, any>): { isVa
     if (!Array.isArray(s.workingDays) || s.workingDays.length === 0) {
       return { isValid: false, errorMsg: `Shift #${i + 1} Working Day is required.`, invalidSection: "shifts" };
     }
+    const breakError = getShiftBreakError(s);
+    if (breakError) return { isValid: false, errorMsg: `Shift #${i + 1}: ${breakError}`, invalidSection: "shifts" };
   }
   if (checkShiftOverlap(shifts)) {
     return { isValid: false, errorMsg: "Shift timings overlap. Please adjust start/end times.", invalidSection: "shifts" };
@@ -948,7 +973,7 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
   // Dynamic lists
   const owners = data.factory_op_owners ?? [{ name: "", email: "", contact: "" }];
   const technicians = data.factory_op_technicians ?? [{ name: "", email: "", contact: "" }];
-  const shifts = data.factory_op_shifts ?? [{ name: "", startTime: "", endTime: "", workingDays: [] }];
+  const shifts = data.factory_op_shifts ?? [{ name: "", startTime: "", endTime: "", workingDays: [], breaks: [] }];
 
   const downtimeReasons = data.factory_op_downtime_reasons ?? ["changeover", "Operator Absence", "Lubrication Issue"];
   const customReasons = data.factory_op_downtime_custom_reasons ?? [];
@@ -994,19 +1019,19 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
     patch({ factory_op_technicians: updated.length > 0 ? updated : [{ name: "", email: "", contact: "" }] });
   };
 
-  const handleShiftChange = (index: number, key: string, val: string) => {
+  const handleShiftChange = (index: number, key: string, val: any) => {
     const updated = [...shifts];
     updated[index] = { ...updated[index], [key]: val };
     patch({ factory_op_shifts: updated });
   };
 
   const addShift = () => {
-    patch({ factory_op_shifts: [...shifts, { name: "", startTime: "", endTime: "", workingDays: [] }] });
+    patch({ factory_op_shifts: [...shifts, { name: "", startTime: "", endTime: "", workingDays: [], breaks: [] }] });
   };
 
   const removeShift = (index: number) => {
       const updated = shifts.filter((_: any, i: number) => i !== index);
-      patch({ factory_op_shifts: updated.length > 0 ? updated : [{ name: "", startTime: "", endTime: "", workingDays: [] }] });
+      patch({ factory_op_shifts: updated.length > 0 ? updated : [{ name: "", startTime: "", endTime: "", workingDays: [], breaks: [] }] });
     };
 
     const toggleShiftWorkingDay = (shiftIndex: number, day: string) => {
@@ -1047,7 +1072,7 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
     };
 
     return (
-      <div className="space-y-6 animate-in fade-in duration-200">
+      <div className="flex flex-col space-y-6 animate-in fade-in duration-200">
         {/* 1. Client Invitation & Self-Submission Portal Banner */}
         <div className="bg-surface-raised/40 p-5 rounded-2xl border border-border/80 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -1296,8 +1321,8 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
           </div>
         </div>
 
-        {/* 5. Shift Schedule & Collision Analysis */}
-        <div className="bg-surface/30 border border-border/70 rounded-2xl p-5 space-y-4">
+        {/* 6. Shift Schedule & Collision Analysis */}
+        <div className="order-6 bg-surface/30 border border-border/70 rounded-2xl p-5 space-y-4">
           <div className="flex items-center justify-between border-b border-border/60 pb-3">
             <div className="flex items-center gap-2.5">
               <Clock className="text-lime w-4 h-4" />
@@ -1397,13 +1422,27 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
                     })}
                   </div>
                 </div>
+                <div className="border-t border-border/50 pt-3 space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <div><Label className="text-[10px] text-text-secondary font-mono uppercase tracking-wider">Break Times &amp; Downtime Reason</Label><p className="text-[9px] text-text-dim">Breaks must remain within this shift.</p></div>
+                    <Button type="button" variant="secondary" className="h-7 py-1 px-2 text-[9px]" onClick={() => handleShiftChange(i, "breaks", [...(shift.breaks ?? []), { startTime: "", endTime: "", reason: "" }])}>+ Add Break</Button>
+                  </div>
+                  {(shift.breaks ?? []).map((breakItem: any, breakIndex: number) => (
+                    <div key={breakIndex} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_2fr_auto] gap-2 items-end">
+                      <div><Label className="text-[9px]">Break Start</Label><Input type="time" value={breakItem.startTime ?? ""} onChange={(e) => { const breaks = [...(shift.breaks ?? [])]; breaks[breakIndex] = { ...breaks[breakIndex], startTime: e.target.value }; handleShiftChange(i, "breaks", breaks); }} className="h-8 text-xs bg-surface" /></div>
+                      <div><Label className="text-[9px]">Break End</Label><Input type="time" value={breakItem.endTime ?? ""} onChange={(e) => { const breaks = [...(shift.breaks ?? [])]; breaks[breakIndex] = { ...breaks[breakIndex], endTime: e.target.value }; handleShiftChange(i, "breaks", breaks); }} className="h-8 text-xs bg-surface" /></div>
+                      <div><Label className="text-[9px]">Downtime Reason</Label>{breakItem.customReason ? <Input value={breakItem.reason ?? ""} placeholder="Enter custom reason" onChange={(e) => { const breaks = [...(shift.breaks ?? [])]; breaks[breakIndex] = { ...breaks[breakIndex], reason: e.target.value }; handleShiftChange(i, "breaks", breaks); }} className="h-8 text-xs bg-surface" /> : <Select value={breakItem.reason ?? ""} onChange={(e) => { const breaks = [...(shift.breaks ?? [])]; breaks[breakIndex] = e.target.value === "__custom__" ? { ...breaks[breakIndex], reason: "", customReason: true } : { ...breaks[breakIndex], reason: e.target.value, customReason: false }; handleShiftChange(i, "breaks", breaks); }} className="h-8 text-xs bg-surface"><option value="">Select reason</option><option value="Lunch Break">Lunch Break</option><option value="Dinner Break">Dinner Break</option><option value="__custom__">+ Add custom reason</option></Select>}</div>
+                      <Button type="button" variant="danger" className="h-8 py-1 px-2 text-xs" onClick={() => handleShiftChange(i, "breaks", (shift.breaks ?? []).filter((_: any, j: number) => j !== breakIndex))}>Delete</Button>
+                    </div>
+                  ))}
+                </div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* 6. Downtime Reason Matrix & Custom Triggers */}
-        <div className="bg-surface/30 border border-border/70 rounded-2xl p-5 space-y-4">
+        {/* 5. Downtime Reason Matrix & Custom Triggers */}
+        <div className="order-5 bg-surface/30 border border-border/70 rounded-2xl p-5 space-y-4">
           <div className="flex items-center justify-between border-b border-border/60 pb-3">
             <div className="flex items-center gap-2.5">
               <AlertTriangle className="text-lime w-4 h-4" />
@@ -1492,7 +1531,7 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
         </div>
 
         {/* 7. Electricity Board Selector */}
-        <div className="bg-surface/30 border border-border/70 rounded-2xl p-5 space-y-4">
+        <div className="order-7 bg-surface/30 border border-border/70 rounded-2xl p-5 space-y-4">
           <div className="flex items-center justify-between border-b border-border/60 pb-3">
             <h4 className="font-syne text-xs font-bold uppercase tracking-wider text-text-primary">
               Electricity Board Provider *
@@ -1531,7 +1570,7 @@ function FactoryOperationsCardContent({ data, patch, siteId }: FactoryOperations
         </div>
 
         {/* 8. Business Profile & Advanced Analytics Specifications */}
-        <div className="space-y-6 bg-surface-raised/40 backdrop-blur-md border border-border/80 rounded-2xl p-6 shadow-sm relative overflow-hidden transition-all duration-300 hover:border-lime/40">
+        <div className="order-8 space-y-6 bg-surface-raised/40 backdrop-blur-md border border-border/80 rounded-2xl p-6 shadow-sm relative overflow-hidden transition-all duration-300 hover:border-lime/40">
           <div className="flex items-center gap-3 border-b border-border/80 pb-3">
             <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-lime-dim/50 border border-lime/20 text-lime">
               <Building2 size={16} />

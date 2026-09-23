@@ -449,6 +449,27 @@ export function FactoryDataPanel() {
     return false;
   };
 
+  const getShiftBreakError = (shift: any): string | null => {
+    if (!shift?.startTime || !shift?.endTime) return null;
+    const toMinutes = (time: string) => time.split(":").map(Number).reduce((hours, minutes) => hours * 60 + minutes);
+    const shiftStart = toMinutes(formatTime24(shift.startTime));
+    let shiftEnd = toMinutes(formatTime24(shift.endTime));
+    if (shiftEnd <= shiftStart) shiftEnd += 1440;
+    const intervals: Array<{ start: number; end: number }> = [];
+    for (let index = 0; index < (shift.breaks ?? []).length; index++) {
+      const item = shift.breaks[index];
+      if (!item?.startTime || !item?.endTime || !item?.reason?.trim()) return `Break #${index + 1} needs a start time, end time, and downtime reason.`;
+      let start = toMinutes(formatTime24(item.startTime));
+      let end = toMinutes(formatTime24(item.endTime));
+      if (start < shiftStart) start += 1440;
+      if (end <= start) end += 1440;
+      if (start < shiftStart || end > shiftEnd) return `Break #${index + 1} must stay within this shift's time.`;
+      intervals.push({ start, end });
+    }
+    intervals.sort((a, b) => a.start - b.start);
+    return intervals.some((item, index) => index > 0 && item.start < intervals[index - 1].end) ? "Break times cannot overlap." : null;
+  };
+
   const hasOverlap = useMemo(() => {
     const shifts = selectedAssessment?.data?.factory_op_shifts ?? [];
     return checkShiftOverlap(shifts);
@@ -881,6 +902,11 @@ export function FactoryDataPanel() {
         toast.error(`Validation Error: Shift #${idx + 1} Working Day is required`);
         return;
       }
+      const breakError = getShiftBreakError(s);
+      if (breakError) {
+        toast.error(`Validation Error: Shift #${idx + 1}: ${breakError}`);
+        return;
+      }
     }
 
     // 7. Electricity Board
@@ -971,7 +997,7 @@ ${(d.factory_op_owners || []).map((o: any) => `- Name: ${o.name || "N/A"} | Mobi
 ${(d.factory_op_technicians || []).map((t: any) => `- Name: ${t.name || "N/A"} | Mobile: ${t.contact || "N/A"} | Email: ${t.email || "N/A"}`).join("\n") || "No technician records"}
 
 --- SHIFT TIMINGS ---
-${(d.factory_op_shifts || []).map((s: any) => `- ${s.name || "Shift"}: ${formatTime24(s.startTime)} to ${formatTime24(s.endTime)} | Working Days: ${getShiftWorkingDays(s, d).join(", ") || "N/A"}`).join("\n") || "No shift records"}
+${(d.factory_op_shifts || []).map((s: any) => `- ${s.name || "Shift"}: ${formatTime24(s.startTime)} to ${formatTime24(s.endTime)} | Working Days: ${getShiftWorkingDays(s, d).join(", ") || "N/A"}${(s.breaks || []).length ? ` | Breaks: ${(s.breaks || []).map((item: any) => `${formatTime24(item.startTime)}-${formatTime24(item.endTime)} (${item.reason || "No reason"})`).join(", ")}` : ""}`).join("\n") || "No shift records"}
 
 --- DOWNTIME REASONS ---
 Reasons: ${(d.factory_op_downtime_reasons || []).join(", ") || "None"}
@@ -2009,8 +2035,8 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                         Shifts &amp; Downtime Analysis
                       </h3>
                       
-                      <Card className="p-4 bg-surface/40 border border-border/60 space-y-4">
-                        <div className="flex items-center justify-between">
+                      <Card className="flex flex-col p-4 bg-surface/40 border border-border/60 space-y-4">
+                        <div className="order-2 flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <h4 className="text-xs font-mono font-bold uppercase text-text-secondary">Shifts</h4>
                             {editHasOverlap && (
@@ -2024,7 +2050,7 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                             className="py-0.5 px-2 text-[10px]"
                             onClick={() => {
                               const shifts = [...(editData.factory_op_shifts || [])];
-                              shifts.push({ name: "", startTime: "", endTime: "", workingDays: [] });
+                              shifts.push({ name: "", startTime: "", endTime: "", workingDays: [], breaks: [] });
                               setEditData({ ...editData, factory_op_shifts: shifts });
                             }}
                           >
@@ -2032,7 +2058,7 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                           </Button>
                         </div>
                         
-                        <div className="space-y-3">
+                        <div className="order-3 space-y-3">
                           {(editData.factory_op_shifts || []).map((s: any, idx: number) => (
                             <div key={idx} className="space-y-3 border-b border-border/20 pb-3 last:border-0 last:pb-0">
                               <div className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end">
@@ -2115,6 +2141,20 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                                   })}
                                 </div>
                               </div>
+                              <div className="border-t border-border/20 pt-3 space-y-2">
+                                <div className="flex items-center justify-between gap-3">
+                                  <div><Label className="text-[10px]">Break Times &amp; Downtime Reason</Label><p className="text-[9px] text-text-dim">Breaks must remain within this shift.</p></div>
+                                  <Button type="button" variant="secondary" className="h-7 py-1 px-2 text-[9px]" onClick={() => handleShiftChange(idx, "breaks", [...(s.breaks || []), { startTime: "", endTime: "", reason: "" }])}>+ Add Break</Button>
+                                </div>
+                                {(s.breaks || []).map((breakItem: any, breakIndex: number) => (
+                                  <div key={breakIndex} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_2fr_auto] gap-2 items-end">
+                                    <div><Label className="text-[9px]">Break Start</Label><Input type="time" value={breakItem.startTime ? formatTime24(breakItem.startTime) : ""} onChange={(e) => { const breaks = [...(s.breaks || [])]; breaks[breakIndex] = { ...breaks[breakIndex], startTime: e.target.value }; handleShiftChange(idx, "breaks", breaks); }} className="h-8 text-xs bg-surface" /></div>
+                                    <div><Label className="text-[9px]">Break End</Label><Input type="time" value={breakItem.endTime ? formatTime24(breakItem.endTime) : ""} onChange={(e) => { const breaks = [...(s.breaks || [])]; breaks[breakIndex] = { ...breaks[breakIndex], endTime: e.target.value }; handleShiftChange(idx, "breaks", breaks); }} className="h-8 text-xs bg-surface" /></div>
+                                    <div><Label className="text-[9px]">Downtime Reason</Label>{breakItem.customReason ? <Input value={breakItem.reason || ""} placeholder="Enter custom reason" onChange={(e) => { const breaks = [...(s.breaks || [])]; breaks[breakIndex] = { ...breaks[breakIndex], reason: e.target.value }; handleShiftChange(idx, "breaks", breaks); }} className="h-8 text-xs bg-surface" /> : <Select value={breakItem.reason || ""} onChange={(e) => { const breaks = [...(s.breaks || [])]; breaks[breakIndex] = e.target.value === "__custom__" ? { ...breaks[breakIndex], reason: "", customReason: true } : { ...breaks[breakIndex], reason: e.target.value, customReason: false }; handleShiftChange(idx, "breaks", breaks); }} className="h-8 text-xs bg-surface"><option value="">Select reason</option><option value="Lunch Break">Lunch Break</option><option value="Dinner Break">Dinner Break</option><option value="__custom__">+ Add custom reason</option></Select>}</div>
+                                    <Button type="button" variant="danger" className="h-8 py-1 px-2 text-xs" onClick={() => handleShiftChange(idx, "breaks", (s.breaks || []).filter((_: any, j: number) => j !== breakIndex))}>Delete</Button>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           ))}
                           {(!editData.factory_op_shifts || editData.factory_op_shifts.length === 0) && (
@@ -2122,16 +2162,18 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                           )}
                         </div>
 
-                        <div className="pt-2">
-                          <Label>Downtime Reasons (comma-separated)</Label>
-                          <Input
-                            value={(editData.factory_op_downtime_reasons || []).join(", ")}
-                            onChange={(e) => {
-                              const reasons = e.target.value.split(",").map(r => r.trim()).filter(Boolean);
-                              setEditData({ ...editData, factory_op_downtime_reasons: reasons });
-                            }}
-                            placeholder="e.g. Raw material shortage, Power cuts, Machine breakdown"
-                          />
+                        <div className="order-1 space-y-3 border-b border-border/20 pb-4">
+                          <Label>Downtime Reasons &amp; Threshold Configuration</Label>
+                          <div className="flex flex-wrap gap-2">
+                            {["Lunch Break", "Dinner Break"].map((reason) => {
+                              const selected = (editData.factory_op_downtime_reasons || []).includes(reason);
+                              return <button key={reason} type="button" onClick={() => { const current = editData.factory_op_downtime_reasons || []; setEditData({ ...editData, factory_op_downtime_reasons: selected ? current.filter((item: string) => item !== reason) : [...current, reason] }); }} className={`px-3 py-1.5 rounded border text-xs font-mono ${selected ? "border-lime bg-lime/10 text-lime" : "border-border text-text-secondary"}`}>{reason}</button>;
+                            })}
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div><Label className="text-[10px]">Custom Downtime Reasons (comma-separated)</Label><Input value={(editData.factory_op_downtime_reasons || []).filter((reason: string) => !["Lunch Break", "Dinner Break"].includes(reason)).join(", ")} onChange={(e) => { const fixed = (editData.factory_op_downtime_reasons || []).filter((reason: string) => ["Lunch Break", "Dinner Break"].includes(reason)); const custom = e.target.value.split(",").map(reason => reason.trim()).filter(Boolean); setEditData({ ...editData, factory_op_downtime_reasons: [...fixed, ...custom] }); }} placeholder="Add custom reasons" /></div>
+                            <div><Label className="text-[10px]">Ideal Threshold Time (Minutes)</Label><Input type="number" value={editData.factory_op_downtime_threshold ?? ""} onChange={(e) => setEditData({ ...editData, factory_op_downtime_threshold: e.target.value ? Number(e.target.value) : "" })} placeholder="e.g. 10" /></div>
+                          </div>
                         </div>
                       </Card>
                     </div>
@@ -2176,15 +2218,6 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                             </Select>
                           </div>
 
-                          <div>
-                            <Label>Ideal Threshold Time (Minutes)</Label>
-                            <Input
-                              type="number"
-                              value={editData.factory_op_downtime_threshold ?? ""}
-                              onChange={(e) => setEditData({ ...editData, factory_op_downtime_threshold: e.target.value ? Number(e.target.value) : "" })}
-                              placeholder="e.g. 10"
-                            />
-                          </div>
                         </div>
 
                         <div>
@@ -2653,6 +2686,11 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                                   <p className="text-[10px] text-text-secondary mt-1">
                                     Working Days: <strong className="text-text-primary font-mono">{getShiftWorkingDays(s, selectedAssessment.data).join(", ") || "Not specified"}</strong>
                                   </p>
+                                  {(s.breaks || []).length > 0 && (
+                                    <p className="text-[10px] text-text-secondary mt-1">
+                                      Breaks: <strong className="text-text-primary font-mono">{s.breaks.map((item: any) => `${formatTime24(item.startTime)}-${formatTime24(item.endTime)} (${item.reason || "No reason"})`).join(", ")}</strong>
+                                    </p>
+                                  )}
                                 </div>
                               </div>
                               <button
