@@ -28,7 +28,7 @@ import {
 import { toast } from "sonner";
 
 const stages = [
-  "Issue Resolution",
+  "Pending Works",
   "Monitoring",
   "Insights Shared",
   "Meeting Planned",
@@ -47,7 +47,7 @@ const stageStyles: Record<
   Stage,
   { accent: string; count: "danger" | "info" | "success" | "warning" }
 > = {
-  "Issue Resolution": { accent: "border-t-coral", count: "danger" },
+  "Pending Works": { accent: "border-t-coral", count: "danger" },
   Monitoring: { accent: "border-t-violet", count: "info" },
   "Insights Shared": { accent: "border-t-[#5b8def]", count: "info" },
   "Meeting Planned": { accent: "border-t-warning", count: "warning" },
@@ -102,6 +102,7 @@ export function CompanyTracker() {
   const [siteId, setSiteId] = useState("");
   const [assignmentSearch, setAssignmentSearch] = useState("");
   const [assigneeId, setAssigneeId] = useState("");
+  const [assignmentStage, setAssignmentStage] = useState<Stage>("Pending Works");
   const [busy, setBusy] = useState(false);
   const [commentFor, setCommentFor] = useState<Tracker | null>(null);
   const [commentsView, setCommentsView] = useState<Tracker | null>(null);
@@ -155,24 +156,26 @@ export function CompanyTracker() {
   );
   const total = scopedItems.length,
     converted = scopedItems.filter((x) => x.stage === "Converted").length,
-    pending = scopedItems.filter((x) => x.stage === "Issue Resolution").length,
+    pending = scopedItems.filter((x) => x.stage === "Pending Works").length,
     progress = scopedItems.filter(
-      (x) => !["Issue Resolution", "Converted"].includes(x.stage),
+      (x) => !["Pending Works", "Converted"].includes(x.stage),
     ).length;
   const assign = async () => {
-    if (!siteId || !assigneeId) return toast.error("Select a company and assignee.");
+    if (!siteId || !assigneeId || !assignmentStage) return toast.error("Select a company, assignee, and stage.");
     setBusy(true);
     const { error } = await trackerDb.rpc("company_tracker_assign", {
       _site_id: siteId,
       _assignee_id: assigneeId,
+      _stage: assignmentStage,
     });
     setBusy(false);
     if (error) return toast.error(error.message);
-    toast.success("Company assigned to Issue Resolution.");
+    toast.success(`Company assigned to ${assignmentStage}.`);
     setAssignOpen(false);
     setSiteId("");
     setAssignmentSearch("");
     setAssigneeId("");
+    setAssignmentStage("Pending Works");
     void load();
   };
   const deleteTracker = async (item: Tracker) => {
@@ -306,7 +309,7 @@ export function CompanyTracker() {
             Priority Company Tracker
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-text-secondary">
-            Track company engagement from issue resolution through conversion.
+            Track company engagement from pending works through conversion.
           </p>
         </div>
         {isManager && (
@@ -435,6 +438,14 @@ export function CompanyTracker() {
               </option>
             ))}
           </Select>
+          <Label className="mt-4">Stage</Label>
+          <Select value={assignmentStage} onChange={(e) => setAssignmentStage(e.target.value as Stage)}>
+            {stages.map((stage) => (
+              <option key={stage} value={stage}>
+                {stage}
+              </option>
+            ))}
+          </Select>
           <div className="mt-6 flex justify-end gap-2">
             <Button variant="ghost" onClick={() => setAssignOpen(false)}>
               Cancel
@@ -521,7 +532,7 @@ export function CompanyTracker() {
       )}
       {issueFor && (
         <Modal
-          title={`Issue Resolution · ${issueFor.company_name}`}
+          title={`Pending Works · ${issueFor.company_name}`}
           onClose={() => setIssueFor(null)}
         >
           <p className="mb-4 text-sm text-text-secondary">
@@ -630,7 +641,7 @@ function MonitoringSummaryCard({ item, onOpen }: { item: Tracker; onOpen: () => 
           {new Date(item.stage_changed_at).toLocaleDateString()}
         </span>
       </p>
-      {item.stage === "Issue Resolution" && (
+      {item.stage === "Pending Works" && (
         <div className="mt-3 flex items-center justify-between gap-2">
           <span className="text-[10px] font-medium text-text-secondary">Resolution checklist</span>
           <span className="font-mono text-[10px] text-text-primary">
@@ -718,7 +729,7 @@ function TrackerCard({
           {new Date(item.stage_changed_at).toLocaleDateString()}
         </span>
       </p>
-      {item.stage === "Issue Resolution" && (
+      {item.stage === "Pending Works" && (
         <div className="rounded-xl border border-border bg-surface-raised/40 p-3">
           <div className="flex items-center justify-between gap-2">
             <div>
@@ -777,7 +788,7 @@ function TrackerCard({
         >
           <MessageSquare size={13} className="shrink-0" /> {item.comments.length} comments
         </button>
-        {item.stage !== "Issue Resolution" && item.stage !== "Monitoring" && (
+        {item.stage !== "Pending Works" && item.stage !== "Monitoring" && (
           <button
             onClick={onComment}
             className="rounded-md px-1.5 py-1 text-left text-[10px] font-bold text-text-secondary transition-colors hover:bg-lime/10 hover:text-lime focus:outline-none focus:ring-2 focus:ring-lime/30"
@@ -785,7 +796,7 @@ function TrackerCard({
             Add comment
           </button>
         )}
-        {!(["Issue Resolution", "Monitoring", "Converted"] as string[]).includes(item.stage) && (
+        {!(["Pending Works", "Monitoring", "Converted"] as string[]).includes(item.stage) && (
           <button
             onClick={onMove}
             className="rounded-md px-1.5 py-1 text-left text-[10px] font-bold text-lime transition-colors hover:bg-lime/10 focus:outline-none focus:ring-2 focus:ring-lime/30"
@@ -793,7 +804,7 @@ function TrackerCard({
             Next stage
           </button>
         )}
-        {canMovePrevious && item.stage !== "Issue Resolution" && (
+        {canMovePrevious && item.stage !== "Pending Works" && (
           <button
             onClick={onMovePrevious}
             className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-left text-[10px] font-bold text-text-secondary transition-colors hover:bg-surface-raised focus:outline-none focus:ring-2 focus:ring-lime/30"

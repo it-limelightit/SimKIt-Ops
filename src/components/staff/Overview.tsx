@@ -2447,7 +2447,12 @@ return (
 
       {/* My Tasks Section — shown by default before any KPI card is clicked */}
       {isDualRole && !kpiSelected && (() => {
-        const myRows = allProcessedRows.filter(r => r.workerIds.includes(userId ?? "") && r.status !== "Submitted");
+        const myRows = allProcessedRows.filter(
+          (r) =>
+            r.workerIds.includes(userId ?? "") &&
+            r.status !== "Submitted" &&
+            r.status !== "Dropped / Rejected",
+        );
         return (
           <div className="border border-border rounded-xl bg-surface p-5 space-y-4 shadow-sm">
             <div className="flex items-center justify-between border-b border-border pb-3">
