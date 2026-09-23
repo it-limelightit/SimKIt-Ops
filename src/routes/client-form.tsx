@@ -28,6 +28,8 @@ import {
 } from "lucide-react";
 
 const COMMON_DOWNTIME_REASONS = [
+  "Lunch Break",
+  "Dinner Break",
   "Machine Breakdown",
   "Power Failure",
   "Material Shortage",
@@ -306,6 +308,35 @@ function checkShiftOverlap(shifts: any[]): boolean {
   return false;
 }
 
+function getShiftBreakError(shift: any): string | null {
+  if (!shift?.startTime || !shift?.endTime) return null;
+  const toMinutes = (time: string) => {
+    const [hours, minutes] = time.split(":").map(Number);
+    return hours * 60 + minutes;
+  };
+  const shiftStart = toMinutes(shift.startTime);
+  let shiftEnd = toMinutes(shift.endTime);
+  if (shiftEnd <= shiftStart) shiftEnd += 1440;
+  const intervals: Array<{ start: number; end: number }> = [];
+
+  for (let index = 0; index < (shift.breaks ?? []).length; index++) {
+    const item = shift.breaks[index];
+    if (!item?.startTime || !item?.endTime || !item?.reason?.trim()) {
+      return `Break #${index + 1} needs a start time, end time, and downtime reason.`;
+    }
+    let start = toMinutes(item.startTime);
+    let end = toMinutes(item.endTime);
+    if (start < shiftStart) start += 1440;
+    if (end <= start) end += 1440;
+    if (start < shiftStart || end > shiftEnd) return `Break #${index + 1} must stay within this shift's time.`;
+    intervals.push({ start, end });
+  }
+  intervals.sort((a, b) => a.start - b.start);
+  return intervals.some((item, index) => index > 0 && item.start < intervals[index - 1].end)
+    ? "Break times cannot overlap."
+    : null;
+}
+
 function ClientFormPage() {
   const { token } = Route.useSearch();
   const [loading, setLoading] = useState(true);
@@ -463,6 +494,11 @@ function ClientFormPage() {
         }
         if (!Array.isArray(s.workingDays) || s.workingDays.length === 0) {
           errs[`shift_${idx}_days`] = `Shift #${idx + 1} Working Day is required`;
+          sections.add("shifts");
+        }
+        const breakError = getShiftBreakError(s);
+        if (breakError) {
+          errs[`shift_${idx}_breaks`] = breakError;
           sections.add("shifts");
         }
       });
@@ -681,7 +717,7 @@ function ClientFormPage() {
         <Card className="p-6 bg-surface/40 border border-border/60 space-y-6">
           {/* STEP 1: General Info & Personnel */}
           {step === 1 && (
-            <div className="space-y-6 animate-in fade-in duration-200">
+            <div className="flex flex-col space-y-6 animate-in fade-in duration-200">
               <div>
                 <h3 className="text-sm font-mono uppercase text-lime mb-1">Company Details & Key Personnel</h3>
                 <p className="text-[10px] text-text-secondary mb-4">Please verify company info and add factory owner and technical contacts below. <span className="text-red-400 font-bold">* Fields marked with asterisk are mandatory.</span></p>
@@ -735,7 +771,7 @@ function ClientFormPage() {
               </div>
 
               {/* Owners list */}
-              <div className={`space-y-3 p-4 rounded-xl border transition-all ${
+              <div className={`order-2 space-y-3 p-4 rounded-xl border transition-all ${
                 invalidSections.has("owners") ? "border-red-500 bg-red-500/5 ring-1 ring-red-500" : "border-border/40 bg-surface/10"
               }`}>
                 <div className="flex items-center justify-between">
@@ -933,7 +969,7 @@ function ClientFormPage() {
                     className="py-1 px-2.5 text-[9px] uppercase tracking-wider"
                     onClick={() => {
                       const list = [...(formData.factory_op_shifts || [])];
-                      list.push({ name: "", startTime: "", endTime: "", workingDays: [] });
+                      list.push({ name: "", startTime: "", endTime: "", workingDays: [], breaks: [] });
                       setFormData({ ...formData, factory_op_shifts: list });
                     }}
                   >
@@ -1038,6 +1074,33 @@ function ClientFormPage() {
                           })}
                         </div>
                       </div>
+                      <div className="border-t border-border/20 pt-3 space-y-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <Label className="text-[10px]">Break Times &amp; Downtime Reason</Label>
+                            <p className="text-[9px] text-text-dim">Each break must remain within this shift.</p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            className="h-7 py-1 px-2 text-[9px]"
+                            onClick={() => {
+                              const list = [...formData.factory_op_shifts];
+                              list[idx] = { ...list[idx], breaks: [...(list[idx].breaks || []), { startTime: "", endTime: "", reason: "" }] };
+                              setFormData({ ...formData, factory_op_shifts: list });
+                            }}
+                          >+ Add Break</Button>
+                        </div>
+                        {errors[`shift_${idx}_breaks`] && <p className="text-[10px] text-red-400">{errors[`shift_${idx}_breaks`]}</p>}
+                        {(s.breaks || []).map((breakItem: any, breakIndex: number) => (
+                          <div key={breakIndex} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_2fr_auto] gap-2 items-end">
+                            <div><Label className="text-[9px]">Break Start</Label><Input type="time" value={breakItem.startTime || ""} onChange={(e) => { const list = [...formData.factory_op_shifts]; const breaks = [...(list[idx].breaks || [])]; breaks[breakIndex] = { ...breaks[breakIndex], startTime: e.target.value }; list[idx] = { ...list[idx], breaks }; setFormData({ ...formData, factory_op_shifts: list }); }} className="h-8 text-xs bg-surface" /></div>
+                            <div><Label className="text-[9px]">Break End</Label><Input type="time" value={breakItem.endTime || ""} onChange={(e) => { const list = [...formData.factory_op_shifts]; const breaks = [...(list[idx].breaks || [])]; breaks[breakIndex] = { ...breaks[breakIndex], endTime: e.target.value }; list[idx] = { ...list[idx], breaks }; setFormData({ ...formData, factory_op_shifts: list }); }} className="h-8 text-xs bg-surface" /></div>
+                            <div><Label className="text-[9px]">Downtime Reason</Label>{breakItem.customReason ? <Input value={breakItem.reason || ""} placeholder="Enter custom reason" onChange={(e) => { const list = [...formData.factory_op_shifts]; const breaks = [...(list[idx].breaks || [])]; breaks[breakIndex] = { ...breaks[breakIndex], reason: e.target.value }; list[idx] = { ...list[idx], breaks }; setFormData({ ...formData, factory_op_shifts: list }); }} className="h-8 text-xs bg-surface" /> : <Select value={breakItem.reason || ""} onChange={(e) => { const list = [...formData.factory_op_shifts]; const breaks = [...(list[idx].breaks || [])]; breaks[breakIndex] = e.target.value === "__custom__" ? { ...breaks[breakIndex], reason: "", customReason: true } : { ...breaks[breakIndex], reason: e.target.value, customReason: false }; list[idx] = { ...list[idx], breaks }; setFormData({ ...formData, factory_op_shifts: list }); }} className="h-8 text-xs bg-surface"><option value="">Select reason</option><option value="Lunch Break">Lunch Break</option><option value="Dinner Break">Dinner Break</option><option value="__custom__">+ Add custom reason</option></Select>}</div>
+                            <Button type="button" variant="danger" className="h-8 py-1 px-2 text-xs" onClick={() => { const list = [...formData.factory_op_shifts]; list[idx] = { ...list[idx], breaks: (list[idx].breaks || []).filter((_: any, j: number) => j !== breakIndex) }; setFormData({ ...formData, factory_op_shifts: list }); }}>Delete</Button>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ))}
                   {(!formData.factory_op_shifts || formData.factory_op_shifts.length === 0) && (
@@ -1046,7 +1109,7 @@ function ClientFormPage() {
                 </div>
               </div>
               {/* Downtime Reasons selection */}
-              <div className="space-y-3">
+              <div className="order-1 space-y-3">
                 <Label>Downtime Reasons (Select all that apply)</Label>
                 <div className="flex flex-wrap gap-2 py-1">
                   {[...COMMON_DOWNTIME_REASONS, ...(formData.factory_op_downtime_custom_reasons || [])].map((reason: string) => {
