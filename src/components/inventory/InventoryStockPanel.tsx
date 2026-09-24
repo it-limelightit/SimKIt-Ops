@@ -1042,6 +1042,14 @@ export function InventoryStockPanel() {
     [combinedInventoryRows, selectedInventoryRowKeys],
   );
 
+  const totalVisibleUnitValue = useMemo(
+    () => combinedInventoryRows.reduce(
+      (total, { stock: stockItem }) => total + (stockItem ? getUnitValueWithGst(Number(stockItem.unit_price) || 0) : 0),
+      0,
+    ),
+    [combinedInventoryRows],
+  );
+
   const allVisibleRowsSelected = combinedInventoryRows.length > 0 && selectedRowCount === combinedInventoryRows.length;
 
   const toggleInventoryRowSelection = (rowKey: string) => {
@@ -1929,6 +1937,11 @@ export function InventoryStockPanel() {
                           <span className="p-3"><span className="flex justify-center gap-1">{stockItem ? <><button type="button" onClick={() => handleEditItem(stockItem)} className="p-1.5 text-text-secondary hover:text-violet" title="Edit inventory item"><Edit2 size={13} /></button><button type="button" onClick={() => void handleDeleteItem(stockItem.id, stockItem.category)} className="p-1.5 text-text-secondary hover:text-rose-300" title="Delete inventory item"><Trash2 size={13} /></button></> : bom ? <><button type="button" onClick={() => handleEditBomItem(bom)} className="p-1.5 text-text-secondary hover:text-violet" title="Edit BOM item"><Edit2 size={13} /></button><button type="button" onClick={() => void handleDeleteBomItem(bom)} className="p-1.5 text-text-secondary hover:text-rose-300" title="Delete BOM item"><Trash2 size={13} /></button></> : null}</span></span>
                         </div>;
                       })}
+                      <div className="grid min-w-[1130px] grid-cols-[3rem_8rem_minmax(12rem,1fr)_6rem_7rem_6rem_7rem_7rem_7rem_8rem_8rem_9rem_6rem] items-center border-t border-border/70 bg-surface-raised/30 text-xs">
+                        <span className="col-span-10 p-3 text-right font-bold text-text-primary">Total Unit Value</span>
+                        <span className="p-3 text-right font-mono font-bold text-emerald-400">₹{totalVisibleUnitValue.toLocaleString("en-IN")}</span>
+                        <span className="col-span-2" />
+                      </div>
                       </div>
                     </div>
                   </td>
