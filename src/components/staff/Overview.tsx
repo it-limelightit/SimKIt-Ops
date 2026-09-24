@@ -91,7 +91,47 @@ type SiteRow = {
   hasLogisticsOrder: boolean;
   hasDeviceOrder: boolean;
   assessmentPendingReasons: string[];
+  assessmentCompletedAt: string | null;
   status: string;
+};
+
+type AssessmentDateFilter = "all" | "week" | "month" | "custom";
+
+const toLocalDateKey = (value: string) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const getAssessmentDateRange = (
+  filter: AssessmentDateFilter,
+  customStart: string,
+  customEnd: string,
+) => {
+  if (filter === "all") return { start: "", end: "", label: "All time" };
+
+  const today = new Date();
+  const todayKey = toLocalDateKey(today.toISOString())!;
+  if (filter === "month") {
+    const start = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
+    return { start, end: todayKey, label: "This month" };
+  }
+  if (filter === "week") {
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+    return { start: toLocalDateKey(monday.toISOString())!, end: todayKey, label: "This week" };
+  }
+  const customLabel = customStart && customEnd
+    ? `${customStart} to ${customEnd}`
+    : customStart
+      ? `From ${customStart}`
+      : customEnd
+        ? `Until ${customEnd}`
+        : "Custom range (choose dates)";
+  return { start: customStart, end: customEnd, label: customLabel };
 };
 
 function getExcelReportProgress(row: SiteRow) {
@@ -168,6 +208,9 @@ export function Overview() {
   const [cityFilter, setCityFilter] = useState("");
   const [executiveFilter, setExecutiveFilter] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [assessmentDateFilter, setAssessmentDateFilter] = useState<AssessmentDateFilter>("all");
+  const [assessmentDateStart, setAssessmentDateStart] = useState("");
+  const [assessmentDateEnd, setAssessmentDateEnd] = useState("");
   const [showMyTasks, setShowMyTasks] = useState(false);
   const [kpiSelected, setKpiSelected] = useState(true);
 
@@ -881,13 +924,24 @@ const allProcessedRows: SiteRow[] = rawSites.map((site) => {
     hasLogisticsOrder,
     hasDeviceOrder: deviceOrderExists,
     assessmentPendingReasons,
+    assessmentCompletedAt: ar?.data?.assessment_phase_submitted
+      ? ar.data.factory_form_submitted_at || ar.updated_at || null
+      : null,
   };
 });
+
+const assessmentDateRange = getAssessmentDateRange(assessmentDateFilter, assessmentDateStart, assessmentDateEnd);
 
 // Apply filters for counting
 const filteredForCounts = allProcessedRows.filter((row) => {
   if (cityFilter && row.city !== cityFilter) return false;
   if (executiveFilter && !row.workerIds.includes(executiveFilter)) return false;
+  if (assessmentDateFilter !== "all") {
+    const completedDate = row.assessmentCompletedAt ? toLocalDateKey(row.assessmentCompletedAt) : null;
+    if (!completedDate) return false;
+    if (assessmentDateRange.start && completedDate < assessmentDateRange.start) return false;
+    if (assessmentDateRange.end && completedDate > assessmentDateRange.end) return false;
+  }
   return true;
 });
 
@@ -1075,7 +1129,7 @@ const paginatedRows = sortedRows.slice(startIndex, startIndex + rowsPerPage);
 // Reset page number on filter changes
 useEffect(() => {
   setCurrentPage(1);
-}, [selectedKpi, cityFilter, executiveFilter, searchQuery, sortField, sortOrder, showMyTasks]);
+}, [selectedKpi, cityFilter, executiveFilter, searchQuery, assessmentDateFilter, assessmentDateStart, assessmentDateEnd, sortField, sortOrder, showMyTasks]);
 
 const handleSort = (field: "name" | "city" | "updated") => {
   if (sortField === field) {
@@ -1103,6 +1157,9 @@ const handleResetFilters = () => {
   setCityFilter("");
   setExecutiveFilter("");
   setSearchQuery("");
+  setAssessmentDateFilter("all");
+  setAssessmentDateStart("");
+  setAssessmentDateEnd("");
   setShowMyTasks(false);
   setKpiSelected(!isDualRole);
 };
@@ -1227,7 +1284,7 @@ const exportCsv = async () => {
     dashboard.getCell("A2").font = { size: 12, color: { argb: colors.teal } };
     dashboard.getCell("A2").alignment = { horizontal: "center" };
     dashboard.addRow([]);
-    dashboard.addRow(["Report Date", generatedDate, "City Filter", cityFilter || "All Cities", "Field Associate", filterAssociate, "Search", searchQuery || "None"]);
+    dashboard.addRow(["Report Date", generatedDate, "Assessment Date", assessmentDateRange.label, "City Filter", cityFilter || "All Cities", "Field Associate", filterAssociate, "Search", searchQuery || "None"]);
     dashboard.getRow(4).eachCell((cell, colNumber) => {
       cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: colNumber % 2 ? colors.soft : colors.white } };
       cell.border = { top: { style: "thin", color: { argb: colors.border } }, bottom: { style: "thin", color: { argb: colors.border } } };
@@ -1430,8 +1487,11 @@ const exportCsv = async () => {
       <td colspan="2">City Filter</td><td colspan="2">${escapeHtml(cityFilter || "All Cities")}</td>
     </tr>
     <tr class="summary">
+      <td colspan="2">Assessment Date</td><td colspan="2">${escapeHtml(assessmentDateRange.label)}</td>
       <td colspan="2">Field Associate</td><td colspan="2">${escapeHtml(executiveFilter ? profileNameMap.get(executiveFilter) || "N/A" : "All Field Associates")}</td>
-      <td colspan="2">Search</td><td colspan="2">${escapeHtml(searchQuery || "None")}</td>
+    </tr>
+    <tr class="summary">
+      <td colspan="2">Search</td><td colspan="6">${escapeHtml(searchQuery || "None")}</td>
     </tr>
     <tr>
       <th>Sr. No.</th>
@@ -1729,7 +1789,7 @@ const exportPdf = async (columns: PdfColumnSelection) => {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(7.6);
       doc.setTextColor(...teal);
-      doc.text("FIELD ASSIGNMENT OVERVIEW", pageMarginX, subY + 6);
+      doc.text(`FIELD ASSIGNMENT OVERVIEW • ASSESSMENT DATE: ${assessmentDateRange.label.toUpperCase()}`, pageMarginX, subY + 6);
       doc.setDrawColor(...border);
       doc.setLineWidth(0.2);
       doc.line(pageMarginX, subY + subheaderHeight, pageWidth - pageMarginX, subY + subheaderHeight);
@@ -2562,6 +2622,41 @@ return (
                 </select>
               </div>
 
+              {/* Assessment completion date filter */}
+              <div className="flex items-center gap-1 bg-surface-raised border border-border rounded-md px-2 py-1">
+                <Calendar className="h-3.5 w-3.5 text-text-secondary" />
+                <select
+                  value={assessmentDateFilter}
+                  onChange={(e) => setAssessmentDateFilter(e.target.value as AssessmentDateFilter)}
+                  aria-label="Assessment completion date range"
+                  className="bg-transparent text-xs focus:outline-none border-none pr-2 font-semibold text-text-primary cursor-pointer"
+                >
+                  <option value="all">All Assessment Dates</option>
+                  <option value="week">This Week</option>
+                  <option value="month">This Month</option>
+                  <option value="custom">Custom Range</option>
+                </select>
+              </div>
+              {assessmentDateFilter === "custom" && (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="date"
+                    value={assessmentDateStart}
+                    onChange={(e) => setAssessmentDateStart(e.target.value)}
+                    aria-label="Assessment completion start date"
+                    className="bg-surface-raised border border-border rounded-md px-2 py-1 text-xs text-text-primary focus:border-lime focus:outline-none"
+                  />
+                  <span className="text-xs text-text-secondary">to</span>
+                  <input
+                    type="date"
+                    value={assessmentDateEnd}
+                    onChange={(e) => setAssessmentDateEnd(e.target.value)}
+                    aria-label="Assessment completion end date"
+                    className="bg-surface-raised border border-border rounded-md px-2 py-1 text-xs text-text-primary focus:border-lime focus:outline-none"
+                  />
+                </div>
+              )}
+
               {/* Executive Filter */}
               <div className="flex items-center gap-1 bg-surface-raised border border-border rounded-md px-2 py-1">
                 <Users className="h-3.5 w-3.5 text-text-secondary" />
@@ -2594,7 +2689,7 @@ return (
               )}
 
               {/* Reset Filters */}
-              {(searchQuery || cityFilter || executiveFilter || showMyTasks) && (
+              {(searchQuery || cityFilter || executiveFilter || assessmentDateFilter !== "all" || showMyTasks) && (
                 <button
                   onClick={handleResetFilters}
                   className="text-xs text-coral hover:text-coral/80 font-bold px-2 py-1.5 transition-colors border border-dashed border-coral/30 rounded cursor-pointer"

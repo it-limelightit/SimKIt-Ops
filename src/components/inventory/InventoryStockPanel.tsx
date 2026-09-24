@@ -2626,7 +2626,7 @@ export function InventoryStockPanel() {
               )}
 
               {/* Quantities & Pricing */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                 <div className="space-y-1">
                   <Label className="text-text-secondary font-semibold">
                     Actual Quantity <span className="text-rose-400">*</span>
@@ -2663,15 +2663,31 @@ export function InventoryStockPanel() {
 
                 <div className="space-y-1">
                   <Label className="text-text-secondary font-semibold">
-                    Unit Price {priceInputIncludesGst ? "(With GST)" : "(Without GST)"} (₹) <span className="text-rose-400">*</span>
+                    Unit Price Without GST (₹) <span className="text-rose-400">*</span>
                   </Label>
                   <Input
                     type="number"
                     min="0"
                     step="0.01"
-                    value={priceInputIncludesGst ? unitPriceWithGst : unitPrice}
-                    onChange={(e) => priceInputIncludesGst ? handleUnitValueWithGstChange(e.target.value) : handleUnitValueChange(e.target.value)}
+                    value={unitPrice}
+                    onChange={(e) => handleUnitValueChange(e.target.value)}
                     placeholder="e.g. 1500"
+                    className="bg-surface-raised/50 h-9"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-text-secondary font-semibold">
+                    Unit Price With GST (₹) <span className="text-rose-400">*</span>
+                  </Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={unitPriceWithGst}
+                    onChange={(e) => handleUnitValueWithGstChange(e.target.value)}
+                    placeholder="e.g. 1770"
                     className="bg-surface-raised/50 h-9"
                     required
                   />

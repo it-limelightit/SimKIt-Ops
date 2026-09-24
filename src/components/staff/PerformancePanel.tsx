@@ -716,7 +716,6 @@ function InstallationDetail({ data }: { data: PhaseData }) {
   if (!data) return <p className="text-xs text-text-secondary">No data saved yet.</p>;
   return (
     <div className="space-y-5 text-sm">
-      <Section title="Delivery"><Row label="Confirmed" value={boolVal(data.delivery_confirmed)} /><Row label="Date" value={data.delivery_date} /><Row label="Units received" value={data.delivery_units?.toString()} /><Row label="Condition" value={data.delivery_condition} /><Row label="Notes" value={data.delivery_notes} multiline /></Section>
       <Section title="Coordination"><Row label="Done" value={boolVal(data.coordination_done)} /><Row label="At" value={fmtDate(data.coordination_at)} /><Row label="Notes" value={data.coordination_notes} multiline /></Section>
       <Section title="Photos"><Row label="Uploaded" value={boolVal(data.photos_uploaded)} /></Section>
     </div>
@@ -1074,7 +1073,7 @@ function initials(name: string) {
 }
 
 const ASSESSMENT_KEYS = ["media_uploaded", "factory_operations_done"];
-const INSTALLATION_KEYS = ["delivery_confirmed", "coordination_done", "photos_uploaded"];
+const INSTALLATION_KEYS = ["coordination_done", "photos_uploaded"];
 const COMMISSIONING_KEYS = [
   "coordination_done",
   "visit_done",
