@@ -1,14 +1,12 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  Badge,
   Button,
   Card,
   Checkbox,
   Input,
   Label,
   SectionTitle,
-  Segmented,
   Select,
   Textarea,
   CompleteJobRow,
@@ -58,9 +56,7 @@ export function InstallationTab({ siteId, workerId, hiddenSections, onSubmit }: 
     return true;
   };
 
-  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
-    "Delivery": true,
-  });
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
 
   const toggleSection = (name: string) => {
     setExpandedSections(prev => {
@@ -181,104 +177,11 @@ export function InstallationTab({ siteId, workerId, hiddenSections, onSubmit }: 
         )}
       </div>
 
-      {shouldShow("Delivery") && (
-        <Card className="border-l-[3px] border-lime relative">
-          <div className="section-number-ghost">01</div>
-          <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSection("Delivery")}>
-            <SectionTitle num={1}>Delivery Confirmation</SectionTitle>
-            <span className="font-mono text-[10px] text-lime bg-lime-dim/50 px-2 py-0.5 border border-lime/20 rounded-[4px] font-bold">
-              {expandedSections["Delivery"] ? "COLLAPSE ▲" : "EXPAND ▼"}
-            </span>
-          </div>
-          
-          {expandedSections["Delivery"] && (
-            <div className="mt-6 space-y-6 animate-in fade-in duration-200">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-text-secondary">Verify delivered packages and condition</span>
-                <Badge tone={data.delivery_confirmed ? "success" : "warning"}>
-                  {data.delivery_confirmed ? "Confirmed" : "Pending"}
-                </Badge>
-              </div>
-              <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <Label>Date of Delivery</Label>
-                  <Input
-                    type="date"
-                    defaultValue={data.delivery_date ?? ""}
-                    onBlur={(e) => patch({ delivery_date: e.target.value })}
-                    disabled={!!data.delivery_confirmed}
-                  />
-                </div>
-                <div>
-                  <Label>Units Received</Label>
-                  <Input
-                    type="number"
-                    defaultValue={data.delivery_units ?? ""}
-                    onBlur={(e) => patch({ delivery_units: e.target.value })}
-                    disabled={!!data.delivery_confirmed}
-                  />
-                </div>
-              </div>
-              <div>
-                <Label>Condition on Arrival</Label>
-                <div className="mt-1">
-                  <Segmented
-                    options={[
-                      { value: "good", label: "Good" },
-                      { value: "damaged", label: "Damaged" },
-                      { value: "partial", label: "Partial" },
-                    ]}
-                    value={data.delivery_condition ?? null}
-                    onChange={(v) => patch({ delivery_condition: v })}
-                    disabled={!!data.delivery_confirmed}
-                  />
-                </div>
-              </div>
-              <div>
-                <Label>Delivery Agent Name</Label>
-                <Input
-                  defaultValue={data.delivery_agent ?? ""}
-                  onBlur={(e) => patch({ delivery_agent: e.target.value })}
-                  disabled={!!data.delivery_confirmed}
-                />
-              </div>
-              <div>
-                <Label>Notes</Label>
-                <Textarea
-                  rows={3}
-                  defaultValue={data.delivery_notes ?? ""}
-                  onBlur={(e) => patch({ delivery_notes: e.target.value })}
-                  disabled={!!data.delivery_confirmed}
-                />
-              </div>
-              <div className="flex justify-end">
-                {data.delivery_confirmed ? (
-                  <Button
-                    variant="secondary"
-                    onClick={() => save({ ...data, delivery_confirmed: false })}
-                  >
-                    Edit Delivery Confirmation
-                  </Button>
-                ) : (
-                  <Button onClick={() => save({ ...data, delivery_confirmed: true })}>Confirm Delivery</Button>
-                )}
-              </div>
-              <CompleteJobRow
-                checked={!!data.delivery_confirmed}
-                onToggle={() => patch({ delivery_confirmed: !data.delivery_confirmed })}
-                validate={() => validateSectionLinks("Delivery", [])}
-              />
-              {renderCustomFields("Delivery", !!data.delivery_confirmed)}
-            </div>
-          )}
-        </Card>
-      )}
-
       {shouldShow("Coordination") && (
         <Card className="border-l-[3px] border-lime relative">
-          <div className="section-number-ghost">02</div>
+          <div className="section-number-ghost">01</div>
           <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSection("Coordination")}>
-            <SectionTitle num={2}>Installation Coordination</SectionTitle>
+            <SectionTitle num={1}>Installation Coordination</SectionTitle>
             <span className="font-mono text-[10px] text-lime bg-lime-dim/50 px-2 py-0.5 border border-lime/20 rounded-[4px] font-bold">
               {expandedSections["Coordination"] ? "COLLAPSE ▲" : "EXPAND ▼"}
             </span>
@@ -314,9 +217,9 @@ export function InstallationTab({ siteId, workerId, hiddenSections, onSubmit }: 
 
       {shouldShow("Photos") && (
         <Card className="border-l-[3px] border-lime relative">
-          <div className="section-number-ghost">03</div>
+          <div className="section-number-ghost">02</div>
           <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSection("Photos")}>
-            <SectionTitle num={3}>Installation Photos</SectionTitle>
+            <SectionTitle num={2}>Installation Photos</SectionTitle>
             <span className="font-mono text-[10px] text-lime bg-lime-dim/50 px-2 py-0.5 border border-lime/20 rounded-[4px] font-bold">
               {expandedSections["Photos"] ? "COLLAPSE ▲" : "EXPAND ▼"}
             </span>

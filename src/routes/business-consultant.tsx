@@ -1644,7 +1644,7 @@ function Shell({
 }
 
 const ASSESSMENT_KEYS = ["media_uploaded", "factory_operations_done"];
-const INSTALLATION_KEYS = ["delivery_confirmed", "coordination_done", "photos_uploaded"];
+const INSTALLATION_KEYS = ["coordination_done", "photos_uploaded"];
 const COMMISSIONING_KEYS = [
   "coordination_done",
   "visit_done",

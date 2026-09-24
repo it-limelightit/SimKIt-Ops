@@ -36,7 +36,6 @@ export function hasDeviceOrder(site: any, assessmentData: any, materials: any[])
 }
 
 export const INSTALLATION_KEYS = [
-  "delivery_confirmed",
   "coordination_done",
   "photos_uploaded",
 ];
