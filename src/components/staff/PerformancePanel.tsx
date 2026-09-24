@@ -214,7 +214,7 @@ export function PerformancePanel() {
       <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="font-mono text-[11px] uppercase tracking-widest text-lime/80 font-bold">Business Analytics</p>
-          <h1 className="mt-2 text-4xl uppercase tracking-tight font-extrabold font-syne text-text-primary">Consultant Performance</h1>
+          <h1 className="mt-2 text-4xl uppercase tracking-tight font-extrabold font-syne text-text-primary">Company Performance</h1>
           <p className="mt-2 max-w-3xl text-sm text-text-secondary">
             Analyze field associate execution from assignment to assessment, installation and commissioning with overview-aligned operational counts.
           </p>
@@ -262,6 +262,7 @@ export function PerformancePanel() {
                 <option value="assessed">Assessed</option>
                 <option value="installed">Installed</option>
                 <option value="commissioned">Commissioned</option>
+                <option value="submitted">Submitted</option>
                 <option value="dropped">Dropped / Rejected</option>
               </Select>
               <Select value={associateFilter} onChange={(e) => setAssociateFilter(e.target.value)} className="text-xs">
@@ -402,12 +403,14 @@ function AnalyticsDashboard({
 }) {
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-8">
         <AnalyticsTile label="Assigned" value={analytics.assigned} helper="Total field associate work" tone="blue" />
         <AnalyticsTile label="Not Started" value={analytics.notStarted} helper={`${pct(analytics.notStarted, analytics.assigned)}% pending start`} tone="amber" />
         <AnalyticsTile label="Assessed" value={analytics.assessed} helper={`${pct(analytics.assessed, analytics.assigned)}% current stage`} tone="cyan" />
         <AnalyticsTile label="Installed" value={analytics.installed} helper={`${pct(analytics.installed, analytics.assigned)}% current stage`} tone="indigo" />
         <AnalyticsTile label="Commissioned" value={analytics.commissioned} helper={`${pct(analytics.commissioned, analytics.assigned)}% fully done`} tone="green" />
+        <AnalyticsTile label="Submitted" value={analytics.submitted} helper={`${pct(analytics.submitted, analytics.assigned)}% submitted`} tone="green" />
+        <AnalyticsTile label="Dropped / Rejected" value={analytics.dropped} helper={`${pct(analytics.dropped, analytics.assigned)}% dropped or rejected`} tone="red" />
         <AnalyticsTile label="Performance" value={`${analytics.avgCompletion}%`} helper="3-stage weighted score" tone="lime" />
       </div>
 
@@ -550,7 +553,7 @@ function DaysCell({ value, strong }: { value: number | null; strong?: boolean })
   );
 }
 
-function AnalyticsTile({ label, value, helper, tone }: { label: string; value: number | string; helper: string; tone: "blue" | "amber" | "cyan" | "indigo" | "green" | "lime" }) {
+function AnalyticsTile({ label, value, helper, tone }: { label: string; value: number | string; helper: string; tone: "blue" | "amber" | "cyan" | "indigo" | "green" | "lime" | "red" }) {
   const toneClass = {
     blue: "from-blue-500/18 to-blue-500/5 text-blue-400",
     amber: "from-amber-500/18 to-amber-500/5 text-amber-300",
@@ -558,6 +561,7 @@ function AnalyticsTile({ label, value, helper, tone }: { label: string; value: n
     indigo: "from-indigo-400/18 to-indigo-400/5 text-indigo-300",
     green: "from-green-500/18 to-green-500/5 text-green-400",
     lime: "from-lime/18 to-lime/5 text-lime",
+    red: "from-red-500/18 to-red-500/5 text-red-400",
   }[tone];
 
   return (
@@ -829,6 +833,8 @@ function buildAnalytics(rows: ConsultantRow[]) {
   const assessed = sites.filter((s) => performanceStatusGroup(s) === "assessed").length;
   const installed = sites.filter((s) => performanceStatusGroup(s) === "installed").length;
   const commissioned = sites.filter((s) => performanceStatusGroup(s) === "commissioned").length;
+  const submitted = sites.filter((s) => performanceStatusGroup(s) === "submitted").length;
+  const dropped = sites.filter((s) => performanceStatusGroup(s) === "dropped").length;
   const avgCompletion = total ? Math.round(sites.reduce((sum, s) => sum + performanceProgress(s), 0) / total) : 0;
 
   const associates = rows.map(buildConsultantStats).sort((a, b) => b.completion - a.completion || b.companies - a.companies);
@@ -840,6 +846,8 @@ function buildAnalytics(rows: ConsultantRow[]) {
     assessed,
     installed,
     commissioned,
+    submitted,
+    dropped,
     avgCompletion,
     pendingConversion: notStarted + assessed,
     bestAssociate: associates[0],
@@ -849,6 +857,8 @@ function buildAnalytics(rows: ConsultantRow[]) {
       { stage: "Assessed", count: assessed, filter: "assessed" },
       { stage: "Installed", count: installed, filter: "installed" },
       { stage: "Commissioned", count: commissioned, filter: "commissioned" },
+      { stage: "Submitted", count: submitted, filter: "submitted" },
+      { stage: "Dropped / Rejected", count: dropped, filter: "dropped" },
     ],
     monthlyTrend: buildMonthlyTrend(sites),
     statusBreakdown: [
@@ -856,6 +866,8 @@ function buildAnalytics(rows: ConsultantRow[]) {
       { name: "Assessed", value: assessed, color: "#38bdf8", filter: "assessed" },
       { name: "Installed", value: installed, color: "#3b82f6", filter: "installed" },
       { name: "Commissioned", value: commissioned, color: "#22c55e", filter: "commissioned" },
+      { name: "Submitted", value: submitted, color: "#16a34a", filter: "submitted" },
+      { name: "Dropped / Rejected", value: dropped, color: "#ef4444", filter: "dropped" },
     ].filter((item) => item.value > 0 || total === 0),
   };
 }
@@ -989,6 +1001,8 @@ function formatShortDate(iso: string | null | undefined) {
 }
 
 function performanceStatusGroup(site: SiteDetail) {
+  if (site.status === "Submitted") return "submitted";
+  if (site.status === "Dropped / Rejected") return "dropped";
   if (hasCommissionedMilestone(site)) return "commissioned";
   if (hasInstalledMilestone(site)) return "installed";
   if (hasAssessedMilestone(site)) return "assessed";
@@ -1021,6 +1035,8 @@ function hasCommissionedMilestone(site: SiteDetail) {
 
 function performanceStatusLabel(site: SiteDetail) {
   const group = performanceStatusGroup(site);
+  if (group === "submitted") return "Submitted";
+  if (group === "dropped") return "Dropped / Rejected";
   if (group === "commissioned") return "Commissioned";
   if (group === "installed") return "Installed";
   if (group === "assessed") return "Assessed";
