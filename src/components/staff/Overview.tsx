@@ -2639,7 +2639,11 @@ return (
                     return (
                       <tr
                         key={r.id}
-                        onClick={() => navigate({ to: "/manager/sites" as any, search: { q: r.name } as any })}
+                        onClick={() => {
+                          // Selecting text to copy it must not open the Sites panel.
+                          if (window.getSelection()?.toString()) return;
+                          navigate({ to: "/manager/sites" as any, search: { q: r.name } as any });
+                        }}
                         className="hover:bg-surface-raised/35 transition-colors cursor-pointer"
                       >
                         <td className="px-4 py-3.5">
