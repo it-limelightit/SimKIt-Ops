@@ -67,9 +67,10 @@ Select.displayName = "Select";
 
 export function Button({
   variant = "primary",
+  size,
   className,
   ...p
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "ghost" | "danger" }) {
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "ghost" | "danger"; size?: "sm" | "md" }) {
   let v = "";
   if (variant === "primary") {
     v = "bg-lime text-primary-foreground font-semibold hover:brightness-110 hover:scale-[1.02] active:scale-[0.98]";
@@ -85,6 +86,7 @@ export function Button({
     <button
       className={cn(
         "inline-flex items-center justify-center gap-2 rounded-[6px] px-5 py-2.5 text-sm transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:active:scale-100 shadow-none font-sans",
+        size === "sm" && "min-h-9 px-3 py-1.5 text-xs",
         v,
         className,
       )}

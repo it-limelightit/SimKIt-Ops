@@ -49,6 +49,7 @@ import {
 import { toast } from "sonner";
 import { InventoryPanel } from "@/components/inventory/InventoryPanel";
 import { CompanyTracker } from "@/components/company-tracker/CompanyTracker";
+import { FieldVisitScheduler } from "@/components/field-visit-scheduler/FieldVisitScheduler";
 import { OrderTab } from "@/components/business-consultant/OrderTab";
 import {
   getCanonicalStatus,
@@ -82,7 +83,7 @@ function BusinessConsultantPage() {
   const navigate = useNavigate();
   const { ready, userId, email, role, profile, signOut } = useAuth();
 
-  const [view, setView] = useState<"dashboard" | "submission" | "inventory" | "tracker">("dashboard");
+  const [view, setView] = useState<"dashboard" | "submission" | "inventory" | "tracker" | "schedule">("dashboard");
   const [sitesList, setSitesList] = useState<Site[]>([]);
   const [sitesWithProgress, setSitesWithProgress] = useState<
     Array<
@@ -632,6 +633,7 @@ function BusinessConsultantPage() {
         onGoToDashboard={() => setView("dashboard")}
         onGoToInventory={() => setView("inventory")}
         onGoToTracker={() => setView("tracker")}
+        onGoToSchedule={() => setView("schedule")}
         assignmentsActive
       >
         <div className="mt-8">
@@ -649,6 +651,7 @@ function BusinessConsultantPage() {
         onGoToDashboard={() => setView("dashboard")}
         onGoToInventory={() => setView("inventory")}
         onGoToTracker={() => setView("tracker")}
+        onGoToSchedule={() => setView("schedule")}
         inventoryActive
       >
         <div className="py-9">
@@ -666,9 +669,26 @@ function BusinessConsultantPage() {
         onGoToDashboard={() => setView("dashboard")}
         onGoToInventory={() => setView("inventory")}
         onGoToTracker={() => setView("tracker")}
+        onGoToSchedule={() => setView("schedule")}
         trackerActive
       >
         <div className="py-9"><CompanyTracker /></div>
+      </Shell>
+    );
+  }
+
+  if (view === "schedule") {
+    return (
+      <Shell
+        onSignOut={signOut}
+        profileName={profile?.name ?? undefined}
+        onGoToDashboard={() => setView("dashboard")}
+        onGoToInventory={() => setView("inventory")}
+        onGoToTracker={() => setView("tracker")}
+        onGoToSchedule={() => setView("schedule")}
+        scheduleActive
+      >
+        <div className="py-9"><FieldVisitScheduler /></div>
       </Shell>
     );
   }
@@ -1545,6 +1565,8 @@ function Shell({
   inventoryActive,
   onGoToTracker,
   trackerActive,
+  onGoToSchedule,
+  scheduleActive,
   assignmentsActive,
 }: {
   children: React.ReactNode;
@@ -1556,6 +1578,8 @@ function Shell({
   inventoryActive?: boolean;
   onGoToTracker?: () => void;
   trackerActive?: boolean;
+  onGoToSchedule?: () => void;
+  scheduleActive?: boolean;
   assignmentsActive?: boolean;
 }) {
   const [themeMode, setThemeMode] = useState<"light" | "dark">("light");
@@ -1608,6 +1632,11 @@ function Shell({
             {onGoToTracker && (
               <Button variant={trackerActive ? "primary" : "ghost"} onClick={onGoToTracker} className="py-1 px-3 text-xs">
                 <KanbanSquare size={14} /><span className="hidden sm:inline">Company Tracker</span>
+              </Button>
+            )}
+            {onGoToSchedule && (
+              <Button variant={scheduleActive ? "primary" : "ghost"} onClick={onGoToSchedule} className="py-1 px-3 text-xs">
+                <Calendar size={14} /><span className="hidden sm:inline">My Schedule</span>
               </Button>
             )}
             {showDashboardBtn && (
