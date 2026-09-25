@@ -546,7 +546,7 @@ function VisitTable({
         <table className="w-full min-w-[1040px] text-left text-sm">
           <thead className="bg-surface-raised text-[10px] font-bold uppercase tracking-widest text-text-secondary">
             <tr>
-              <th className="px-5 py-3">Company</th>
+              <th className="min-w-72 px-5 py-3">Company</th>
               {manager && <th className="px-5 py-3">Field associate</th>}
               <th className="px-5 py-3">Visit</th>
               <th className="px-5 py-3">Scheduled</th>
@@ -563,8 +563,8 @@ function VisitTable({
                 key={visit.id}
                 className={`transition-colors hover:bg-surface-raised/70 ${visit.priority === "emergency" ? "bg-coral/5" : ""}`}
               >
-                <td className="px-5 py-4">
-                  <p className="font-semibold text-text-primary">{visit.company_name}</p>
+                <td className="min-w-72 px-5 py-4">
+                  <p className="whitespace-nowrap text-xs font-semibold text-text-primary">{visit.company_name}</p>
                   {visit.city && <p className="mt-0.5 text-xs text-text-secondary">{visit.city}</p>}
                 </td>
                 {manager && (
