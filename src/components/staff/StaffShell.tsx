@@ -18,6 +18,7 @@ import {
   Moon,
   ClipboardList,
   KanbanSquare,
+  CalendarDays,
 } from "lucide-react";
 import { Button } from "../ui-kit";
 
@@ -66,6 +67,7 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
     { to: `${base}/performance`, label: "Performance", icon: Activity },
     { to: `${base}/drive-links`, label: "Links of Drive", icon: Folder, href: DRIVE_URL },
     { to: `${base}/company-tracker`, label: "Company Tracker", icon: KanbanSquare },
+    { to: `${base}/field-visit-tracker`, label: "Field Visit Tracker", icon: CalendarDays },
     { to: `${base}/logistic`, label: "Logistic", icon: Boxes },
     { to: `${base}/reports`, label: "Report and Logs", icon: BarChart3 },
   ];

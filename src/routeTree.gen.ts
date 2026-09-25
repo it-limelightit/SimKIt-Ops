@@ -21,6 +21,7 @@ import { Route as ManagerSitesRouteImport } from './routes/manager.sites'
 import { Route as ManagerReportsRouteImport } from './routes/manager.reports'
 import { Route as ManagerPerformanceRouteImport } from './routes/manager.performance'
 import { Route as ManagerLogisticRouteImport } from './routes/manager.logistic'
+import { Route as ManagerFieldVisitTrackerRouteImport } from './routes/manager.field-visit-tracker'
 import { Route as ManagerFactoryDataRouteImport } from './routes/manager.factory-data'
 import { Route as ManagerDriveLinksRouteImport } from './routes/manager.drive-links'
 import { Route as ManagerCompanyTrackerRouteImport } from './routes/manager.company-tracker'
@@ -86,6 +87,12 @@ const ManagerLogisticRoute = ManagerLogisticRouteImport.update({
   path: '/logistic',
   getParentRoute: () => ManagerRoute,
 } as any)
+const ManagerFieldVisitTrackerRoute =
+  ManagerFieldVisitTrackerRouteImport.update({
+    id: '/field-visit-tracker',
+    path: '/field-visit-tracker',
+    getParentRoute: () => ManagerRoute,
+  } as any)
 const ManagerFactoryDataRoute = ManagerFactoryDataRouteImport.update({
   id: '/factory-data',
   path: '/factory-data',
@@ -119,6 +126,7 @@ export interface FileRoutesByFullPath {
   '/manager/company-tracker': typeof ManagerCompanyTrackerRoute
   '/manager/drive-links': typeof ManagerDriveLinksRoute
   '/manager/factory-data': typeof ManagerFactoryDataRoute
+  '/manager/field-visit-tracker': typeof ManagerFieldVisitTrackerRoute
   '/manager/logistic': typeof ManagerLogisticRoute
   '/manager/performance': typeof ManagerPerformanceRoute
   '/manager/reports': typeof ManagerReportsRoute
@@ -136,6 +144,7 @@ export interface FileRoutesByTo {
   '/manager/company-tracker': typeof ManagerCompanyTrackerRoute
   '/manager/drive-links': typeof ManagerDriveLinksRoute
   '/manager/factory-data': typeof ManagerFactoryDataRoute
+  '/manager/field-visit-tracker': typeof ManagerFieldVisitTrackerRoute
   '/manager/logistic': typeof ManagerLogisticRoute
   '/manager/performance': typeof ManagerPerformanceRoute
   '/manager/reports': typeof ManagerReportsRoute
@@ -155,6 +164,7 @@ export interface FileRoutesById {
   '/manager/company-tracker': typeof ManagerCompanyTrackerRoute
   '/manager/drive-links': typeof ManagerDriveLinksRoute
   '/manager/factory-data': typeof ManagerFactoryDataRoute
+  '/manager/field-visit-tracker': typeof ManagerFieldVisitTrackerRoute
   '/manager/logistic': typeof ManagerLogisticRoute
   '/manager/performance': typeof ManagerPerformanceRoute
   '/manager/reports': typeof ManagerReportsRoute
@@ -175,6 +185,7 @@ export interface FileRouteTypes {
     | '/manager/company-tracker'
     | '/manager/drive-links'
     | '/manager/factory-data'
+    | '/manager/field-visit-tracker'
     | '/manager/logistic'
     | '/manager/performance'
     | '/manager/reports'
@@ -192,6 +203,7 @@ export interface FileRouteTypes {
     | '/manager/company-tracker'
     | '/manager/drive-links'
     | '/manager/factory-data'
+    | '/manager/field-visit-tracker'
     | '/manager/logistic'
     | '/manager/performance'
     | '/manager/reports'
@@ -210,6 +222,7 @@ export interface FileRouteTypes {
     | '/manager/company-tracker'
     | '/manager/drive-links'
     | '/manager/factory-data'
+    | '/manager/field-visit-tracker'
     | '/manager/logistic'
     | '/manager/performance'
     | '/manager/reports'
@@ -313,6 +326,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ManagerLogisticRouteImport
       parentRoute: typeof ManagerRoute
     }
+    '/manager/field-visit-tracker': {
+      id: '/manager/field-visit-tracker'
+      path: '/field-visit-tracker'
+      fullPath: '/manager/field-visit-tracker'
+      preLoaderRoute: typeof ManagerFieldVisitTrackerRouteImport
+      parentRoute: typeof ManagerRoute
+    }
     '/manager/factory-data': {
       id: '/manager/factory-data'
       path: '/factory-data'
@@ -349,6 +369,7 @@ interface ManagerRouteChildren {
   ManagerCompanyTrackerRoute: typeof ManagerCompanyTrackerRoute
   ManagerDriveLinksRoute: typeof ManagerDriveLinksRoute
   ManagerFactoryDataRoute: typeof ManagerFactoryDataRoute
+  ManagerFieldVisitTrackerRoute: typeof ManagerFieldVisitTrackerRoute
   ManagerLogisticRoute: typeof ManagerLogisticRoute
   ManagerPerformanceRoute: typeof ManagerPerformanceRoute
   ManagerReportsRoute: typeof ManagerReportsRoute
@@ -362,6 +383,7 @@ const ManagerRouteChildren: ManagerRouteChildren = {
   ManagerCompanyTrackerRoute: ManagerCompanyTrackerRoute,
   ManagerDriveLinksRoute: ManagerDriveLinksRoute,
   ManagerFactoryDataRoute: ManagerFactoryDataRoute,
+  ManagerFieldVisitTrackerRoute: ManagerFieldVisitTrackerRoute,
   ManagerLogisticRoute: ManagerLogisticRoute,
   ManagerPerformanceRoute: ManagerPerformanceRoute,
   ManagerReportsRoute: ManagerReportsRoute,
