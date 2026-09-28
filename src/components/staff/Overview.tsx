@@ -1192,7 +1192,7 @@ const renderLatestKpiButton = (kpiId: string, kpiLabel: string) => (
       e.stopPropagation();
       handleLatestKpiClick(kpiId);
     }}
-    className="rounded border border-border bg-surface-raised px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-text-secondary transition-colors hover:border-lime hover:text-text-primary"
+    className="rounded-md border border-border/80 bg-surface-raised/80 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-[0.08em] text-text-secondary shadow-xs transition-[border-color,background-color,color,transform] duration-200 ease-out hover:-translate-y-px hover:border-lime/60 hover:bg-lime/5 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/30"
     title={`Show latest ${kpiLabel} activity`}
   >
     Latest Update
@@ -2159,7 +2159,7 @@ const pendingCommissioningRequests = canReviewCommissioningRequests
   : [];
 
 return (
-  <div className="space-y-5">
+  <div className="space-y-5 md:-mt-8">
     <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
         <p className="font-mono text-[10px] uppercase tracking-widest text-text-secondary">Dashboard</p>
@@ -2179,15 +2179,15 @@ return (
     </header>
 
     {/* Main semantic variables-based analytics dashboard */}
-    <div className="bg-surface text-text-primary border border-border rounded-2xl p-4 md:p-5 shadow-sm space-y-6 font-sans transition-all duration-300">
+    <div className="bg-gradient-to-br from-surface via-surface to-indigo-500/[0.025] text-text-primary border border-border rounded-2xl p-4 shadow-sm space-y-4 font-sans">
 
       {/* Title / Sync Info */}
-      <div className="flex items-center justify-between border-b border-border pb-4">
+      <div className="flex items-center justify-between border-b border-border/80 pb-3">
         <div>
-          <h2 className="text-xl font-extrabold text-text-primary tracking-tight">
+          <h2 className="text-xl font-extrabold text-text-primary tracking-tight leading-none">
             Analytics Dashboard
           </h2>
-          <p className="text-xs text-text-secondary mt-0.5 font-normal">
+          <p className="text-xs text-text-secondary mt-1 font-normal">
             Interactive metrics overview and site verification trackers.
           </p>
         </div>
@@ -2209,7 +2209,7 @@ return (
       ) : (
         <div className="space-y-4">
           {/* ROW 1 */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
             {/* Companies Assigned */}
             <div className="lg:col-span-4 h-full">
               {(() => {
@@ -2219,15 +2219,15 @@ return (
                 const Icon = k.icon;
                 const cardBorder = active
                   ? "border-blue-500 ring-2 ring-blue-500/10 bg-white scale-[1.01] shadow-md"
-                  : "border-border bg-white hover:border-blue-400 hover:shadow-md transition-all";
+                  : "border-border bg-gradient-to-br from-white via-white to-indigo-500/[0.025] hover:border-blue-400 hover:shadow-[0_14px_28px_-16px_rgba(79,70,229,0.48)] hover:-translate-y-0.5 transition-[border-color,box-shadow,transform] duration-200 ease-out";
                 return (
                   <button
                     onClick={() => handleKpiClick(k.id)}
-                    className={`flex flex-col justify-between w-full text-left p-4 border rounded-xl shadow-xs transition-all duration-200 group cursor-pointer h-full min-h-[130px] ${cardBorder}`}
+                className={`flex flex-col justify-between w-full text-left p-4 lg:p-3.5 border rounded-xl shadow-[0_3px_10px_-7px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow,transform] duration-200 group cursor-pointer h-full min-h-[124px] ${cardBorder}`}
                   >
                     <div className="flex items-start justify-between w-full">
-                      <div className={`p-2 rounded-xl border ${k.badgeStyle}`}>
-                        <Icon size={16} strokeWidth={2.5} />
+                      <div className={`p-2.5 rounded-xl border shadow-xs transition-transform duration-200 ease-out group-hover:scale-110 ${k.badgeStyle}`}>
+                        <Icon size={17} strokeWidth={2.25} />
                       </div>
                       <div className="flex flex-col items-end gap-2">
                         {renderLatestKpiButton(k.id, k.label)}
@@ -2235,13 +2235,13 @@ return (
                       </div>
                     </div>
                     <div className="mt-4">
-                      <div className="text-3xl font-extrabold text-text-primary tracking-tight font-mono">
+                      <div className="text-3xl font-extrabold text-text-primary tracking-tight font-mono leading-none tabular-nums">
                         {k.value}
                       </div>
-                      <div className="text-xs font-bold mt-1 text-text-primary">
+                      <div className="text-xs font-bold mt-2 text-text-primary tracking-tight">
                         {k.label}
                       </div>
-                      <div className="text-[10px] mt-0.5 leading-snug text-text-secondary">
+                      <div className="text-[10px] mt-1 leading-snug text-text-secondary">
                         {k.desc}
                       </div>
                     </div>
@@ -2251,8 +2251,8 @@ return (
             </div>
 
             {/* Right Box: Submitted & Stack */}
-            <div className="lg:col-span-8 border border-border bg-surface/30 rounded-2xl p-4 flex flex-col justify-between h-full">
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-4 flex-1">
+            <div className="lg:col-span-8 border border-border/80 bg-gradient-to-br from-surface-raised/60 to-indigo-500/[0.025] rounded-2xl p-3 lg:p-2.5 shadow-inner flex flex-col justify-between">
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-3 flex-1">
                 {/* Submitted */}
                 <div className="md:col-span-6 h-full">
                   {(() => {
@@ -2262,15 +2262,15 @@ return (
                     const Icon = k.icon;
                     const cardBorder = active
                       ? "border-emerald-500 ring-2 ring-emerald-500/10 bg-white scale-[1.01] shadow-md"
-                      : "border-border bg-white hover:border-emerald-400 hover:shadow-md transition-all";
+                      : "border-border bg-gradient-to-br from-white via-white to-indigo-500/[0.025] hover:border-emerald-400 hover:shadow-[0_14px_28px_-16px_rgba(79,70,229,0.48)] hover:-translate-y-0.5 transition-[border-color,box-shadow,transform] duration-200 ease-out";
                     return (
                       <button
                         onClick={() => handleKpiClick(k.id)}
-                        className={`flex flex-col justify-between w-full text-left p-4 border rounded-xl shadow-xs transition-all duration-200 group cursor-pointer h-full min-h-[130px] ${cardBorder}`}
+                        className={`flex flex-col justify-between w-full text-left p-4 lg:p-3.5 border rounded-xl shadow-[0_3px_10px_-7px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow,transform] duration-200 group cursor-pointer h-full min-h-[124px] ${cardBorder}`}
                       >
                         <div className="flex items-start justify-between w-full">
-                          <div className={`p-2 rounded-xl border ${k.badgeStyle}`}>
-                            <Icon size={16} strokeWidth={2.5} />
+                          <div className={`p-2.5 rounded-xl border shadow-xs transition-transform duration-200 ease-out group-hover:scale-110 ${k.badgeStyle}`}>
+                            <Icon size={17} strokeWidth={2.25} />
                           </div>
                           <div className="flex flex-col items-end gap-2">
                             {renderLatestKpiButton(k.id, k.label)}
@@ -2278,13 +2278,13 @@ return (
                           </div>
                         </div>
                         <div className="mt-4">
-                          <div className="text-3xl font-extrabold text-text-primary tracking-tight font-mono">
+                          <div className="text-3xl font-extrabold text-text-primary tracking-tight font-mono leading-none tabular-nums">
                             {k.value}
                           </div>
-                          <div className="text-xs font-bold mt-1 text-text-primary">
+                          <div className="text-xs font-bold mt-2 text-text-primary tracking-tight">
                             {k.label}
                           </div>
-                          <div className="text-[10px] mt-0.5 leading-snug text-text-secondary">
+                          <div className="text-[10px] mt-1 leading-snug text-text-secondary">
                             {k.desc}
                           </div>
                         </div>
@@ -2294,7 +2294,7 @@ return (
                 </div>
 
                 {/* Unsubmitted & Certification Pending Stack */}
-                <div className="md:col-span-6 flex flex-col gap-3 justify-between h-full">
+                <div className="md:col-span-6 flex flex-col gap-2.5 justify-start">
                   {[
                     kpis.find(x => x.id === "unsubmitted")!,
                     kpis.find(x => x.id === "certification")!
@@ -2307,32 +2307,32 @@ return (
                       ? (isPurple
                         ? "border-purple-500 ring-2 ring-purple-500/10 bg-white scale-[1.01] shadow-md"
                         : "border-orange-500 ring-2 ring-orange-500/10 bg-white scale-[1.01] shadow-md")
-                      : `border-border bg-white ${hoverColor} hover:shadow-md transition-all`;
+                      : `border-border bg-gradient-to-br from-white via-white to-indigo-500/[0.025] ${hoverColor} hover:shadow-[0_14px_28px_-16px_rgba(79,70,229,0.48)] hover:-translate-y-0.5 transition-[border-color,box-shadow,transform] duration-200 ease-out`;
                     return (
                       <button
                         key={k.id}
                         onClick={() => handleKpiClick(k.id)}
-                        className={`flex items-center justify-between w-full text-left px-3 py-2.5 border rounded-xl shadow-xs transition-all duration-200 group cursor-pointer flex-1 ${cardBorder}`}
+                        className={`flex min-h-[76px] items-center justify-between w-full text-left px-3 py-2 border rounded-xl shadow-[0_3px_10px_-7px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow,transform] duration-200 group cursor-pointer ${cardBorder}`}
                       >
                         <div className="flex items-center gap-3">
-                          <div className={`p-1.5 rounded-lg border shrink-0 ${k.badgeStyle}`}>
-                            <Icon size={14} strokeWidth={2.5} />
+                          <div className={`p-2 rounded-lg border shadow-xs shrink-0 transition-transform duration-200 ease-out group-hover:scale-110 ${k.badgeStyle}`}>
+                            <Icon size={14} strokeWidth={2.25} />
                           </div>
                           <div>
-                            <div className="text-xs font-bold text-text-primary">
+                            <div className="text-xs font-bold text-text-primary leading-tight">
                               {k.label}
                             </div>
-                            <div className="text-[9px] text-text-secondary leading-tight mt-0.5">
+                            <div className="text-[10px] text-text-secondary leading-tight mt-1">
                               {k.desc}
                             </div>
                           </div>
                         </div>
                         <div className="flex flex-col items-end gap-1.5">
                           {renderLatestKpiButton(k.id, k.label)}
-                          <div className="text-xl font-extrabold text-text-primary font-mono">
+                          <div className="text-2xl font-extrabold text-text-primary font-mono leading-none tabular-nums">
                             {k.value}
                           </div>
-                          <span className={`h-2 w-2 rounded-full ${k.dotStyle} shrink-0`} />
+                          <span className={`h-1.5 w-1.5 rounded-full ${k.dotStyle} shrink-0`} />
                         </div>
                       </button>
                     );
@@ -2343,9 +2343,9 @@ return (
           </div>
 
           {/* ROW 2 */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
             {/* Column 1: Dropped / Rejected & Assigned Stack */}
-            <div className="lg:col-span-3 flex flex-col gap-3 justify-between h-full">
+            <div className="lg:col-span-3 flex flex-col gap-2.5 justify-between h-full">
               {[
                 kpis.find(x => x.id === "dropped")!,
                 kpis.find(x => x.id === "assigned_bc")!
@@ -2358,32 +2358,32 @@ return (
                   ? (isIndigo
                     ? "border-blue-500 ring-2 ring-blue-500/10 bg-white scale-[1.01] shadow-md"
                     : "border-red-500 ring-2 ring-red-500/10 bg-white scale-[1.01] shadow-md")
-                  : `border-border bg-white ${hoverColor} hover:shadow-md transition-all`;
+                  : `border-border bg-gradient-to-br from-white via-white to-indigo-500/[0.025] ${hoverColor} hover:shadow-[0_14px_28px_-16px_rgba(79,70,229,0.48)] hover:-translate-y-0.5 transition-[border-color,box-shadow,transform] duration-200 ease-out`;
                 return (
                   <button
                     key={k.id}
                     onClick={() => handleKpiClick(k.id)}
-                    className={`flex items-center justify-between w-full text-left px-3 py-2.5 border rounded-xl shadow-xs transition-all duration-200 group cursor-pointer flex-1 ${cardBorder}`}
+                    className={`flex items-center justify-between w-full text-left px-3.5 py-3 border rounded-xl shadow-[0_3px_10px_-7px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow,transform] duration-200 group cursor-pointer flex-1 ${cardBorder}`}
                   >
                     <div className="flex items-center gap-3">
-                      <div className={`p-1.5 rounded-lg border shrink-0 ${k.badgeStyle}`}>
-                        <Icon size={14} strokeWidth={2.5} />
+                      <div className={`p-2 rounded-lg border shadow-xs shrink-0 transition-transform duration-200 ease-out group-hover:scale-110 ${k.badgeStyle}`}>
+                        <Icon size={14} strokeWidth={2.25} />
                       </div>
                       <div>
-                        <div className="text-xs font-bold text-text-primary">
+                        <div className="text-xs font-bold text-text-primary leading-tight">
                           {k.label}
                         </div>
-                        <div className="text-[9px] text-text-secondary leading-tight mt-0.5">
+                        <div className="text-[10px] text-text-secondary leading-tight mt-1">
                           {k.desc}
                         </div>
                       </div>
                     </div>
                     <div className="flex flex-col items-end gap-1.5">
                       {renderLatestKpiButton(k.id, k.label)}
-                      <div className="text-xl font-extrabold text-text-primary font-mono">
+                      <div className="text-2xl font-extrabold text-text-primary font-mono leading-none tabular-nums">
                         {k.value}
                       </div>
-                      <span className={`h-2 w-2 rounded-full ${k.dotStyle} shrink-0`} />
+                      <span className={`h-1.5 w-1.5 rounded-full ${k.dotStyle} shrink-0`} />
                     </div>
                   </button>
                 );
@@ -2391,7 +2391,7 @@ return (
             </div>
 
             {/* Column 2: Pending Assignment & Not Started Yet Stack */}
-            <div className="lg:col-span-3 flex flex-col gap-3 justify-between h-full">
+            <div className="lg:col-span-3 flex flex-col gap-2.5 justify-between h-full">
               {[
                 kpis.find(x => x.id === "pending")!,
                 kpis.find(x => x.id === "not_started")!
@@ -2404,32 +2404,32 @@ return (
                   ? (isAmber
                     ? "border-amber-500 ring-2 ring-amber-500/10 bg-white scale-[1.01] shadow-md"
                     : "border-indigo-500 ring-2 ring-indigo-500/10 bg-white scale-[1.01] shadow-md")
-                  : `border-border bg-white ${hoverColor} hover:shadow-md transition-all`;
+                  : `border-border bg-gradient-to-br from-white via-white to-indigo-500/[0.025] ${hoverColor} hover:shadow-[0_14px_28px_-16px_rgba(79,70,229,0.48)] hover:-translate-y-0.5 transition-[border-color,box-shadow,transform] duration-200 ease-out`;
                 return (
                   <button
                     key={k.id}
                     onClick={() => handleKpiClick(k.id)}
-                    className={`flex items-center justify-between w-full text-left px-3 py-2.5 border rounded-xl shadow-xs transition-all duration-200 group cursor-pointer flex-1 ${cardBorder}`}
+                    className={`flex items-center justify-between w-full text-left px-3.5 py-3 border rounded-xl shadow-[0_3px_10px_-7px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow,transform] duration-200 group cursor-pointer flex-1 ${cardBorder}`}
                   >
                     <div className="flex items-center gap-3">
-                      <div className={`p-1.5 rounded-lg border shrink-0 ${k.badgeStyle}`}>
-                        <Icon size={14} strokeWidth={2.5} />
+                      <div className={`p-2 rounded-lg border shadow-xs shrink-0 transition-transform duration-200 ease-out group-hover:scale-110 ${k.badgeStyle}`}>
+                        <Icon size={14} strokeWidth={2.25} />
                       </div>
                       <div>
-                        <div className="text-xs font-bold text-text-primary">
+                        <div className="text-xs font-bold text-text-primary leading-tight">
                           {k.label}
                         </div>
-                        <div className="text-[9px] text-text-secondary leading-tight mt-0.5">
+                        <div className="text-[10px] text-text-secondary leading-tight mt-1">
                           {k.desc}
                         </div>
                       </div>
                     </div>
                     <div className="flex flex-col items-end gap-1.5">
                       {renderLatestKpiButton(k.id, k.label)}
-                      <div className="text-xl font-extrabold text-text-primary font-mono">
+                      <div className="text-2xl font-extrabold text-text-primary font-mono leading-none tabular-nums">
                         {k.value}
                       </div>
-                      <span className={`h-2 w-2 rounded-full ${k.dotStyle} shrink-0`} />
+                      <span className={`h-1.5 w-1.5 rounded-full ${k.dotStyle} shrink-0`} />
                     </div>
                   </button>
                 );
@@ -2437,8 +2437,8 @@ return (
             </div>
 
             {/* Column 3: Middle Container Box (Logistics + workflow cards) */}
-            <div className="lg:col-span-6 border border-border bg-surface/30 rounded-2xl p-4 flex flex-col justify-between h-full">
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-3 flex-1">
+            <div className="lg:col-span-6 border border-border/80 bg-gradient-to-br from-surface-raised/60 to-purple-500/[0.025] rounded-2xl p-2.5 shadow-inner flex flex-col justify-between">
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 flex-1">
                 {[
                   [
                     kpis.find(x => x.id === "assessment")!,
@@ -2453,8 +2453,8 @@ return (
                   <div
                     key={groupIndex}
                     className={groupIndex === 0
-                      ? "md:col-span-6 grid grid-cols-1 gap-2"
-                      : "md:col-span-6 grid grid-cols-1 gap-2"}
+                      ? "md:col-span-6 grid grid-cols-1 gap-1.5"
+                      : "md:col-span-6 grid grid-cols-1 gap-1.5"}
                   >
                     {group.filter(Boolean).map((k) => {
                       const active = selectedKpi === k.id;
@@ -2465,33 +2465,33 @@ return (
                         ? (isGreen
                           ? "border-emerald-500 ring-2 ring-emerald-500/10 bg-white scale-[1.01] shadow-md"
                           : "border-blue-500 ring-2 ring-blue-500/10 bg-white scale-[1.01] shadow-md")
-                        : `border-border bg-white ${hoverColor} hover:shadow-md transition-all`;
+                        : `border-border bg-gradient-to-br from-white via-white to-indigo-500/[0.025] ${hoverColor} hover:shadow-[0_14px_28px_-16px_rgba(79,70,229,0.48)] hover:-translate-y-0.5 transition-[border-color,box-shadow,transform] duration-200 ease-out`;
                       return (
                         <button
                           key={k.id}
                           onClick={() => handleKpiClick(k.id)}
-                          className={`flex min-h-20 flex-col justify-between w-full text-left px-3 py-2 border rounded-xl shadow-xs transition-all duration-200 group cursor-pointer ${cardBorder}`}
+                          className={`flex min-h-[60px] flex-col justify-between w-full text-left px-2.5 py-2 border rounded-xl shadow-[0_3px_10px_-7px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow,transform] duration-200 group cursor-pointer ${cardBorder}`}
                         >
                           <div className="flex items-start gap-2.5 min-w-0">
-                            <div className={`p-1.5 rounded-lg border shrink-0 ${k.badgeStyle}`}>
-                              <Icon size={15} strokeWidth={2.5} />
+                            <div className={`p-2 rounded-lg border shadow-xs shrink-0 transition-transform duration-200 ease-out group-hover:scale-110 ${k.badgeStyle}`}>
+                              <Icon size={15} strokeWidth={2.25} />
                             </div>
                             <div className="min-w-0">
-                              <div className="text-xs font-bold text-text-primary leading-tight break-words">
+                              <div className="text-[11px] font-bold text-text-primary leading-tight break-words tracking-tight">
                                 {k.label}
                               </div>
-                              <div className="text-[10px] text-text-secondary leading-tight mt-0.5 break-words">
+                              <div className="text-[9px] text-text-secondary leading-tight mt-0.5 break-words">
                                 {k.desc}
                               </div>
                             </div>
                           </div>
-                          <div className="flex items-end justify-between gap-2 pt-1.5">
-                            <div className="text-2xl font-extrabold text-text-primary font-mono leading-none">
+                          <div className="flex items-end justify-between gap-2 pt-1">
+                            <div className="text-xl font-extrabold text-text-primary font-mono leading-none tabular-nums">
                               {k.value}
                             </div>
                             <div className="flex flex-col items-end gap-1.5">
                               {renderLatestKpiButton(k.id, k.label)}
-                              <span className={`h-2.5 w-2.5 rounded-full ${k.dotStyle} shrink-0 mb-1`} />
+                              <span className={`h-1.5 w-1.5 rounded-full ${k.dotStyle} shrink-0 mb-0.5`} />
                             </div>
                           </div>
                         </button>
