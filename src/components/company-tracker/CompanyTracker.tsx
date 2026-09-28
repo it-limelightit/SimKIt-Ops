@@ -90,6 +90,37 @@ type TrackerRpc = {
   ) => Promise<{ data: unknown; error: { message: string } | null }>;
 };
 
+function indiaDateParts(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value ?? 0);
+  return { year: value("year"), month: value("month"), day: value("day"), hour: value("hour") };
+}
+
+function overdueMonitoringDay(item: Tracker) {
+  if (item.stage !== "Monitoring") return 0;
+  const started = indiaDateParts(new Date(item.stage_changed_at));
+  const now = indiaDateParts(new Date());
+  const elapsedDays = Math.floor(
+    (Date.UTC(now.year, now.month - 1, now.day) -
+      Date.UTC(started.year, started.month - 1, started.day)) /
+      86400000,
+  );
+  return Math.min(11, Math.max(0, elapsedDays + (now.hour >= 12 ? 1 : 0)));
+}
+
+function monitoringResult(item: Tracker, dayNumber: number) {
+  const saved = item.monitoring_days.find((day) => day.day_number === dayNumber);
+  return saved?.result ?? (dayNumber <= overdueMonitoringDay(item) ? "red" : "pending");
+}
+
 export function CompanyTracker() {
   const { ready, userId } = useAuth();
   const [items, setItems] = useState<Tracker[]>([]);
@@ -656,8 +687,11 @@ function Kpi({
   );
 }
 function MonitoringSummaryCard({ item, onOpen }: { item: Tracker; onOpen: () => void }) {
-  const failed = item.monitoring_days.some((day) => day.result === "red");
+  const failed = item.monitoring_days.some((day) => day.result === "red") || overdueMonitoringDay(item) > 0;
   const totalDays = failed ? 11 : 6;
+  const completedDays = Array.from({ length: totalDays }, (_, index) =>
+    monitoringResult(item, index + 1) !== "pending",
+  ).filter(Boolean).length;
   const issueChecksComplete = checklistFields.filter(
     (field) => item.issue_checklist?.[field],
   ).length;
@@ -692,17 +726,17 @@ function MonitoringSummaryCard({ item, onOpen }: { item: Tracker; onOpen: () => 
           <div className="mt-3 flex items-center justify-between gap-2">
             <span className="text-[10px] font-medium text-text-secondary">Monitoring</span>
             <span className="font-mono text-[10px] text-text-primary">
-              {item.monitoring_days.length} / {totalDays}
+              {completedDays} / {totalDays}
             </span>
           </div>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {Array.from({ length: totalDays }, (_, index) => {
-              const day = item.monitoring_days.find((entry) => entry.day_number === index + 1);
+              const result = monitoringResult(item, index + 1);
               return (
                 <span
                   key={index}
-                  title={`Day ${index + 1}${day?.result ? `: ${day.result}` : ": pending"}`}
-                  className={`flex h-6 w-6 items-center justify-center rounded-full text-[9px] font-bold ${day?.result === "green" ? "bg-mint text-bg" : day?.result === "red" ? "bg-coral text-white" : "border border-border bg-surface-raised text-text-dim"}`}
+                  title={`Day ${index + 1}: ${result}`}
+                  className={`flex h-6 w-6 items-center justify-center rounded-full text-[9px] font-bold ${result === "green" ? "bg-mint text-bg" : result === "red" ? "bg-coral text-white" : "border border-border bg-surface-raised text-text-dim"}`}
                 >
                   {index + 1}
                 </span>
@@ -737,8 +771,11 @@ function TrackerCard({
   canDelete: boolean;
   canMovePrevious: boolean;
 }) {
-  const failed = item.monitoring_days.some((d) => d.result === "red"),
+  const failed = item.monitoring_days.some((d) => d.result === "red") || overdueMonitoringDay(item) > 0,
     totalDays = failed ? 11 : 6;
+  const completedDays = Array.from({ length: totalDays }, (_, index) =>
+    monitoringResult(item, index + 1) !== "pending",
+  ).filter(Boolean).length;
   const issueComplete = checklistFields.every((field) => item.issue_checklist?.[field]);
   // Monitoring days advance at the next local calendar date, rather than after
   // a full 24 hours from the time this stage was entered.
@@ -794,23 +831,25 @@ function TrackerCard({
           <div className="mb-2.5 flex items-center justify-between text-[10px] font-medium text-text-secondary">
             <span>Monitoring progress</span>
             <span className="font-mono text-text-primary">
-              {item.monitoring_days.length} / {totalDays} days
+              {completedDays} / {totalDays} days
             </span>
           </div>
           <div className="flex flex-wrap gap-1.5">
             {Array.from({ length: totalDays }, (_, i) => {
-              const d = item.monitoring_days.find((x) => x.day_number === i + 1);
+              const result = monitoringResult(item, i + 1);
               return (
                 <button
                   key={i}
                   onClick={() => onMonitor(i + 1)}
-                  disabled={i + 1 !== monitoringDayToday}
+                  disabled={result === "red" || i + 1 !== monitoringDayToday}
                   title={
-                    i + 1 === monitoringDayToday
+                    result === "red"
+                      ? `Monitoring day ${i + 1}: absent`
+                      : i + 1 === monitoringDayToday
                       ? `Complete monitoring day ${i + 1}`
                       : `Monitoring day ${i + 1} is available on its calendar day`
                   }
-                  className={`h-6 w-6 rounded-full text-[9px] font-bold shadow-sm transition-transform focus:outline-none focus:ring-2 focus:ring-lime/50 disabled:cursor-not-allowed disabled:opacity-60 ${d?.result === "green" ? "bg-mint text-bg" : d?.result === "red" ? "bg-coral text-white" : i + 1 === monitoringDayToday ? "border border-border bg-surface text-text-secondary hover:scale-110 hover:border-lime/60 hover:bg-lime/10" : "border border-border bg-surface-raised text-text-dim"}`}
+                  className={`h-6 w-6 rounded-full text-[9px] font-bold shadow-sm transition-transform focus:outline-none focus:ring-2 focus:ring-lime/50 disabled:cursor-not-allowed disabled:opacity-60 ${result === "green" ? "bg-mint text-bg" : result === "red" ? "bg-coral text-white" : i + 1 === monitoringDayToday ? "border border-border bg-surface text-text-secondary hover:scale-110 hover:border-lime/60 hover:bg-lime/10" : "border border-border bg-surface-raised text-text-dim"}`}
                 >
                   {i + 1}
                 </button>
