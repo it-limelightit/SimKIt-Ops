@@ -113,7 +113,10 @@ function overdueMonitoringDay(item: Tracker) {
       Date.UTC(started.year, started.month - 1, started.day)) /
       86400000,
   );
-  return Math.min(11, Math.max(0, elapsedDays + (now.hour >= 12 ? 1 : 0)));
+  // A day becomes overdue only after India moves into the next calendar day.
+  // For example, Day 5 remains available for the whole of Day 5 and Day 4 is
+  // marked missed at 00:00 on Day 5.
+  return Math.min(11, Math.max(0, elapsedDays));
 }
 
 function monitoringResult(item: Tracker, dayNumber: number) {
@@ -777,15 +780,16 @@ function TrackerCard({
     monitoringResult(item, index + 1) !== "pending",
   ).filter(Boolean).length;
   const issueComplete = checklistFields.every((field) => item.issue_checklist?.[field]);
-  // Monitoring days advance at the next local calendar date, rather than after
-  // a full 24 hours from the time this stage was entered.
-  const monitoringStartDate = new Date(item.stage_changed_at);
-  monitoringStartDate.setHours(0, 0, 0, 0);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // Use the India calendar for the editable day, matching the database rule.
+  const monitoringStarted = indiaDateParts(new Date(item.stage_changed_at));
+  const monitoringToday = indiaDateParts(new Date());
   const monitoringDayToday = Math.max(
     1,
-    Math.floor((today.getTime() - monitoringStartDate.getTime()) / 86400000) + 1,
+    Math.floor(
+      (Date.UTC(monitoringToday.year, monitoringToday.month - 1, monitoringToday.day) -
+        Date.UTC(monitoringStarted.year, monitoringStarted.month - 1, monitoringStarted.day)) /
+        86400000,
+    ) + 1,
   );
   const [showComments] = useState(false);
   return (
@@ -841,15 +845,17 @@ function TrackerCard({
                 <button
                   key={i}
                   onClick={() => onMonitor(i + 1)}
-                  disabled={result === "red" || i + 1 !== monitoringDayToday}
+                  disabled={i + 1 !== monitoringDayToday}
                   title={
-                    result === "red"
-                      ? `Monitoring day ${i + 1}: absent`
-                      : i + 1 === monitoringDayToday
-                      ? `Complete monitoring day ${i + 1}`
-                      : `Monitoring day ${i + 1} is available on its calendar day`
+                    i + 1 === monitoringDayToday
+                      ? result === "red"
+                        ? `Correct monitoring day ${i + 1}`
+                        : `Complete monitoring day ${i + 1}`
+                      : result === "red"
+                        ? `Monitoring day ${i + 1}: missed`
+                        : `Monitoring day ${i + 1} is available on its calendar day`
                   }
-                  className={`h-6 w-6 rounded-full text-[9px] font-bold shadow-sm transition-transform focus:outline-none focus:ring-2 focus:ring-lime/50 disabled:cursor-not-allowed disabled:opacity-60 ${result === "green" ? "bg-mint text-bg" : result === "red" ? "bg-coral text-white" : i + 1 === monitoringDayToday ? "border border-border bg-surface text-text-secondary hover:scale-110 hover:border-lime/60 hover:bg-lime/10" : "border border-border bg-surface-raised text-text-dim"}`}
+                  className={`h-6 w-6 rounded-full text-[9px] font-bold shadow-sm transition-transform focus:outline-none focus:ring-2 focus:ring-lime/50 disabled:cursor-not-allowed disabled:opacity-60 ${result === "green" ? "bg-mint text-bg" : result === "red" ? i + 1 === monitoringDayToday ? "bg-coral text-white hover:scale-110 hover:ring-2 hover:ring-coral/40" : "bg-coral text-white" : i + 1 === monitoringDayToday ? "border border-border bg-surface text-text-secondary hover:scale-110 hover:border-lime/60 hover:bg-lime/10" : "border border-border bg-surface-raised text-text-dim"}`}
                 >
                   {i + 1}
                 </button>
