@@ -201,7 +201,13 @@ export function PerformancePanel() {
       .filter((row) => row.sites.length > 0 || (!term && statusFilter === "all" && associateFilter === "all" && timeFilter === "all"));
   }, [rows, associateFilter, search, statusFilter, timeFilter]);
   const analytics = useMemo(() => buildAnalytics(filteredRows), [filteredRows]);
-  const factoryAnalytics = useMemo(() => buildFactoryAnalytics(filterFactorySites(allSiteDetails, { factoryPeriod, search, statusFilter, timeFilter })), [allSiteDetails, factoryPeriod, search, statusFilter, timeFilter]);
+  // Factory Analysis is intentionally independent from the Stage Base Progress
+  // controls. A stage, period shortcut, or search selected in that view must
+  // not silently narrow the factory-wide timing report.
+  const factoryAnalytics = useMemo(
+    () => buildFactoryAnalytics(filterFactorySites(allSiteDetails, { factoryPeriod })),
+    [allSiteDetails, factoryPeriod],
+  );
   const associateOptions = useMemo(
     () => (rows ?? []).map((row) => ({ id: row.consultant.id, name: row.consultant.name || "Unnamed" })).sort((a, b) => a.name.localeCompare(b.name)),
     [rows],
@@ -210,18 +216,21 @@ export function PerformancePanel() {
   if (rows === null) return <Skeleton className="h-64 w-full" />;
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-200">
-      <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p className="font-mono text-[11px] uppercase tracking-widest text-lime/80 font-bold">Business Analytics</p>
-          <h1 className="mt-2 text-4xl uppercase tracking-tight font-extrabold font-syne text-text-primary">Company Performance</h1>
-          <p className="mt-2 max-w-3xl text-sm text-text-secondary">
+    <div className="-mt-6 space-y-3 rounded-2xl bg-bg/40 p-0.5 animate-in fade-in duration-200 sm:-mt-8 sm:p-1">
+      <header className="flex flex-col gap-3 px-2 pt-1 lg:flex-row lg:items-end lg:justify-between">
+        <div className="max-w-3xl">
+          <p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-lime/80">Business Analytics</p>
+          <h1 className="mt-1 text-3xl font-extrabold tracking-tight text-text-primary sm:text-4xl">Company Performance</h1>
+          <p className="mt-1.5 max-w-2xl text-sm leading-5 text-text-secondary">
             Analyze field associate execution from assignment to assessment, installation and commissioning with overview-aligned operational counts.
           </p>
         </div>
-        <div className="rounded-[8px] border border-border bg-surface px-4 py-3 text-right">
-          <div className="font-mono text-[10px] uppercase tracking-widest text-text-secondary">Current View</div>
-          <div className="mt-1 text-xl font-extrabold text-text-primary">{analytics.total} Companies</div>
+        <div className="flex w-fit items-center gap-3 rounded-xl border border-border bg-surface px-3 py-2.5 shadow-xs lg:mb-0">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-lime/10 font-mono text-sm font-extrabold text-lime">{analytics.total}</span>
+          <div>
+            <div className="font-mono text-[9px] font-bold uppercase tracking-[0.16em] text-text-secondary">Current View</div>
+            <div className="mt-0.5 text-sm font-bold text-text-primary">Companies</div>
+          </div>
         </div>
       </header>
 
@@ -229,67 +238,80 @@ export function PerformancePanel() {
         <div className="py-16 text-center text-text-secondary">No Field Associates yet</div>
       ) : (
         <>
-          <div className="sticky top-0 z-20 rounded-[10px] border border-border bg-bg/95 p-4 shadow-[0_14px_40px_rgba(0,0,0,0.22)] backdrop-blur">
-            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-2 text-sm font-extrabold text-text-primary">
-                <Filter size={16} className="text-lime" />
+          <div className="rounded-xl border border-border bg-surface p-2.5 shadow-xs">
+            <div className="mb-1.5 font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-text-secondary">Analysis View</div>
+            <Select value={analysisView} onChange={(e) => setAnalysisView(e.target.value)} className="text-xs">
+              <option value="stage">Stage Base Progress</option>
+              <option value="factory">Factory Analysis</option>
+            </Select>
+          </div>
+          {analysisView === "stage" && (
+          <div className="sticky top-3 z-20 rounded-xl border border-border bg-surface/95 p-3 shadow-lg shadow-slate-950/5 backdrop-blur">
+            <div className="mb-2.5 flex flex-col gap-2 border-b border-border pb-2.5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2 text-sm font-bold text-text-primary">
+                <Filter size={15} className="text-lime" />
                 Focus Filters
               </div>
-              <div className="font-mono text-[10px] uppercase tracking-widest text-text-secondary">
+              <div className="font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-text-secondary">
                 {filteredRows.length} consultant{filteredRows.length !== 1 ? "s" : ""} in selected view
               </div>
             </div>
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1fr_1fr_1.4fr_auto]">
-              <Select value={analysisView} onChange={(e) => setAnalysisView(e.target.value)} className="text-xs">
-                <option value="stage">Stage Base Progress</option>
-                <option value="factory">Factory Analysis</option>
-              </Select>
-              <Select value={factoryPeriod} onChange={(e) => setFactoryPeriod(e.target.value)} className="text-xs">
-                <option value="before_aug_2026">Before August 2026</option>
-                <option value="aug_2026_to_today">August 2026 to till date</option>
-              </Select>
-              <Select value={timeFilter} onChange={(e) => setTimeFilter(e.target.value)} className="text-xs">
-                <option value="all">All time</option>
-                <option value="7d">Last 7 days</option>
-                <option value="30d">Last 30 days</option>
-                <option value="90d">Last 90 days</option>
-                <option value="month">This month</option>
-              </Select>
-              <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="text-xs">
-                <option value="all">All stages</option>
-                <option value="assigned">Assigned</option>
-                <option value="not_started">Not Started Yet</option>
-                <option value="assessed">Assessed</option>
-                <option value="installed">Installed</option>
-                <option value="commissioned">Commissioned</option>
-                <option value="submitted">Submitted</option>
-                <option value="dropped">Dropped / Rejected</option>
-              </Select>
-              <Select value={associateFilter} onChange={(e) => setAssociateFilter(e.target.value)} className="text-xs">
-                <option value="all">All field associates</option>
-                {associateOptions.map((associate) => (
-                  <option key={associate.id} value={associate.id}>{associate.name}</option>
-                ))}
-              </Select>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" size={15} />
-                <Input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search consultant, company, city, status..."
-                  className="pl-9"
-                />
+              <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-[1.55fr_1fr_1fr_1.55fr_auto]">
+                <div className="flex min-w-0 items-center gap-1 overflow-x-auto rounded-lg border border-border bg-surface-raised/40 p-1 [scrollbar-width:none]">
+                  {[
+                    ["all", "All"],
+                    ["7d", "Week"],
+                    ["month", "Month"],
+                    ["30d", "30D"],
+                    ["90d", "90D"],
+                  ].map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setTimeFilter(value)}
+                      aria-pressed={timeFilter === value}
+                      className={`shrink-0 rounded-md px-3 py-2 font-mono text-[10px] font-bold uppercase tracking-wide transition-colors ${timeFilter === value ? "bg-text-primary text-surface shadow-sm" : "text-text-secondary hover:bg-surface hover:text-text-primary"}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="text-xs">
+                  <option value="all">All stages</option>
+                  <option value="assigned">Assigned</option>
+                  <option value="not_started">Not Started Yet</option>
+                  <option value="assessed">Assessed</option>
+                  <option value="installed">Installed</option>
+                  <option value="commissioned">Commissioned</option>
+                  <option value="submitted">Submitted</option>
+                  <option value="dropped">Dropped / Rejected</option>
+                </Select>
+                <Select value={associateFilter} onChange={(e) => setAssociateFilter(e.target.value)} className="text-xs">
+                  <option value="all">All field associates</option>
+                  {associateOptions.map((associate) => (
+                    <option key={associate.id} value={associate.id}>{associate.name}</option>
+                  ))}
+                </Select>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" size={15} />
+                  <Input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search consultant, company, city, status..."
+                    className="pl-9"
+                  />
+                </div>
+                <Button
+                  variant="secondary"
+                  onClick={() => { setAnalysisView("stage"); setFactoryPeriod("aug_2026_to_today"); setTimeFilter("all"); setStatusFilter("all"); setAssociateFilter("all"); setSearch(""); }}
+                  className="h-9 rounded-lg px-3 text-xs"
+                >
+                  <RotateCcw size={14} />
+                  Reset
+                </Button>
               </div>
-              <Button
-                variant="secondary"
-                onClick={() => { setAnalysisView("stage"); setFactoryPeriod("aug_2026_to_today"); setTimeFilter("all"); setStatusFilter("all"); setAssociateFilter("all"); setSearch(""); }}
-                className="h-9 px-3 text-xs"
-              >
-                <RotateCcw size={14} />
-                Reset
-              </Button>
-            </div>
           </div>
+          )}
 
           {analysisView === "stage" ? (
             <>
@@ -402,8 +424,8 @@ function AnalyticsDashboard({
   onFilter: (filter: string) => void;
 }) {
   return (
-    <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-8">
+    <div className="space-y-5">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         <AnalyticsTile label="Assigned" value={analytics.assigned} helper="Total field associate work" tone="blue" />
         <AnalyticsTile label="Not Started" value={analytics.notStarted} helper={`${pct(analytics.notStarted, analytics.assigned)}% pending start`} tone="amber" />
         <AnalyticsTile label="Assessed" value={analytics.assessed} helper={`${pct(analytics.assessed, analytics.assigned)}% current stage`} tone="cyan" />
@@ -414,9 +436,9 @@ function AnalyticsDashboard({
         <AnalyticsTile label="Performance" value={`${analytics.avgCompletion}%`} helper="3-stage weighted score" tone="lime" />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-        <Panel title="Current Stage Distribution" description="Each company is counted once in its latest field associate stage." className="p-4">
-          <div className="space-y-3">
+      <div className="grid gap-4 xl:grid-cols-[1.12fr_0.88fr]">
+        <Panel title="Current Stage Distribution" description="Each company is counted once in its latest field associate stage." className="p-5">
+          <div className="space-y-2">
             {analytics.stageProgress.map((entry) => (
               <StageMeter
                 key={entry.stage}
@@ -428,15 +450,15 @@ function AnalyticsDashboard({
           </div>
         </Panel>
 
-        <Panel title="Current Delay Position" description="Where each company is currently stuck or completed." className="p-4">
-          <div className="grid items-center gap-3 md:grid-cols-[150px_1fr] xl:grid-cols-[140px_1fr]">
-            <div className="relative h-40">
+        <Panel title="Current Delay Position" description="Where each company is currently stuck or completed." className="p-5">
+          <div className="grid items-center gap-5 sm:grid-cols-[156px_1fr]">
+            <div className="relative mx-auto h-40 w-40 sm:mx-0">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie data={analytics.statusBreakdown} dataKey="value" nameKey="name" innerRadius="60%" outerRadius="86%" paddingAngle={3}>
                     {analytics.statusBreakdown.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
                   </Pie>
-                  <Tooltip contentStyle={{ background: "#111318", border: "1px solid rgba(148,163,184,0.25)", borderRadius: 8 }} />
+                  <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 20px rgba(15,23,42,0.10)" }} />
                 </PieChart>
               </ResponsiveContainer>
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
@@ -444,13 +466,13 @@ function AnalyticsDashboard({
                 <span className="font-mono text-[9px] uppercase tracking-widest text-text-secondary">Total</span>
               </div>
             </div>
-            <div className="space-y-1.5 text-xs">
+            <div className="space-y-1 text-xs">
               {analytics.statusBreakdown.map((entry) => (
                 <button
                   key={entry.name}
                   type="button"
                   onClick={() => onFilter(entry.filter)}
-                  className="grid w-full grid-cols-[1fr_auto_auto] items-center gap-3 rounded-[6px] px-2 py-2 text-left transition-colors hover:bg-surface-raised"
+                  className="grid w-full grid-cols-[1fr_auto_auto] items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-surface-raised/70"
                 >
                   <span className="flex min-w-0 items-center gap-2 font-semibold text-text-secondary">
                     <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: entry.color }} />
@@ -465,7 +487,7 @@ function AnalyticsDashboard({
         </Panel>
       </div>
 
-      <Panel title="Monthly Completion Trend" description="Installed and commissioned company movement over selected period." className="p-4">
+      <Panel title="Monthly Completion Trend" description="Installed and commissioned company movement over selected period." className="p-5">
         <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
           <div className="h-[190px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -473,7 +495,7 @@ function AnalyticsDashboard({
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.2)" />
                 <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#9ca3af" }} />
                 <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#9ca3af" }} />
-                <Tooltip contentStyle={{ background: "#111318", border: "1px solid rgba(148,163,184,0.25)", borderRadius: 8 }} />
+                <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 20px rgba(15,23,42,0.10)" }} />
                 <Line type="monotone" dataKey="installed" name="Installed" stroke="#3b82f6" strokeWidth={3} dot={{ r: 3 }} activeDot={{ r: 6 }} />
                 <Line type="monotone" dataKey="commissioned" name="Commissioned" stroke="#22c55e" strokeWidth={3} dot={{ r: 3 }} activeDot={{ r: 6 }} />
               </LineChart>
@@ -555,20 +577,20 @@ function DaysCell({ value, strong }: { value: number | null; strong?: boolean })
 
 function AnalyticsTile({ label, value, helper, tone }: { label: string; value: number | string; helper: string; tone: "blue" | "amber" | "cyan" | "indigo" | "green" | "lime" | "red" }) {
   const toneClass = {
-    blue: "from-blue-500/18 to-blue-500/5 text-blue-400",
-    amber: "from-amber-500/18 to-amber-500/5 text-amber-300",
-    cyan: "from-cyan-400/18 to-cyan-400/5 text-cyan-300",
-    indigo: "from-indigo-400/18 to-indigo-400/5 text-indigo-300",
-    green: "from-green-500/18 to-green-500/5 text-green-400",
-    lime: "from-lime/18 to-lime/5 text-lime",
-    red: "from-red-500/18 to-red-500/5 text-red-400",
+    blue: "border-l-blue-500 text-blue-600",
+    amber: "border-l-amber-500 text-amber-600",
+    cyan: "border-l-cyan-500 text-cyan-600",
+    indigo: "border-l-indigo-500 text-indigo-600",
+    green: "border-l-green-500 text-green-600",
+    lime: "border-l-lime text-lime",
+    red: "border-l-red-500 text-red-600",
   }[tone];
 
   return (
-    <div className={`rounded-[8px] border border-border bg-gradient-to-br ${toneClass} p-4`}>
-      <div className="font-mono text-[10px] uppercase tracking-widest text-text-secondary">{label}</div>
-      <div className="mt-2 font-mono text-3xl font-extrabold text-text-primary">{value}</div>
-      <div className="mt-1 text-xs font-medium text-text-secondary">{helper}</div>
+    <div className={`flex min-h-[118px] flex-col rounded-xl border border-border border-l-[3px] bg-surface p-3.5 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${toneClass}`}>
+      <div className="font-mono text-[9px] font-bold uppercase tracking-[0.13em] text-text-secondary">{label}</div>
+      <div className="mt-2.5 font-mono text-[28px] font-extrabold leading-none text-text-primary">{value}</div>
+      <div className="mt-auto pt-3 text-xs leading-4 text-text-secondary">{helper}</div>
     </div>
   );
 }
@@ -583,17 +605,28 @@ function StageMeter({
   onClick: () => void;
 }) {
   const percentage = pct(entry.count, total);
+  const colorClass = {
+    "Not Started Yet": "bg-amber-500",
+    Assessed: "bg-cyan-500",
+    Installed: "bg-blue-500",
+    Commissioned: "bg-green-500",
+    Submitted: "bg-green-600",
+    "Dropped / Rejected": "bg-red-500",
+  }[entry.stage] ?? "bg-slate-400";
   return (
-    <button type="button" onClick={onClick} className="w-full rounded-[8px] border border-border/70 bg-surface-raised/20 px-4 py-3 text-left transition-colors hover:border-blue-500/50 hover:bg-surface-raised/50">
+    <button type="button" onClick={onClick} className="w-full rounded-lg px-1.5 py-2 text-left transition-colors hover:bg-surface-raised/60">
       <div className="mb-2 flex items-center justify-between gap-4">
-        <div>
-          <div className="text-sm font-extrabold text-text-primary">{entry.stage}</div>
-          <div className="text-xs text-text-secondary">{entry.count} companies</div>
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${colorClass}`} />
+          <div className="truncate text-sm font-bold text-text-primary">{entry.stage}</div>
         </div>
-        <div className="font-mono text-lg font-extrabold text-text-primary">{percentage}%</div>
+        <div className="flex shrink-0 items-baseline gap-2 font-mono">
+          <span className="text-sm font-extrabold text-text-primary">{entry.count}</span>
+          <span className="text-[11px] text-text-secondary">{percentage}%</span>
+        </div>
       </div>
-      <div className="h-2.5 overflow-hidden rounded-full bg-border">
-        <div className="h-full rounded-full bg-gradient-to-r from-blue-500 via-cyan-400 to-mint" style={{ width: `${percentage}%` }} />
+      <div className="h-1.5 overflow-hidden rounded-full bg-surface-raised">
+        <div className={`h-full rounded-full ${colorClass}`} style={{ width: `${percentage}%` }} />
       </div>
     </button>
   );
@@ -649,13 +682,13 @@ function MetricCell({ label, value }: { label: string; value: number }) {
 
 function Panel({ title, description, className, children }: { title: string; description?: string; className?: string; children: React.ReactNode }) {
   return (
-    <section className={`rounded-[10px] border border-border bg-surface p-5 shadow-xs ${className ?? ""}`}>
-      <div className="mb-4 flex items-start justify-between gap-4">
+    <section className={`rounded-xl border border-border bg-surface p-5 shadow-xs ${className ?? ""}`}>
+      <div className="mb-5 flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-sm font-extrabold text-text-primary">{title}</h2>
-          {description && <p className="mt-1 text-xs text-text-secondary">{description}</p>}
+          <h2 className="text-base font-extrabold tracking-tight text-text-primary">{title}</h2>
+          {description && <p className="mt-1 max-w-2xl text-xs leading-5 text-text-secondary">{description}</p>}
         </div>
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] border border-border bg-surface-raised/30 text-[11px] text-text-secondary">i</span>
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-surface-raised text-[11px] font-semibold text-text-secondary">i</span>
       </div>
       {children}
     </section>
@@ -766,24 +799,11 @@ type FactoryAnalytics = ReturnType<typeof buildFactoryAnalytics>;
 
 function filterFactorySites(
   sites: SiteDetail[],
-  filters: { factoryPeriod: string; search: string; statusFilter: string; timeFilter: string },
+  filters: { factoryPeriod: string },
 ) {
-  const term = filters.search.trim().toLowerCase();
   return sites.filter((site) => {
-    const statusGroup = performanceStatusGroup(site);
-    const matchesStatus = filters.statusFilter === "all" ||
-      statusGroup === filters.statusFilter ||
-      (filters.statusFilter === "assigned" && !!siteAssignedAt(site)) ||
-      (filters.statusFilter === "dropped" && site.status === "Dropped / Rejected");
-    const matchesTime = siteMatchesTimeFilter(site, filters.timeFilter);
     const matchesPeriod = siteMatchesFactoryPeriod(site, filters.factoryPeriod);
-    const matchesSearch = !term || [
-      site.site.name,
-      site.site.company_name || "",
-      site.site.city || "",
-      site.status,
-    ].some((value) => value.toLowerCase().includes(term));
-    return matchesStatus && matchesTime && matchesPeriod && matchesSearch;
+    return matchesPeriod;
   });
 }
 

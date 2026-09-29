@@ -124,6 +124,17 @@ function monitoringResult(item: Tracker, dayNumber: number) {
   return saved?.result ?? (dayNumber <= overdueMonitoringDay(item) ? "red" : "pending");
 }
 
+function hasFailedMonitoringDay(item: Tracker) {
+  if (item.monitoring_days.some((day) => day.result === "red")) return true;
+
+  // A passed calendar day is a failure only when it has no saved outcome.
+  // A completed green day must not extend the cycle to 11 days.
+  const overdueDays = overdueMonitoringDay(item);
+  return Array.from({ length: overdueDays }, (_, index) => index + 1).some(
+    (dayNumber) => !item.monitoring_days.some((day) => day.day_number === dayNumber),
+  );
+}
+
 export function CompanyTracker() {
   const { ready, userId } = useAuth();
   const [items, setItems] = useState<Tracker[]>([]);
@@ -690,7 +701,7 @@ function Kpi({
   );
 }
 function MonitoringSummaryCard({ item, onOpen }: { item: Tracker; onOpen: () => void }) {
-  const failed = item.monitoring_days.some((day) => day.result === "red") || overdueMonitoringDay(item) > 0;
+  const failed = hasFailedMonitoringDay(item);
   const totalDays = failed ? 11 : 6;
   const completedDays = Array.from({ length: totalDays }, (_, index) =>
     monitoringResult(item, index + 1) !== "pending",
@@ -774,7 +785,7 @@ function TrackerCard({
   canDelete: boolean;
   canMovePrevious: boolean;
 }) {
-  const failed = item.monitoring_days.some((d) => d.result === "red") || overdueMonitoringDay(item) > 0,
+  const failed = hasFailedMonitoringDay(item),
     totalDays = failed ? 11 : 6;
   const completedDays = Array.from({ length: totalDays }, (_, index) =>
     monitoringResult(item, index + 1) !== "pending",
