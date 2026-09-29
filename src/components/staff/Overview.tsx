@@ -2159,7 +2159,7 @@ const pendingCommissioningRequests = canReviewCommissioningRequests
   : [];
 
 return (
-  <div className="space-y-5 md:-mt-8">
+  <div className="manager-overview space-y-5 md:-mt-8">
     <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
         <p className="font-mono text-[10px] uppercase tracking-widest text-text-secondary">Dashboard</p>
@@ -2179,7 +2179,7 @@ return (
     </header>
 
     {/* Main semantic variables-based analytics dashboard */}
-    <div className="bg-gradient-to-br from-surface via-surface to-indigo-500/[0.025] text-text-primary border border-border rounded-2xl p-4 shadow-sm space-y-4 font-sans">
+    <div className="overview-analytics-dashboard bg-gradient-to-br from-surface via-surface to-indigo-500/[0.025] text-text-primary border border-border rounded-2xl p-4 shadow-sm space-y-4 font-sans">
 
       {/* Title / Sync Info */}
       <div className="flex items-center justify-between border-b border-border/80 pb-3">
@@ -2209,7 +2209,7 @@ return (
       ) : (
         <div className="space-y-4">
           {/* ROW 1 */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
+          <div className="overview-kpi-row grid grid-cols-1 lg:grid-cols-12 gap-3">
             {/* Companies Assigned */}
             <div className="lg:col-span-4 h-full">
               {(() => {
@@ -2223,7 +2223,7 @@ return (
                 return (
                   <button
                     onClick={() => handleKpiClick(k.id)}
-                className={`flex flex-col justify-between w-full text-left p-4 lg:p-3.5 border rounded-xl shadow-[0_3px_10px_-7px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow,transform] duration-200 group cursor-pointer h-full min-h-[124px] ${cardBorder}`}
+                className={`overview-kpi-card flex flex-col justify-between w-full text-left p-4 lg:p-3.5 border rounded-xl shadow-[0_3px_10px_-7px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow,transform] duration-200 group cursor-pointer h-full min-h-[124px] ${cardBorder}`}
                   >
                     <div className="flex items-start justify-between w-full">
                       <div className={`p-2.5 rounded-xl border shadow-xs transition-transform duration-200 ease-out group-hover:scale-110 ${k.badgeStyle}`}>
@@ -2266,7 +2266,7 @@ return (
                     return (
                       <button
                         onClick={() => handleKpiClick(k.id)}
-                        className={`flex flex-col justify-between w-full text-left p-4 lg:p-3.5 border rounded-xl shadow-[0_3px_10px_-7px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow,transform] duration-200 group cursor-pointer h-full min-h-[124px] ${cardBorder}`}
+                        className={`overview-kpi-card flex flex-col justify-between w-full text-left p-4 lg:p-3.5 border rounded-xl shadow-[0_3px_10px_-7px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow,transform] duration-200 group cursor-pointer h-full min-h-[124px] ${cardBorder}`}
                       >
                         <div className="flex items-start justify-between w-full">
                           <div className={`p-2.5 rounded-xl border shadow-xs transition-transform duration-200 ease-out group-hover:scale-110 ${k.badgeStyle}`}>
@@ -2312,7 +2312,7 @@ return (
                       <button
                         key={k.id}
                         onClick={() => handleKpiClick(k.id)}
-                        className={`flex min-h-[76px] items-center justify-between w-full text-left px-3 py-2 border rounded-xl shadow-[0_3px_10px_-7px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow,transform] duration-200 group cursor-pointer ${cardBorder}`}
+                        className={`overview-kpi-card flex min-h-[76px] items-center justify-between w-full text-left px-3 py-2 border rounded-xl shadow-[0_3px_10px_-7px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow,transform] duration-200 group cursor-pointer ${cardBorder}`}
                       >
                         <div className="flex items-center gap-3">
                           <div className={`p-2 rounded-lg border shadow-xs shrink-0 transition-transform duration-200 ease-out group-hover:scale-110 ${k.badgeStyle}`}>
@@ -2343,7 +2343,7 @@ return (
           </div>
 
           {/* ROW 2 */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
+          <div className="overview-kpi-row grid grid-cols-1 lg:grid-cols-12 gap-3">
             {/* Column 1: Dropped / Rejected & Assigned Stack */}
             <div className="lg:col-span-3 flex flex-col gap-2.5 justify-between h-full">
               {[
@@ -2363,7 +2363,7 @@ return (
                   <button
                     key={k.id}
                     onClick={() => handleKpiClick(k.id)}
-                    className={`flex items-center justify-between w-full text-left px-3.5 py-3 border rounded-xl shadow-[0_3px_10px_-7px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow,transform] duration-200 group cursor-pointer flex-1 ${cardBorder}`}
+                    className={`overview-kpi-card flex items-center justify-between w-full text-left px-3.5 py-3 border rounded-xl shadow-[0_3px_10px_-7px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow,transform] duration-200 group cursor-pointer flex-1 ${cardBorder}`}
                   >
                     <div className="flex items-center gap-3">
                       <div className={`p-2 rounded-lg border shadow-xs shrink-0 transition-transform duration-200 ease-out group-hover:scale-110 ${k.badgeStyle}`}>
@@ -2409,7 +2409,7 @@ return (
                   <button
                     key={k.id}
                     onClick={() => handleKpiClick(k.id)}
-                    className={`flex items-center justify-between w-full text-left px-3.5 py-3 border rounded-xl shadow-[0_3px_10px_-7px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow,transform] duration-200 group cursor-pointer flex-1 ${cardBorder}`}
+                    className={`overview-kpi-card flex items-center justify-between w-full text-left px-3.5 py-3 border rounded-xl shadow-[0_3px_10px_-7px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow,transform] duration-200 group cursor-pointer flex-1 ${cardBorder}`}
                   >
                     <div className="flex items-center gap-3">
                       <div className={`p-2 rounded-lg border shadow-xs shrink-0 transition-transform duration-200 ease-out group-hover:scale-110 ${k.badgeStyle}`}>
@@ -2470,7 +2470,7 @@ return (
                         <button
                           key={k.id}
                           onClick={() => handleKpiClick(k.id)}
-                          className={`flex min-h-[60px] flex-col justify-between w-full text-left px-2.5 py-2 border rounded-xl shadow-[0_3px_10px_-7px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow,transform] duration-200 group cursor-pointer ${cardBorder}`}
+                          className={`overview-kpi-card flex min-h-[60px] flex-col justify-between w-full text-left px-2.5 py-2 border rounded-xl shadow-[0_3px_10px_-7px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow,transform] duration-200 group cursor-pointer ${cardBorder}`}
                         >
                           <div className="flex items-start gap-2.5 min-w-0">
                             <div className={`p-2 rounded-lg border shadow-xs shrink-0 transition-transform duration-200 ease-out group-hover:scale-110 ${k.badgeStyle}`}>
