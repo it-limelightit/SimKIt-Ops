@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { parseSiteMetadata } from "@/lib/site-metadata";
+import { toast } from "sonner";
 import { Badge, Button, Input, Select, Skeleton } from "@/components/ui-kit";
 import { CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
   Activity,
+  CalendarDays,
   ChevronDown,
   ChevronRight,
   Filter,
@@ -40,6 +43,9 @@ type SiteDetail = {
   assessmentUpdatedAt: string | null;
   installationUpdatedAt: string | null;
   commissioningUpdatedAt: string | null;
+  assessmentCompletedAt: string | null;
+  installationCompletedAt: string | null;
+  commissioningCompletedAt: string | null;
   status: string;
   assessmentPct: number;
   installationPct: number;
@@ -75,6 +81,8 @@ export function PerformancePanel() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [associateFilter, setAssociateFilter] = useState("all");
   const [timeFilter, setTimeFilter] = useState("all");
+  const [customRangeStart, setCustomRangeStart] = useState("");
+  const [customRangeEnd, setCustomRangeEnd] = useState("");
   const [factoryPeriod, setFactoryPeriod] = useState("aug_2026_to_today");
   const [analysisView, setAnalysisView] = useState("stage");
   const [search, setSearch] = useState("");
@@ -143,6 +151,9 @@ export function PerformancePanel() {
           assessmentUpdatedAt: ar?.updated_at ?? null,
           installationUpdatedAt: ir?.updated_at ?? null,
           commissioningUpdatedAt: cr?.updated_at ?? null,
+          assessmentCompletedAt: phaseCompletionAt(assessment, ar?.updated_at ?? null, "assessment", site.task_notes),
+          installationCompletedAt: phaseCompletionAt(installation, ir?.updated_at ?? null, "installation", site.task_notes),
+          commissioningCompletedAt: phaseCompletionAt(commissioning, cr?.updated_at ?? null, "commissioning", site.task_notes),
           status: getCanonicalStatus(site, aMap, iMap, cMap, materials),
           assessmentPct,
           installationPct,
@@ -187,7 +198,7 @@ export function PerformancePanel() {
             performanceStatusGroup(sd) === statusFilter ||
             (statusFilter === "assigned" && getSiteWorkerIds(sd.site).length > 0) ||
             (statusFilter === "dropped" && sd.status === "Dropped / Rejected");
-          const matchesTime = siteMatchesTimeFilter(sd, timeFilter);
+          const matchesTime = siteMatchesTimeFilter(sd, timeFilter, customRangeStart, customRangeEnd);
           const matchesSearch = !term || [
             row.consultant.name || "",
             sd.site.name,
@@ -199,7 +210,7 @@ export function PerformancePanel() {
         }),
       }))
       .filter((row) => row.sites.length > 0 || (!term && statusFilter === "all" && associateFilter === "all" && timeFilter === "all"));
-  }, [rows, associateFilter, search, statusFilter, timeFilter]);
+  }, [rows, associateFilter, customRangeEnd, customRangeStart, search, statusFilter, timeFilter]);
   const analytics = useMemo(() => buildAnalytics(filteredRows), [filteredRows]);
   // Factory Analysis is intentionally independent from the Stage Base Progress
   // controls. A stage, period shortcut, or search selected in that view must
@@ -256,21 +267,22 @@ export function PerformancePanel() {
                 {filteredRows.length} consultant{filteredRows.length !== 1 ? "s" : ""} in selected view
               </div>
             </div>
-              <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-[1.55fr_1fr_1fr_1.55fr_auto]">
-                <div className="flex min-w-0 items-center gap-1 overflow-x-auto rounded-lg border border-border bg-surface-raised/40 p-1 [scrollbar-width:none]">
+              <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-[minmax(360px,1.15fr)_180px_200px_minmax(180px,0.8fr)_auto]">
+                <div className="flex min-w-0 flex-wrap items-center gap-1 rounded-lg border border-border bg-surface-raised/40 p-1">
                   {[
                     ["all", "All"],
                     ["7d", "Week"],
                     ["month", "Month"],
                     ["30d", "30D"],
                     ["90d", "90D"],
+                    ["custom", "Custom"],
                   ].map(([value, label]) => (
                     <button
                       key={value}
                       type="button"
                       onClick={() => setTimeFilter(value)}
                       aria-pressed={timeFilter === value}
-                      className={`shrink-0 rounded-md px-3 py-2 font-mono text-[10px] font-bold uppercase tracking-wide transition-colors ${timeFilter === value ? "bg-text-primary text-surface shadow-sm" : "text-text-secondary hover:bg-surface hover:text-text-primary"}`}
+                      className={`rounded-md px-2.5 py-2 font-mono text-[10px] font-bold uppercase tracking-wide transition-colors ${timeFilter === value ? "bg-text-primary text-surface shadow-sm" : "text-text-secondary hover:bg-surface hover:text-text-primary"}`}
                     >
                       {label}
                     </button>
@@ -292,7 +304,7 @@ export function PerformancePanel() {
                     <option key={associate.id} value={associate.id}>{associate.name}</option>
                   ))}
                 </Select>
-                <div className="relative">
+                <div className="relative min-w-0">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" size={15} />
                   <Input
                     value={search}
@@ -303,13 +315,50 @@ export function PerformancePanel() {
                 </div>
                 <Button
                   variant="secondary"
-                  onClick={() => { setAnalysisView("stage"); setFactoryPeriod("aug_2026_to_today"); setTimeFilter("all"); setStatusFilter("all"); setAssociateFilter("all"); setSearch(""); }}
+                  onClick={() => { setAnalysisView("stage"); setFactoryPeriod("aug_2026_to_today"); setTimeFilter("all"); setCustomRangeStart(""); setCustomRangeEnd(""); setStatusFilter("all"); setAssociateFilter("all"); setSearch(""); }}
                   className="h-9 rounded-lg px-3 text-xs"
                 >
                   <RotateCcw size={14} />
                   Reset
                 </Button>
               </div>
+              {timeFilter === "custom" && (
+                <div className="mt-2.5 flex flex-col gap-2 rounded-lg border border-lime/20 bg-lime/5 p-2.5 sm:flex-row sm:items-center">
+                  <div className="flex items-center gap-2 text-xs font-bold text-text-primary">
+                    <CalendarDays size={15} className="text-lime" />
+                    Activity date range
+                  </div>
+                  <div className="flex flex-1 flex-wrap items-center gap-2">
+                    <input
+                      type="date"
+                      value={customRangeStart}
+                      max={customRangeEnd || undefined}
+                      onChange={(e) => setCustomRangeStart(e.target.value)}
+                      aria-label="Custom range start date"
+                      className="rounded-md border border-border bg-surface px-2 py-1.5 text-xs font-semibold text-text-primary outline-none focus:border-lime"
+                    />
+                    <span className="text-xs text-text-secondary">to</span>
+                    <input
+                      type="date"
+                      value={customRangeEnd}
+                      min={customRangeStart || undefined}
+                      onChange={(e) => setCustomRangeEnd(e.target.value)}
+                      aria-label="Custom range end date"
+                      className="rounded-md border border-border bg-surface px-2 py-1.5 text-xs font-semibold text-text-primary outline-none focus:border-lime"
+                    />
+                    {(customRangeStart || customRangeEnd) && (
+                      <button
+                        type="button"
+                        onClick={() => { setCustomRangeStart(""); setCustomRangeEnd(""); }}
+                        className="text-xs font-bold text-text-secondary hover:text-text-primary"
+                      >
+                        Clear dates
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-text-secondary">Filters by each company’s latest activity.</p>
+                </div>
+              )}
           </div>
           )}
 
@@ -319,7 +368,11 @@ export function PerformancePanel() {
               <StagePerformanceTable filteredRows={filteredRows} openConsultant={openConsultant} setOpenConsultant={setOpenConsultant} />
             </>
           ) : (
-            <FactoryAnalysisDashboard factoryAnalytics={factoryAnalytics} />
+            <FactoryAnalysisDashboard
+              factoryAnalytics={factoryAnalytics}
+              factoryPeriod={factoryPeriod}
+              onFactoryPeriodChange={setFactoryPeriod}
+            />
           )}
         </>
       )}
@@ -512,17 +565,98 @@ function AnalyticsDashboard({
   );
 }
 
-function FactoryAnalysisDashboard({ factoryAnalytics }: { factoryAnalytics: FactoryAnalytics }) {
+function FactoryAnalysisDashboard({
+  factoryAnalytics,
+  factoryPeriod,
+  onFactoryPeriodChange,
+}: {
+  factoryAnalytics: FactoryAnalytics;
+  factoryPeriod: string;
+  onFactoryPeriodChange: (value: string) => void;
+}) {
+  const [openCompanyId, setOpenCompanyId] = useState<string | null>(null);
+  const [savingMilestone, setSavingMilestone] = useState<string | null>(null);
+  const [companySearch, setCompanySearch] = useState("");
+  const [stageFilter, setStageFilter] = useState("all");
+  const companyRows = useMemo(() => {
+    const term = companySearch.trim().toLowerCase();
+    return factoryAnalytics.companyRows.filter((row) => {
+      if (stageFilter === "issues" && row.timelineIssues.length === 0) return false;
+      if (stageFilter !== "all" && stageFilter !== "issues" && row.stage !== stageFilter) return false;
+      return !term || row.company.toLowerCase().includes(term);
+    });
+  }, [companySearch, factoryAnalytics.companyRows, stageFilter]);
+
+  const saveMilestoneDate = async (
+    row: FactoryCompanyRow,
+    phase: "assessment" | "installation" | "commissioning",
+    date: string,
+  ) => {
+    if (!date) return;
+    const config = {
+      assessment: { timestampKey: "factory_form_submitted_at", submittedKey: "assessment_phase_submitted" },
+      installation: { timestampKey: "installation_phase_submitted_at", submittedKey: "installation_phase_submitted" },
+      commissioning: { timestampKey: "commissioning_phase_submitted_at", submittedKey: "commissioning_phase_submitted" },
+    }[phase];
+    const table = phase;
+    const savingKey = `${row.id}-${phase}`;
+    setSavingMilestone(savingKey);
+    const phaseTable = supabase.from(table as any) as any;
+    const { data: existing, error: readError } = await phaseTable.select("data").eq("site_id", row.id).maybeSingle();
+    if (readError) {
+      toast.error(`Could not read ${phase} data: ${readError.message}`);
+      setSavingMilestone(null);
+      return;
+    }
+    const timestamp = new Date(`${date}T12:00:00`).toISOString();
+    const nextData = { ...(existing?.data ?? {}), [config.timestampKey]: timestamp, [config.submittedKey]: true };
+    const { error } = existing
+      ? await phaseTable.update({ data: nextData }).eq("site_id", row.id)
+      : await phaseTable.insert({ site_id: row.id, data: nextData });
+    setSavingMilestone(null);
+    if (error) {
+      toast.error(`Could not save ${phase} date: ${error.message}`);
+      return;
+    }
+    toast.success(`${phase[0].toUpperCase()}${phase.slice(1)} date corrected.`);
+  };
+
   return (
     <div className="space-y-4">
+      <div className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-2.5 lg:flex-row lg:items-center">
+        <div className="relative min-w-0 flex-1">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-dim" size={14} />
+          <Input
+            value={companySearch}
+            onChange={(event) => setCompanySearch(event.target.value)}
+            placeholder="Find a company..."
+            className="h-8 pl-8 text-xs"
+          />
+        </div>
+        <Select value={stageFilter} onChange={(event) => setStageFilter(event.target.value)} className="h-8 text-xs lg:w-44">
+          <option value="all">All stages</option>
+          <option value="assessed">Assessed</option>
+          <option value="installed">Installed</option>
+          <option value="commissioned">Commissioned</option>
+          <option value="issues">Needs date review</option>
+        </Select>
+        <Select value={factoryPeriod} onChange={(event) => onFactoryPeriodChange(event.target.value)} className="h-8 text-xs lg:w-48">
+          <option value="all">All assigned dates</option>
+          <option value="before_aug_2026">Before Aug 2026</option>
+          <option value="aug_2026_to_today">Aug 2026 to today</option>
+        </Select>
+        <span className="shrink-0 font-mono text-[10px] font-bold uppercase tracking-wide text-text-secondary">
+          {companyRows.length} compan{companyRows.length === 1 ? "y" : "ies"}
+        </span>
+      </div>
       <Panel title="Factory Process Time Tracking" description="Company-wise days taken between assigned, assessed, installed and commissioned dates.">
-        {factoryAnalytics.companyRows.length === 0 ? (
+        {companyRows.length === 0 ? (
           <div className="px-6 py-12 text-center text-sm text-text-secondary">
             No factory timing records match the current filter.
           </div>
         ) : (
           <div className="overflow-x-auto rounded-[8px] border border-border">
-            <table className="min-w-[1180px] w-full border-collapse text-sm">
+            <table className="min-w-[1280px] w-full border-collapse text-sm">
               <thead className="bg-surface-raised">
                 <tr className="font-mono text-[10px] uppercase tracking-widest text-text-secondary">
                   <th className="px-4 py-3 text-left">Company</th>
@@ -534,37 +668,163 @@ function FactoryAnalysisDashboard({ factoryAnalytics }: { factoryAnalytics: Fact
                   <th className="px-4 py-3 text-right">Assess To Install</th>
                   <th className="px-4 py-3 text-right">Install To Commission</th>
                   <th className="px-4 py-3 text-right">Total Time</th>
+                  <th className="px-4 py-3 text-right">Timeline</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {factoryAnalytics.companyRows.map((row) => (
-                  <tr key={row.id} className="hover:bg-surface-raised/30">
-                    <td className="px-4 py-3">
-                      <div className="font-bold text-text-primary">{row.company}</div>
-                    </td>
-                    <DateCell value={row.assignedAt} />
-                    <DateCell value={row.assessedAt} />
-                    <DateCell value={row.installedAt} />
-                    <DateCell value={row.commissionedAt} />
-                    <DaysCell value={row.assignToAssessDays} />
-                    <DaysCell value={row.assessToInstallDays} />
-                    <DaysCell value={row.installToCommissionDays} />
-                    <DaysCell value={row.totalDays} strong />
-                  </tr>
-                ))}
+                {companyRows.map((row) => {
+                  const isOpen = openCompanyId === row.id;
+                  return (
+                    <Fragment key={row.id}>
+                      <tr className="hover:bg-surface-raised/30">
+                        <td className="px-4 py-3">
+                          <div className="font-bold text-text-primary">{row.company}</div>
+                        </td>
+                        <DateCell value={row.assignedAt} />
+                        <DateCell value={row.assessedAt} />
+                        <DateCell value={row.installedAt} />
+                        <DateCell value={row.commissionedAt} />
+                        <DaysCell value={row.assignToAssessDays} />
+                        <DaysCell value={row.assessToInstallDays} />
+                        <DaysCell value={row.installToCommissionDays} />
+                        <DaysCell value={row.totalDays} strong />
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => setOpenCompanyId(isOpen ? null : row.id)}
+                            aria-expanded={isOpen}
+                            className="rounded-md border border-border bg-surface px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide text-text-primary transition-colors hover:border-lime hover:bg-lime/5"
+                          >
+                            {isOpen ? "Hide" : "View"}
+                          </button>
+                        </td>
+                      </tr>
+                      {isOpen && (
+                        <tr>
+                          <td colSpan={10} className="bg-surface-raised/35 px-4 py-4">
+                            <FactoryCompanyTimeline
+                              row={row}
+                              savingMilestone={savingMilestone}
+                              onSaveMilestone={saveMilestoneDate}
+                            />
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </Panel>
+      {companyRows.filter((row) => row.timelineIssues.length > 0).length > 0 && (
+        <Panel title="Timeline data checks" description="These companies have a missing or out-of-sequence milestone. Missing earlier milestones are shown on the same day as the next completed phase, so the duration is 0d instead of blank.">
+          <div className="divide-y divide-border rounded-lg border border-amber-200 bg-amber-50/35">
+            {companyRows.filter((row) => row.timelineIssues.length > 0).map((row) => (
+              <div key={row.id} className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                <span className="text-sm font-bold text-text-primary">{row.company}</span>
+                <span className="text-xs text-text-secondary">{row.timelineIssues.join(" · ")}</span>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      )}
     </div>
   );
+}
+
+function FactoryCompanyTimeline({
+  row,
+  savingMilestone,
+  onSaveMilestone,
+}: {
+  row: FactoryCompanyRow;
+  savingMilestone: string | null;
+  onSaveMilestone: (row: FactoryCompanyRow, phase: "assessment" | "installation" | "commissioning", date: string) => void;
+}) {
+  const [dates, setDates] = useState({
+    assessment: timelineDateKey(row.assessedAt),
+    installation: timelineDateKey(row.installedAt),
+    commissioning: timelineDateKey(row.commissionedAt),
+  });
+  const stages = [
+    { label: "Assigned", date: row.assignedAt, duration: null, color: "bg-slate-500", phase: null },
+    { label: "Assessed", date: row.assessedAt, duration: row.assignToAssessDays, color: "bg-sky-500", phase: "assessment" as const },
+    { label: "Installed", date: row.installedAt, duration: row.assessToInstallDays, color: "bg-indigo-500", phase: "installation" as const },
+    { label: "Commissioned", date: row.commissionedAt, duration: row.installToCommissionDays, color: "bg-emerald-500", phase: "commissioning" as const },
+  ];
+
+  return (
+    <div>
+      <div className="mb-3 flex items-baseline justify-between gap-3">
+        <div className="text-sm font-extrabold text-text-primary">{row.company} timeline</div>
+        <div className="text-xs text-text-secondary">Total elapsed: <span className="font-mono font-bold text-text-primary">{formatDays(row.totalDays)}</span></div>
+      </div>
+      <div className="grid gap-2 md:grid-cols-4">
+        {stages.map((stage, index) => (
+          <div key={stage.label} className="relative rounded-lg border border-border bg-surface p-3">
+            {index > 0 && (
+              <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-text-secondary">
+                {stage.duration === null ? "Waiting for previous stage" : `${formatDays(stage.duration)} from previous stage`}
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <span className={`h-2.5 w-2.5 rounded-full ${stage.color}`} />
+              <span className="text-xs font-extrabold text-text-primary">{stage.label}</span>
+            </div>
+            <div className="mt-2 font-mono text-xs text-text-secondary">
+              {stage.date ? formatTimelineDate(stage.date) : "Not completed"}
+            </div>
+            {stage.phase && (
+              <div className="mt-3 flex items-center gap-1.5">
+                <input
+                  type="date"
+                  value={dates[stage.phase]}
+                  onChange={(event) => setDates((current) => ({ ...current, [stage.phase!]: event.target.value }))}
+                  aria-label={`${stage.label} correction date`}
+                  className="min-w-0 flex-1 rounded border border-border bg-white px-1.5 py-1 text-[10px] text-text-primary outline-none focus:border-lime"
+                />
+                <button
+                  type="button"
+                  disabled={!dates[stage.phase] || savingMilestone === `${row.id}-${stage.phase}`}
+                  onClick={() => onSaveMilestone(row, stage.phase!, dates[stage.phase!])}
+                  className="rounded border border-border bg-white px-1.5 py-1 text-[9px] font-bold uppercase tracking-wide text-text-primary hover:border-lime disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {savingMilestone === `${row.id}-${stage.phase}` ? "Saving" : "Save"}
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function timelineDateKey(value: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return toLocalDateKey(date);
 }
 
 function DateCell({ value }: { value: string | null }) {
   return (
     <td className="px-4 py-3 font-mono text-xs text-text-secondary">{formatShortDate(value)}</td>
   );
+}
+
+function formatTimelineDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
 function DaysCell({ value, strong }: { value: number | null; strong?: boolean }) {
@@ -796,12 +1056,28 @@ function Row({ label, value, multiline }: { label: string; value: string | null 
 
 type Analytics = ReturnType<typeof buildAnalytics>;
 type FactoryAnalytics = ReturnType<typeof buildFactoryAnalytics>;
+type FactoryCompanyRow = {
+  id: string;
+  company: string;
+  assignedAt: string | null;
+  assessedAt: string | null;
+  installedAt: string | null;
+  commissionedAt: string | null;
+  assignToAssessDays: number | null;
+  assessToInstallDays: number | null;
+  installToCommissionDays: number | null;
+  totalDays: number | null;
+  stage: "assessed" | "installed" | "commissioned" | "not_started";
+  timelineIssues: string[];
+};
 
 function filterFactorySites(
   sites: SiteDetail[],
   filters: { factoryPeriod: string },
 ) {
   return sites.filter((site) => {
+    if (site.status === "Dropped / Rejected") return false;
+    if (filters.factoryPeriod === "all") return true;
     const matchesPeriod = siteMatchesFactoryPeriod(site, filters.factoryPeriod);
     return matchesPeriod;
   });
@@ -828,21 +1104,61 @@ function buildConsultantStats(row: ConsultantRow) {
 }
 
 function buildFactoryAnalytics(sites: SiteDetail[]) {
+  const companyRows = sites
+    .map(buildFactoryCompanyRow)
+    .sort((a, b) => compareNullableDesc(a.totalDays, b.totalDays) || a.company.localeCompare(b.company));
+
   return {
-    companyRows: sites
-      .map((site) => ({
-        id: site.site.id,
-        company: site.site.company_name || site.site.name,
-        assignedAt: siteAssignedAt(site),
-        assessedAt: hasAssessedMilestone(site) ? site.assessmentUpdatedAt : null,
-        installedAt: hasInstalledMilestone(site) ? site.installationUpdatedAt : null,
-        commissionedAt: hasCommissionedMilestone(site) ? site.commissioningUpdatedAt : null,
-        assignToAssessDays: daysAssignedToAssessment(site),
-        assessToInstallDays: daysAssessmentToInstallation(site),
-        installToCommissionDays: daysInstallationToCommissioning(site),
-        totalDays: hasCommissionedMilestone(site) ? daysAssignedToCommissioning(site) : daysSinceAssigned(site),
-      }))
-      .sort((a, b) => compareNullableDesc(a.totalDays, b.totalDays) || a.company.localeCompare(b.company)),
+    companyRows,
+    timelineIssueRows: companyRows.filter((row) => row.timelineIssues.length > 0),
+  };
+}
+
+function buildFactoryCompanyRow(site: SiteDetail): FactoryCompanyRow {
+  const assignedAt = siteAssignedAt(site);
+  let assessedAt = hasAssessedMilestone(site) ? site.assessmentCompletedAt : null;
+  let installedAt = hasInstalledMilestone(site) ? site.installationCompletedAt : null;
+  const commissionedAt = hasCommissionedMilestone(site) ? site.commissioningCompletedAt : null;
+  const timelineIssues: string[] = [];
+
+  // A later completed phase proves that its prerequisite was completed, even
+  // when old data has no timestamp for that prerequisite. Use the same date so
+  // the report communicates a 0-day transition rather than a misleading dash.
+  if (commissionedAt && !installedAt) {
+    installedAt = commissionedAt;
+    timelineIssues.push("Installed date was missing; set to the commissioning date (0d transition)");
+  }
+  if (installedAt && !assessedAt) {
+    assessedAt = installedAt;
+    timelineIssues.push("Assessed date was missing; set to the installation date (0d transition)");
+  }
+
+  if (assessedAt && installedAt && isCalendarDateBefore(installedAt, assessedAt)) {
+    timelineIssues.push("Installation date is earlier than the assessment date; verify the original milestone record");
+  }
+  if (installedAt && commissionedAt && isCalendarDateBefore(commissionedAt, installedAt)) {
+    timelineIssues.push("Commissioning date is earlier than the installation date; verify the original milestone record");
+  }
+
+  return {
+    id: site.site.id,
+    company: site.site.company_name || site.site.name,
+    assignedAt,
+    assessedAt,
+    installedAt,
+    commissionedAt,
+    assignToAssessDays: daysBetween(assignedAt, assessedAt),
+    assessToInstallDays: daysBetween(assessedAt, installedAt),
+    installToCommissionDays: daysBetween(installedAt, commissionedAt),
+    totalDays: daysBetween(assignedAt, commissionedAt || new Date().toISOString()),
+    stage: hasCommissionedMilestone(site)
+      ? "commissioned"
+      : hasInstalledMilestone(site)
+        ? "installed"
+        : hasAssessedMilestone(site)
+          ? "assessed"
+          : "not_started",
+    timelineIssues,
   };
 }
 
@@ -901,8 +1217,8 @@ function buildMonthlyTrend(sites: Array<SiteDetail & { consultantId: string; con
     months.push({ key, month: date.toLocaleDateString("en-US", { month: "short", year: "2-digit" }), installed: 0, commissioned: 0 });
   }
   for (const site of sites) {
-    const installedKey = site.installationUpdatedAt ? site.installationUpdatedAt.slice(0, 7) : "";
-    const commissionedKey = site.commissioningUpdatedAt ? site.commissioningUpdatedAt.slice(0, 7) : "";
+    const installedKey = site.installationCompletedAt ? site.installationCompletedAt.slice(0, 7) : "";
+    const commissionedKey = site.commissioningCompletedAt ? site.commissioningCompletedAt.slice(0, 7) : "";
     const installedMonth = months.find((m) => m.key === installedKey);
     const commissionedMonth = months.find((m) => m.key === commissionedKey);
     if (installedMonth && hasInstalledMilestone(site)) installedMonth.installed += 1;
@@ -917,7 +1233,7 @@ function buildMonthlyTrend(sites: Array<SiteDetail & { consultantId: string; con
   });
 }
 
-function siteMatchesTimeFilter(site: SiteDetail, filter: string) {
+function siteMatchesTimeFilter(site: SiteDetail, filter: string, customStart = "", customEnd = "") {
   if (filter === "all") return true;
   const activity = latestSiteActivity(site);
   if (!activity) return false;
@@ -929,11 +1245,24 @@ function siteMatchesTimeFilter(site: SiteDetail, filter: string) {
     return activityDate.getFullYear() === now.getFullYear() && activityDate.getMonth() === now.getMonth();
   }
 
+  if (filter === "custom") {
+    const activityKey = toLocalDateKey(activityDate);
+    if (!activityKey) return false;
+    return (!customStart || activityKey >= customStart) && (!customEnd || activityKey <= customEnd);
+  }
+
   const days = filter === "7d" ? 7 : filter === "30d" ? 30 : filter === "90d" ? 90 : null;
   if (!days) return true;
   const cutoff = new Date(now);
   cutoff.setDate(now.getDate() - days);
   return activityDate >= cutoff;
+}
+
+function toLocalDateKey(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function siteMatchesFactoryPeriod(site: SiteDetail, period: string) {
@@ -966,24 +1295,48 @@ function siteAssignedAt(site: SiteDetail) {
   return site.site.assigned_at || site.site.created_at;
 }
 
+function phaseCompletionAt(
+  data: PhaseData,
+  fallback: string | null,
+  phase: "assessment" | "installation" | "commissioning",
+  taskNotes: string | null,
+) {
+  const timestampKey = phase === "assessment"
+    ? "factory_form_submitted_at"
+    : phase === "installation"
+      ? "installation_phase_submitted_at"
+      : "commissioning_phase_submitted_at";
+  const timestamp = data?.[timestampKey];
+  if (typeof timestamp === "string" && !Number.isNaN(new Date(timestamp).getTime())) return timestamp;
+  const status = phase === "assessment" ? "Assessed" : phase === "installation" ? "Installed" : "Commissioned";
+  const loggedAt = (parseSiteMetadata(taskNotes).activity_logs ?? [])
+    .filter((entry) => entry?.type === "status_change" && entry.to_status === status && typeof entry.at === "string")
+    .map((entry) => entry.at)
+    .filter((entry) => !Number.isNaN(new Date(entry).getTime()))
+    .sort()
+    .at(-1);
+  if (loggedAt) return loggedAt;
+  return fallback;
+}
+
 function daysAssignedToAssessment(site: SiteDetail) {
   if (!hasAssessedMilestone(site)) return null;
-  return daysBetween(siteAssignedAt(site), site.assessmentUpdatedAt);
+  return daysBetween(siteAssignedAt(site), site.assessmentCompletedAt);
 }
 
 function daysAssessmentToInstallation(site: SiteDetail) {
   if (!hasInstalledMilestone(site)) return null;
-  return daysBetween(site.assessmentUpdatedAt, site.installationUpdatedAt);
+  return daysBetween(site.assessmentCompletedAt, site.installationCompletedAt);
 }
 
 function daysInstallationToCommissioning(site: SiteDetail) {
   if (!hasCommissionedMilestone(site)) return null;
-  return daysBetween(site.installationUpdatedAt, site.commissioningUpdatedAt);
+  return daysBetween(site.installationCompletedAt, site.commissioningCompletedAt);
 }
 
 function daysAssignedToCommissioning(site: SiteDetail) {
   if (!hasCommissionedMilestone(site)) return null;
-  return daysBetween(siteAssignedAt(site), site.commissioningUpdatedAt);
+  return daysBetween(siteAssignedAt(site), site.commissioningCompletedAt);
 }
 
 function daysSinceAssigned(site: SiteDetail) {
@@ -994,8 +1347,20 @@ function daysBetween(startIso: string | null | undefined, endIso: string | null 
   if (!startIso || !endIso) return null;
   const start = new Date(startIso);
   const end = new Date(endIso);
-  if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) return null;
-  return Math.round(((end.getTime() - start.getTime()) / 86400000) * 10) / 10;
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+  // Timeline duration is based on calendar dates, not hours/minutes. This
+  // keeps a 10 Aug → 8 Sep transition as 29 days instead of 28.9 days.
+  const startDay = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
+  const endDay = Date.UTC(end.getFullYear(), end.getMonth(), end.getDate());
+  if (endDay < startDay) return null;
+  return Math.round((endDay - startDay) / 86400000);
+}
+
+function isCalendarDateBefore(leftIso: string, rightIso: string) {
+  const left = new Date(leftIso);
+  const right = new Date(rightIso);
+  if (Number.isNaN(left.getTime()) || Number.isNaN(right.getTime())) return false;
+  return Date.UTC(left.getFullYear(), left.getMonth(), left.getDate()) < Date.UTC(right.getFullYear(), right.getMonth(), right.getDate());
 }
 
 function compareNullableDesc(a: number | null, b: number | null) {

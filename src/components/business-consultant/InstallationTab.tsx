@@ -257,7 +257,13 @@ export function InstallationTab({ siteId, workerId, hiddenSections, onSubmit }: 
       <div className="mt-8 flex justify-end">
         <Button 
           onClick={async () => {
-            const saved = await save({ ...data, installation_phase_submitted: true });
+            const saved = await save({
+              ...data,
+              installation_phase_submitted: true,
+              // Preserve the first completion time. Later edits must not make
+              // operational timeline reports show a false installation date.
+              installation_phase_submitted_at: data.installation_phase_submitted_at || nowIso(),
+            });
             if (!saved) return;
             if (onSubmit) await onSubmit();
           }} 
