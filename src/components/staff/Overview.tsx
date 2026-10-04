@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { matchesOverviewFilters, toLocalDateKey } from "@/utils/overview-filters";
 import { useNavigate } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { parseSiteMetadata, recordStatusActivityLog, serializeSiteMetadata } from "@/lib/site-metadata";
@@ -91,23 +92,13 @@ type SiteRow = {
   hasLogisticsOrder: boolean;
   hasDeviceOrder: boolean;
   assessmentPendingReasons: string[];
-  assessmentCompletedAt: string | null;
   status: string;
 };
 
-type AssessmentDateFilter = "all" | "week" | "month" | "custom";
+type UpdatedDateFilter = "all" | "week" | "month" | "custom";
 
-const toLocalDateKey = (value: string) => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-};
-
-const getAssessmentDateRange = (
-  filter: AssessmentDateFilter,
+const getUpdatedDateRange = (
+  filter: UpdatedDateFilter,
   customStart: string,
   customEnd: string,
 ) => {
@@ -202,32 +193,18 @@ export function Overview() {
   const [rawActivityLogs, setRawActivityLogs] = useState<any[]>([]);
   const [workerIds, setWorkerIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   // Filter States
   const [selectedKpi, setSelectedKpi] = useState<string>("assigned");
   const [cityFilter, setCityFilter] = useState("");
   const [executiveFilter, setExecutiveFilter] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [assessmentDateFilter, setAssessmentDateFilter] = useState<AssessmentDateFilter>("all");
-  const [assessmentDateStart, setAssessmentDateStart] = useState("");
-  const [assessmentDateEnd, setAssessmentDateEnd] = useState("");
+  const [updatedDateFilter, setUpdatedDateFilter] = useState<UpdatedDateFilter>("all");
+  const [updatedDateStart, setUpdatedDateStart] = useState("");
+  const [updatedDateEnd, setUpdatedDateEnd] = useState("");
   const [showMyTasks, setShowMyTasks] = useState(false);
   const [kpiSelected, setKpiSelected] = useState(true);
-
-  useEffect(() => {
-    if (!authReady) return;
-    // Dual-role managers start on their personal tasks. A manager-only user
-    // starts directly on the complete Companies Assigned list.
-    if (isDualRole) {
-      setSelectedKpi("assigned");
-      setShowMyTasks(true);
-      setKpiSelected(false);
-    } else {
-      setSelectedKpi("assigned");
-      setShowMyTasks(false);
-      setKpiSelected(true);
-    }
-  }, [authReady, isDualRole]);
 
   // Consultant Modal States
   const [consultantSiteId, setConsultantSiteId] = useState<string | null>(null);
@@ -505,7 +482,9 @@ export function Overview() {
   const rowsPerPage = 10;
 
   const loadData = async () => {
+    if (!authReady || !userId) return;
     setLoading(true);
+    setLoadError(false);
     try {
       const [sitesRes, assessmentsRes, installationsRes, commissioningsRes, approvalRequestsRes, profilesRes, materialsRes, rolesRes, activityLogsRes] = await Promise.all([
         supabase
@@ -531,6 +510,8 @@ export function Overview() {
           .limit(1000),
       ]);
 
+      if (sitesRes.error) throw sitesRes.error;
+
       setRawSites(sitesRes.data ?? []);
       setRawAssessments(assessmentsRes.data ?? []);
       setRawInstallations(installationsRes.data ?? []);
@@ -543,6 +524,7 @@ export function Overview() {
       setWorkerIds(wIds);
     } catch (err) {
       console.error("Error fetching overview metrics:", err);
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -770,8 +752,9 @@ export function Overview() {
   };
 
   useEffect(() => {
+    if (!authReady || !userId) return;
     void loadData();
-  }, []);
+  }, [authReady, userId]);
 
   const reviewCommissioningRequest = async (requestId: string, approved: boolean) => {
     setReviewingCommissioningRequestId(requestId);
@@ -924,26 +907,19 @@ export function Overview() {
       hasLogisticsOrder,
       hasDeviceOrder: deviceOrderExists,
       assessmentPendingReasons,
-      assessmentCompletedAt: ar?.data?.assessment_phase_submitted
-        ? ar.data.factory_form_submitted_at || ar.updated_at || null
-        : null,
     };
   });
 
-  const assessmentDateRange = getAssessmentDateRange(assessmentDateFilter, assessmentDateStart, assessmentDateEnd);
+  const updatedDateRange = getUpdatedDateRange(updatedDateFilter, updatedDateStart, updatedDateEnd);
 
-  // Apply filters for counting
-  const filteredForCounts = allProcessedRows.filter((row) => {
-    if (cityFilter && row.city !== cityFilter) return false;
-    if (executiveFilter && !row.workerIds.includes(executiveFilter)) return false;
-    if (assessmentDateFilter !== "all") {
-      const completedDate = row.assessmentCompletedAt ? toLocalDateKey(row.assessmentCompletedAt) : null;
-      if (!completedDate) return false;
-      if (assessmentDateRange.start && completedDate < assessmentDateRange.start) return false;
-      if (assessmentDateRange.end && completedDate > assessmentDateRange.end) return false;
-    }
-    return true;
-  });
+  // Counts, table rows, and exports share every active filter.
+  const filteredForCounts = allProcessedRows.filter((row) => matchesOverviewFilters(row, {
+    city: cityFilter,
+    associateId: executiveFilter,
+    dateRange: updatedDateRange,
+    search: searchQuery,
+    myTasksUserId: isDualRole && showMyTasks ? userId : null,
+  }, profileNameMap));
 
   // Calculate counts based on current filters and canonical status partitioning
   const logisticsStatusKey = (r: SiteRow) => r.logisticsStatus.trim().toLowerCase();
@@ -1041,38 +1017,8 @@ export function Overview() {
     }
   });
 
-  // Apply My Tasks Filter
-  const myTasksFiltered = isDualRole && showMyTasks && userId
-    ? filteredByKpi.filter((row) => row.workerIds.includes(userId) && row.status !== "Submitted")
-    : filteredByKpi;
-
-  // Apply search query
-  const searchQueryLower = searchQuery.toLowerCase();
-  const searchedRows = myTasksFiltered.filter((row) => {
-    if (!searchQuery) return true;
-    const name = row.name.toLowerCase();
-    const companyName = (row.company_name || "").toLowerCase();
-    const city = (row.city || "").toLowerCase();
-    const status = row.status.toLowerCase();
-    const cName = row.meta.c1_name.toLowerCase();
-    const cPhone = row.meta.c1_mobile.toLowerCase();
-
-    const workerNames = row.workerIds.map((id) => (profileNameMap.get(id) || "").toLowerCase());
-    const matchWorkers = workerNames.some((wName) => wName.includes(searchQueryLower));
-
-    return (
-      name.includes(searchQueryLower) ||
-      companyName.includes(searchQueryLower) ||
-      city.includes(searchQueryLower) ||
-      status.includes(searchQueryLower) ||
-      cName.includes(searchQueryLower) ||
-      cPhone.includes(searchQueryLower) ||
-      matchWorkers
-    );
-  });
-
   // Apply Sorting
-  const sortedRows = [...searchedRows].sort((a, b) => {
+  const sortedRows = [...filteredByKpi].sort((a, b) => {
     if (sortField === "updated") {
       const tA = a.progress.updated ? new Date(a.progress.updated).getTime() : 0;
       const tB = b.progress.updated ? new Date(b.progress.updated).getTime() : 0;
@@ -1129,7 +1075,7 @@ export function Overview() {
   // Reset page number on filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedKpi, cityFilter, executiveFilter, searchQuery, assessmentDateFilter, assessmentDateStart, assessmentDateEnd, sortField, sortOrder, showMyTasks]);
+  }, [selectedKpi, cityFilter, executiveFilter, searchQuery, updatedDateFilter, updatedDateStart, updatedDateEnd, sortField, sortOrder, showMyTasks]);
 
   const handleSort = (field: "name" | "city" | "updated") => {
     if (sortField === field) {
@@ -1157,11 +1103,11 @@ export function Overview() {
     setCityFilter("");
     setExecutiveFilter("");
     setSearchQuery("");
-    setAssessmentDateFilter("all");
-    setAssessmentDateStart("");
-    setAssessmentDateEnd("");
+    setUpdatedDateFilter("all");
+    setUpdatedDateStart("");
+    setUpdatedDateEnd("");
     setShowMyTasks(false);
-    setKpiSelected(!isDualRole);
+    setKpiSelected(true);
   };
 
   const handleKpiClick = (kpiId: string) => {
@@ -1284,7 +1230,7 @@ export function Overview() {
       dashboard.getCell("A2").font = { size: 12, color: { argb: colors.teal } };
       dashboard.getCell("A2").alignment = { horizontal: "center" };
       dashboard.addRow([]);
-      dashboard.addRow(["Report Date", generatedDate, "Assessment Date", assessmentDateRange.label, "City Filter", cityFilter || "All Cities", "Field Associate", filterAssociate, "Search", searchQuery || "None"]);
+      dashboard.addRow(["Report Date", generatedDate, "Updated Date", updatedDateRange.label, "City Filter", cityFilter || "All Cities", "Field Associate", filterAssociate, "Search", searchQuery || "None"]);
       dashboard.getRow(4).eachCell((cell, colNumber) => {
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: colNumber % 2 ? colors.soft : colors.white } };
         cell.border = { top: { style: "thin", color: { argb: colors.border } }, bottom: { style: "thin", color: { argb: colors.border } } };
@@ -1487,7 +1433,7 @@ export function Overview() {
       <td colspan="2">City Filter</td><td colspan="2">${escapeHtml(cityFilter || "All Cities")}</td>
     </tr>
     <tr class="summary">
-      <td colspan="2">Assessment Date</td><td colspan="2">${escapeHtml(assessmentDateRange.label)}</td>
+      <td colspan="2">Updated Date</td><td colspan="2">${escapeHtml(updatedDateRange.label)}</td>
       <td colspan="2">Field Associate</td><td colspan="2">${escapeHtml(executiveFilter ? profileNameMap.get(executiveFilter) || "N/A" : "All Field Associates")}</td>
     </tr>
     <tr class="summary">
@@ -1789,7 +1735,7 @@ export function Overview() {
         doc.setFont("helvetica", "bold");
         doc.setFontSize(7.6);
         doc.setTextColor(...teal);
-        doc.text(`FIELD ASSIGNMENT OVERVIEW • ASSESSMENT DATE: ${assessmentDateRange.label.toUpperCase()}`, pageMarginX, subY + 6);
+        doc.text(`FIELD ASSIGNMENT OVERVIEW • UPDATED DATE: ${updatedDateRange.label.toUpperCase()}`, pageMarginX, subY + 6);
         doc.setDrawColor(...border);
         doc.setLineWidth(0.2);
         doc.line(pageMarginX, subY + subheaderHeight, pageWidth - pageMarginX, subY + subheaderHeight);
@@ -2200,7 +2146,12 @@ export function Overview() {
         </div>
 
         {/* KPI Cards Grid */}
-        {loading ? (
+        {loadError ? (
+          <div role="alert" className="rounded-xl border border-coral/30 bg-surface p-5 space-y-3">
+            <p className="text-sm text-text-secondary">Could not load the dashboard. Please try again.</p>
+            <Button onClick={() => void loadData()}>Retry</Button>
+          </div>
+        ) : loading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {Array.from({ length: 8 }).map((_, i) => (
               <div key={i} className="h-24 bg-surface-raised rounded-xl animate-pulse" />
@@ -2577,7 +2528,7 @@ export function Overview() {
         })()}
 
         {/* Drill-down Table Section — only shows after a KPI card is clicked */}
-        {kpiSelected && (
+        {kpiSelected && !loading && !loadError && (
           <div className="border border-border rounded-xl bg-surface p-4 space-y-4 shadow-sm">
             {/* Table Header and Filters */}
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between border-b border-border pb-4">
@@ -2642,36 +2593,38 @@ export function Overview() {
                   </select>
                 </div>
 
-                {/* Assessment completion date filter */}
+                {/* Last updated date filter */}
                 <div className="flex items-center gap-1 bg-surface-raised border border-border rounded-md px-2 py-1">
                   <Calendar className="h-3.5 w-3.5 text-text-secondary" />
                   <select
-                    value={assessmentDateFilter}
-                    onChange={(e) => setAssessmentDateFilter(e.target.value as AssessmentDateFilter)}
-                    aria-label="Assessment completion date range"
+                    value={updatedDateFilter}
+                    onChange={(e) => setUpdatedDateFilter(e.target.value as UpdatedDateFilter)}
+                    aria-label="Last updated date range"
                     className="bg-transparent text-xs focus:outline-none border-none pr-2 font-semibold text-text-primary cursor-pointer"
                   >
-                    <option value="all">All Assessment Dates</option>
+                    <option value="all">All Updated Dates</option>
                     <option value="week">This Week</option>
                     <option value="month">This Month</option>
                     <option value="custom">Custom Range</option>
                   </select>
                 </div>
-                {assessmentDateFilter === "custom" && (
+                {updatedDateFilter === "custom" && (
                   <div className="flex items-center gap-1.5">
                     <input
                       type="date"
-                      value={assessmentDateStart}
-                      onChange={(e) => setAssessmentDateStart(e.target.value)}
-                      aria-label="Assessment completion start date"
+                      value={updatedDateStart}
+                      max={updatedDateEnd || undefined}
+                      onChange={(e) => setUpdatedDateStart(e.target.value)}
+                      aria-label="Last updated start date"
                       className="bg-surface-raised border border-border rounded-md px-2 py-1 text-xs text-text-primary focus:border-lime focus:outline-none"
                     />
                     <span className="text-xs text-text-secondary">to</span>
                     <input
                       type="date"
-                      value={assessmentDateEnd}
-                      onChange={(e) => setAssessmentDateEnd(e.target.value)}
-                      aria-label="Assessment completion end date"
+                      value={updatedDateEnd}
+                      min={updatedDateStart || undefined}
+                      onChange={(e) => setUpdatedDateEnd(e.target.value)}
+                      aria-label="Last updated end date"
                       className="bg-surface-raised border border-border rounded-md px-2 py-1 text-xs text-text-primary focus:border-lime focus:outline-none"
                     />
                   </div>
@@ -2685,7 +2638,7 @@ export function Overview() {
                     onChange={(e) => setExecutiveFilter(e.target.value)}
                     className="bg-transparent text-xs focus:outline-none border-none pr-4 font-semibold text-text-primary cursor-pointer"
                   >
-                    <option value="">All Executives</option>
+                    <option value="">All Field Associates</option>
                     {executives.map((exec) => (
                       <option key={exec.id} value={exec.id}>
                         {exec.name || exec.mobile}
@@ -2709,7 +2662,7 @@ export function Overview() {
                 )}
 
                 {/* Reset Filters */}
-                {(searchQuery || cityFilter || executiveFilter || assessmentDateFilter !== "all" || showMyTasks) && (
+                {(searchQuery || cityFilter || executiveFilter || updatedDateFilter !== "all" || showMyTasks) && (
                   <button
                     onClick={handleResetFilters}
                     className="text-xs text-coral hover:text-coral/80 font-bold px-2 py-1.5 transition-colors border border-dashed border-coral/30 rounded cursor-pointer"
