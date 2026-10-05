@@ -35,3 +35,5 @@ dist-ssr
 *.sw?
 .vercel
 *.md
+!FIELD_ASSOCIATE_ATTENDANCE_EARNINGS_PLAN.md
+.tmp/

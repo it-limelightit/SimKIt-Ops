@@ -9,42 +9,27 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as ManagerRouteImport } from './routes/manager'
-import { Route as CompanyTrackerRouteImport } from './routes/company-tracker'
-import { Route as ClientFormRouteImport } from './routes/client-form'
-import { Route as BusinessConsultantRouteImport } from './routes/business-consultant'
-import { Route as AuthRouteImport } from './routes/auth'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AuthRouteImport } from './routes/auth'
+import { Route as BusinessConsultantRouteImport } from './routes/business-consultant'
+import { Route as ClientFormRouteImport } from './routes/client-form'
+import { Route as CompanyTrackerRouteImport } from './routes/company-tracker'
+import { Route as ManagerRouteImport } from './routes/manager'
 import { Route as ManagerIndexRouteImport } from './routes/manager.index'
-import { Route as ManagerTasksRouteImport } from './routes/manager.tasks'
-import { Route as ManagerSitesRouteImport } from './routes/manager.sites'
-import { Route as ManagerReportsRouteImport } from './routes/manager.reports'
-import { Route as ManagerPerformanceRouteImport } from './routes/manager.performance'
-import { Route as ManagerLogisticRouteImport } from './routes/manager.logistic'
-import { Route as ManagerFieldVisitTrackerRouteImport } from './routes/manager.field-visit-tracker'
-import { Route as ManagerFactoryDataRouteImport } from './routes/manager.factory-data'
-import { Route as ManagerDriveLinksRouteImport } from './routes/manager.drive-links'
-import { Route as ManagerCompanyTrackerRouteImport } from './routes/manager.company-tracker'
 import { Route as ManagerBusinessConsultantsRouteImport } from './routes/manager.business-consultants'
+import { Route as ManagerCompanyTrackerRouteImport } from './routes/manager.company-tracker'
+import { Route as ManagerDriveLinksRouteImport } from './routes/manager.drive-links'
+import { Route as ManagerFactoryDataRouteImport } from './routes/manager.factory-data'
+import { Route as ManagerFieldVisitTrackerRouteImport } from './routes/manager.field-visit-tracker'
+import { Route as ManagerLogisticRouteImport } from './routes/manager.logistic'
+import { Route as ManagerPerformanceRouteImport } from './routes/manager.performance'
+import { Route as ManagerReportsRouteImport } from './routes/manager.reports'
+import { Route as ManagerSitesRouteImport } from './routes/manager.sites'
+import { Route as ManagerTasksRouteImport } from './routes/manager.tasks'
 
-const ManagerRoute = ManagerRouteImport.update({
-  id: '/manager',
-  path: '/manager',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CompanyTrackerRoute = CompanyTrackerRouteImport.update({
-  id: '/company-tracker',
-  path: '/company-tracker',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ClientFormRoute = ClientFormRouteImport.update({
-  id: '/client-form',
-  path: '/client-form',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const BusinessConsultantRoute = BusinessConsultantRouteImport.update({
-  id: '/business-consultant',
-  path: '/business-consultant',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
@@ -52,60 +37,29 @@ const AuthRoute = AuthRouteImport.update({
   path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const BusinessConsultantRoute = BusinessConsultantRouteImport.update({
+  id: '/business-consultant',
+  path: '/business-consultant',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClientFormRoute = ClientFormRouteImport.update({
+  id: '/client-form',
+  path: '/client-form',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CompanyTrackerRoute = CompanyTrackerRouteImport.update({
+  id: '/company-tracker',
+  path: '/company-tracker',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ManagerRoute = ManagerRouteImport.update({
+  id: '/manager',
+  path: '/manager',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ManagerIndexRoute = ManagerIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => ManagerRoute,
-} as any)
-const ManagerTasksRoute = ManagerTasksRouteImport.update({
-  id: '/tasks',
-  path: '/tasks',
-  getParentRoute: () => ManagerRoute,
-} as any)
-const ManagerSitesRoute = ManagerSitesRouteImport.update({
-  id: '/sites',
-  path: '/sites',
-  getParentRoute: () => ManagerRoute,
-} as any)
-const ManagerReportsRoute = ManagerReportsRouteImport.update({
-  id: '/reports',
-  path: '/reports',
-  getParentRoute: () => ManagerRoute,
-} as any)
-const ManagerPerformanceRoute = ManagerPerformanceRouteImport.update({
-  id: '/performance',
-  path: '/performance',
-  getParentRoute: () => ManagerRoute,
-} as any)
-const ManagerLogisticRoute = ManagerLogisticRouteImport.update({
-  id: '/logistic',
-  path: '/logistic',
-  getParentRoute: () => ManagerRoute,
-} as any)
-const ManagerFieldVisitTrackerRoute =
-  ManagerFieldVisitTrackerRouteImport.update({
-    id: '/field-visit-tracker',
-    path: '/field-visit-tracker',
-    getParentRoute: () => ManagerRoute,
-  } as any)
-const ManagerFactoryDataRoute = ManagerFactoryDataRouteImport.update({
-  id: '/factory-data',
-  path: '/factory-data',
-  getParentRoute: () => ManagerRoute,
-} as any)
-const ManagerDriveLinksRoute = ManagerDriveLinksRouteImport.update({
-  id: '/drive-links',
-  path: '/drive-links',
-  getParentRoute: () => ManagerRoute,
-} as any)
-const ManagerCompanyTrackerRoute = ManagerCompanyTrackerRouteImport.update({
-  id: '/company-tracker',
-  path: '/company-tracker',
   getParentRoute: () => ManagerRoute,
 } as any)
 const ManagerBusinessConsultantsRoute =
@@ -114,6 +68,52 @@ const ManagerBusinessConsultantsRoute =
     path: '/business-consultants',
     getParentRoute: () => ManagerRoute,
   } as any)
+const ManagerCompanyTrackerRoute = ManagerCompanyTrackerRouteImport.update({
+  id: '/company-tracker',
+  path: '/company-tracker',
+  getParentRoute: () => ManagerRoute,
+} as any)
+const ManagerDriveLinksRoute = ManagerDriveLinksRouteImport.update({
+  id: '/drive-links',
+  path: '/drive-links',
+  getParentRoute: () => ManagerRoute,
+} as any)
+const ManagerFactoryDataRoute = ManagerFactoryDataRouteImport.update({
+  id: '/factory-data',
+  path: '/factory-data',
+  getParentRoute: () => ManagerRoute,
+} as any)
+const ManagerFieldVisitTrackerRoute =
+  ManagerFieldVisitTrackerRouteImport.update({
+    id: '/field-visit-tracker',
+    path: '/field-visit-tracker',
+    getParentRoute: () => ManagerRoute,
+  } as any)
+const ManagerLogisticRoute = ManagerLogisticRouteImport.update({
+  id: '/logistic',
+  path: '/logistic',
+  getParentRoute: () => ManagerRoute,
+} as any)
+const ManagerPerformanceRoute = ManagerPerformanceRouteImport.update({
+  id: '/performance',
+  path: '/performance',
+  getParentRoute: () => ManagerRoute,
+} as any)
+const ManagerReportsRoute = ManagerReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
+  getParentRoute: () => ManagerRoute,
+} as any)
+const ManagerSitesRoute = ManagerSitesRouteImport.update({
+  id: '/sites',
+  path: '/sites',
+  getParentRoute: () => ManagerRoute,
+} as any)
+const ManagerTasksRoute = ManagerTasksRouteImport.update({
+  id: '/tasks',
+  path: '/tasks',
+  getParentRoute: () => ManagerRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -242,32 +242,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/manager': {
-      id: '/manager'
-      path: '/manager'
-      fullPath: '/manager'
-      preLoaderRoute: typeof ManagerRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/company-tracker': {
-      id: '/company-tracker'
-      path: '/company-tracker'
-      fullPath: '/company-tracker'
-      preLoaderRoute: typeof CompanyTrackerRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/client-form': {
-      id: '/client-form'
-      path: '/client-form'
-      fullPath: '/client-form'
-      preLoaderRoute: typeof ClientFormRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/business-consultant': {
-      id: '/business-consultant'
-      path: '/business-consultant'
-      fullPath: '/business-consultant'
-      preLoaderRoute: typeof BusinessConsultantRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth': {
@@ -277,11 +256,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/business-consultant': {
+      id: '/business-consultant'
+      path: '/business-consultant'
+      fullPath: '/business-consultant'
+      preLoaderRoute: typeof BusinessConsultantRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/client-form': {
+      id: '/client-form'
+      path: '/client-form'
+      fullPath: '/client-form'
+      preLoaderRoute: typeof ClientFormRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/company-tracker': {
+      id: '/company-tracker'
+      path: '/company-tracker'
+      fullPath: '/company-tracker'
+      preLoaderRoute: typeof CompanyTrackerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/manager': {
+      id: '/manager'
+      path: '/manager'
+      fullPath: '/manager'
+      preLoaderRoute: typeof ManagerRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/manager/': {
@@ -291,60 +291,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ManagerIndexRouteImport
       parentRoute: typeof ManagerRoute
     }
-    '/manager/tasks': {
-      id: '/manager/tasks'
-      path: '/tasks'
-      fullPath: '/manager/tasks'
-      preLoaderRoute: typeof ManagerTasksRouteImport
-      parentRoute: typeof ManagerRoute
-    }
-    '/manager/sites': {
-      id: '/manager/sites'
-      path: '/sites'
-      fullPath: '/manager/sites'
-      preLoaderRoute: typeof ManagerSitesRouteImport
-      parentRoute: typeof ManagerRoute
-    }
-    '/manager/reports': {
-      id: '/manager/reports'
-      path: '/reports'
-      fullPath: '/manager/reports'
-      preLoaderRoute: typeof ManagerReportsRouteImport
-      parentRoute: typeof ManagerRoute
-    }
-    '/manager/performance': {
-      id: '/manager/performance'
-      path: '/performance'
-      fullPath: '/manager/performance'
-      preLoaderRoute: typeof ManagerPerformanceRouteImport
-      parentRoute: typeof ManagerRoute
-    }
-    '/manager/logistic': {
-      id: '/manager/logistic'
-      path: '/logistic'
-      fullPath: '/manager/logistic'
-      preLoaderRoute: typeof ManagerLogisticRouteImport
-      parentRoute: typeof ManagerRoute
-    }
-    '/manager/field-visit-tracker': {
-      id: '/manager/field-visit-tracker'
-      path: '/field-visit-tracker'
-      fullPath: '/manager/field-visit-tracker'
-      preLoaderRoute: typeof ManagerFieldVisitTrackerRouteImport
-      parentRoute: typeof ManagerRoute
-    }
-    '/manager/factory-data': {
-      id: '/manager/factory-data'
-      path: '/factory-data'
-      fullPath: '/manager/factory-data'
-      preLoaderRoute: typeof ManagerFactoryDataRouteImport
-      parentRoute: typeof ManagerRoute
-    }
-    '/manager/drive-links': {
-      id: '/manager/drive-links'
-      path: '/drive-links'
-      fullPath: '/manager/drive-links'
-      preLoaderRoute: typeof ManagerDriveLinksRouteImport
+    '/manager/business-consultants': {
+      id: '/manager/business-consultants'
+      path: '/business-consultants'
+      fullPath: '/manager/business-consultants'
+      preLoaderRoute: typeof ManagerBusinessConsultantsRouteImport
       parentRoute: typeof ManagerRoute
     }
     '/manager/company-tracker': {
@@ -354,11 +305,60 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ManagerCompanyTrackerRouteImport
       parentRoute: typeof ManagerRoute
     }
-    '/manager/business-consultants': {
-      id: '/manager/business-consultants'
-      path: '/business-consultants'
-      fullPath: '/manager/business-consultants'
-      preLoaderRoute: typeof ManagerBusinessConsultantsRouteImport
+    '/manager/drive-links': {
+      id: '/manager/drive-links'
+      path: '/drive-links'
+      fullPath: '/manager/drive-links'
+      preLoaderRoute: typeof ManagerDriveLinksRouteImport
+      parentRoute: typeof ManagerRoute
+    }
+    '/manager/factory-data': {
+      id: '/manager/factory-data'
+      path: '/factory-data'
+      fullPath: '/manager/factory-data'
+      preLoaderRoute: typeof ManagerFactoryDataRouteImport
+      parentRoute: typeof ManagerRoute
+    }
+    '/manager/field-visit-tracker': {
+      id: '/manager/field-visit-tracker'
+      path: '/field-visit-tracker'
+      fullPath: '/manager/field-visit-tracker'
+      preLoaderRoute: typeof ManagerFieldVisitTrackerRouteImport
+      parentRoute: typeof ManagerRoute
+    }
+    '/manager/logistic': {
+      id: '/manager/logistic'
+      path: '/logistic'
+      fullPath: '/manager/logistic'
+      preLoaderRoute: typeof ManagerLogisticRouteImport
+      parentRoute: typeof ManagerRoute
+    }
+    '/manager/performance': {
+      id: '/manager/performance'
+      path: '/performance'
+      fullPath: '/manager/performance'
+      preLoaderRoute: typeof ManagerPerformanceRouteImport
+      parentRoute: typeof ManagerRoute
+    }
+    '/manager/reports': {
+      id: '/manager/reports'
+      path: '/reports'
+      fullPath: '/manager/reports'
+      preLoaderRoute: typeof ManagerReportsRouteImport
+      parentRoute: typeof ManagerRoute
+    }
+    '/manager/sites': {
+      id: '/manager/sites'
+      path: '/sites'
+      fullPath: '/manager/sites'
+      preLoaderRoute: typeof ManagerSitesRouteImport
+      parentRoute: typeof ManagerRoute
+    }
+    '/manager/tasks': {
+      id: '/manager/tasks'
+      path: '/tasks'
+      fullPath: '/manager/tasks'
+      preLoaderRoute: typeof ManagerTasksRouteImport
       parentRoute: typeof ManagerRoute
     }
   }
