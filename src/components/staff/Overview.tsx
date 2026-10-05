@@ -18,6 +18,7 @@ import {
 import { toast } from "sonner";
 import { Skeleton, Button, ProgressBar, Select, Label, Input, Card } from "@/components/ui-kit";
 import { useAuth } from "@/lib/auth-store";
+import { ManagerAttendanceBox } from "@/components/field-operations/FieldOperations";
 import { AssessmentTab } from "@/components/business-consultant/AssessmentTab";
 import { notifyAfterNewFactoryFormSubmission } from "@/lib/factory-form-notification";
 import { InstallationTab } from "@/components/business-consultant/InstallationTab";
@@ -2475,6 +2476,8 @@ export function Overview() {
             </div>
           </div>
         )}
+
+        <ManagerAttendanceBox />
 
         {/* My Tasks Section — shown by default before any KPI card is clicked */}
         {isDualRole && !kpiSelected && (() => {

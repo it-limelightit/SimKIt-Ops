@@ -9,6 +9,7 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
+    "test:field-ops": "node --test tests/field-operations.test.mjs",
     "format": "prettier --write ."
   },
   "dependencies": {
@@ -72,6 +73,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@eslint/js": "^9.32.0",
     "@lovable.dev/vite-tanstack-config": "^2.3.2",
     "@types/node": "^22.16.5",

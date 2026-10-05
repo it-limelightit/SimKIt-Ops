@@ -39,6 +39,8 @@ import {
   TrendingUp,
   KanbanSquare,
   ClipboardList,
+  Menu,
+  X,
 } from "lucide-react";
 import { parseTaskNotes } from "@/components/staff/TasksPanel";
 import {
@@ -49,7 +51,9 @@ import {
 import { toast } from "sonner";
 import { InventoryPanel } from "@/components/inventory/InventoryPanel";
 import { CompanyTracker } from "@/components/company-tracker/CompanyTracker";
-import { FieldVisitScheduler } from "@/components/field-visit-scheduler/FieldVisitScheduler";
+import { AssociateEntryGate, AssociateEarnings, AssociateSchedule } from "@/components/field-operations/FieldOperations";
+import { useFieldOperations } from "@/hooks/use-field-operations";
+import { installationOverdue } from "@/lib/field-operations";
 import { OrderTab } from "@/components/business-consultant/OrderTab";
 import {
   getCanonicalStatus,
@@ -63,8 +67,12 @@ import { notifyAfterNewFactoryFormSubmission } from "@/lib/factory-form-notifica
 export const Route = createFileRoute("/business-consultant")({
   ssr: false,
   head: () => ({ meta: [{ title: "Field Associate — SIM-Kit Ops" }] }),
-  component: BusinessConsultantPage,
+  component: GatedBusinessConsultantPage,
 });
+
+function GatedBusinessConsultantPage() {
+  return <AssociateEntryGate><BusinessConsultantPage /></AssociateEntryGate>;
+}
 
 type Site = {
   id: string;
@@ -83,7 +91,7 @@ function BusinessConsultantPage() {
   const navigate = useNavigate();
   const { ready, userId, email, role, profile, signOut } = useAuth();
 
-  const [view, setView] = useState<"dashboard" | "submission" | "inventory" | "tracker" | "schedule">("dashboard");
+  const [view, setView] = useState<"dashboard" | "submission" | "inventory" | "tracker" | "schedule" | "earnings">("dashboard");
   const [sitesList, setSitesList] = useState<Site[]>([]);
   const [sitesWithProgress, setSitesWithProgress] = useState<
     Array<
@@ -634,6 +642,7 @@ function BusinessConsultantPage() {
         onGoToInventory={() => setView("inventory")}
         onGoToTracker={() => setView("tracker")}
         onGoToSchedule={() => setView("schedule")}
+        onGoToEarnings={() => setView("earnings")}
         assignmentsActive
       >
         <div className="mt-8">
@@ -652,6 +661,7 @@ function BusinessConsultantPage() {
         onGoToInventory={() => setView("inventory")}
         onGoToTracker={() => setView("tracker")}
         onGoToSchedule={() => setView("schedule")}
+        onGoToEarnings={() => setView("earnings")}
         inventoryActive
       >
         <div className="py-9">
@@ -670,6 +680,7 @@ function BusinessConsultantPage() {
         onGoToInventory={() => setView("inventory")}
         onGoToTracker={() => setView("tracker")}
         onGoToSchedule={() => setView("schedule")}
+        onGoToEarnings={() => setView("earnings")}
         trackerActive
       >
         <div className="py-9"><CompanyTracker /></div>
@@ -686,11 +697,16 @@ function BusinessConsultantPage() {
         onGoToInventory={() => setView("inventory")}
         onGoToTracker={() => setView("tracker")}
         onGoToSchedule={() => setView("schedule")}
+        onGoToEarnings={() => setView("earnings")}
         scheduleActive
       >
-        <div className="py-9"><FieldVisitScheduler /></div>
+        <div className="py-9"><AssociateSchedule /></div>
       </Shell>
     );
+  }
+
+  if (view === "earnings") {
+    return <Shell onSignOut={signOut} profileName={profile?.name ?? undefined} onGoToDashboard={() => setView("dashboard")} onGoToInventory={() => setView("inventory")} onGoToTracker={() => setView("tracker")} onGoToSchedule={() => setView("schedule")} onGoToEarnings={() => setView("earnings")} earningsActive><div className="py-9"><AssociateEarnings /></div></Shell>;
   }
 
   if (!site) {
@@ -732,6 +748,10 @@ function BusinessConsultantPage() {
       profileName={profile?.name ?? undefined}
       showDashboardBtn={true}
       onGoToDashboard={() => setView("dashboard")}
+      onGoToInventory={() => setView("inventory")}
+      onGoToTracker={() => setView("tracker")}
+      onGoToSchedule={() => setView("schedule")}
+      onGoToEarnings={() => setView("earnings")}
     >
       <div className="mt-8 space-y-6">
         {/* Factory Details Box matching Mockup */}
@@ -1113,6 +1133,8 @@ function ConsultantDashboard({
   onSelectSite: (siteId: string) => void;
 }) {
   const [selectedKpi, setSelectedKpi] = useState<string>("not_started");
+  const fieldOperations = useFieldOperations();
+  const overdueIds = new Set(fieldOperations.board?.sites.filter((company) => installationOverdue(company, fieldOperations.board!.today)).map((company) => company.site_id) ?? []);
 
   const totalSites = sites.length;
   const countNotStarted = sites.filter(
@@ -1236,6 +1258,7 @@ function ConsultantDashboard({
   };
 
   const filteredSites = sites.filter((s) => {
+    if (overdueIds.has(s.id)) return true;
     if (selectedKpi === "total") {
       return true;
     }
@@ -1270,7 +1293,7 @@ function ConsultantDashboard({
       return s.derivedStatus === "Submitted" || s.derivedStatus === "Dropped / Rejected";
     }
     return true;
-  });
+  }).sort((a, b) => Number(overdueIds.has(b.id)) - Number(overdueIds.has(a.id)));
 
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
@@ -1444,8 +1467,9 @@ function ConsultantDashboard({
             return (
               <div
                 key={s.id}
-                className="border border-border rounded-[10px] bg-surface px-5 py-4 hover:bg-surface-raised/30 transition-colors shadow-xs"
+                className={`border rounded-[10px] px-5 py-4 transition-colors shadow-xs ${overdueIds.has(s.id) ? "border-red-300 bg-red-50 text-red-900" : "border-border bg-surface hover:bg-surface-raised/30"}`}
               >
+                {overdueIds.has(s.id) && <p className="mb-3 text-sm font-semibold text-red-700">⚠ Installation overdue · assessment completed at least five calendar days ago</p>}
                 <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                   {/* Company name + location */}
                   <div className="flex-1 min-w-0">
@@ -1561,12 +1585,12 @@ function Shell({
   profileName,
   showDashboardBtn,
   onGoToDashboard,
-  onGoToInventory,
-  inventoryActive,
   onGoToTracker,
   trackerActive,
   onGoToSchedule,
   scheduleActive,
+  onGoToEarnings,
+  earningsActive,
   assignmentsActive,
 }: {
   children: React.ReactNode;
@@ -1580,6 +1604,8 @@ function Shell({
   trackerActive?: boolean;
   onGoToSchedule?: () => void;
   scheduleActive?: boolean;
+  onGoToEarnings?: () => void;
+  earningsActive?: boolean;
   assignmentsActive?: boolean;
 }) {
   const [themeMode, setThemeMode] = useState<"light" | "dark">("light");
@@ -1610,64 +1636,123 @@ function Shell({
     localStorage.setItem("themeMode", next);
   };
 
+  const [navigationOpen, setNavigationOpen] = useState(false);
+  const navigation = [
+    {
+      label: "Assignments",
+      icon: ClipboardList,
+      action: onGoToDashboard,
+      active: assignmentsActive || showDashboardBtn,
+    },
+    { label: "Company Tracker", icon: KanbanSquare, action: onGoToTracker, active: trackerActive },
+    { label: "My Schedule", icon: Calendar, action: onGoToSchedule, active: scheduleActive },
+    { label: "My Earnings", icon: TrendingUp, action: onGoToEarnings, active: earningsActive },
+  ].filter((item) => item.action);
+  const activeTitle = navigation.find((item) => item.active)?.label || "Field workspace";
   return (
     <div className="min-h-screen bg-background text-text-primary font-sans antialiased">
-      <div className="sticky top-0 z-40 border-b border-border bg-surface/90 backdrop-blur-md">
-        <div className="mx-auto flex min-h-14 max-w-6xl items-center justify-between gap-3 px-3 py-2 sm:px-6">
+      {navigationOpen && (
+        <button
+          aria-label="Close navigation overlay"
+          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden"
+          onClick={() => setNavigationOpen(false)}
+        />
+      )}
+      <aside
+        id="associate-navigation"
+        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-border bg-surface transition-transform duration-200 lg:visible lg:translate-x-0 ${navigationOpen ? "visible translate-x-0" : "invisible -translate-x-full"}`}
+      >
+        <div className="flex h-20 items-center justify-between px-6">
           <button
-            onClick={onGoToDashboard}
-            className="flex shrink-0 items-center gap-2 font-syne font-bold uppercase tracking-wider text-lime cursor-pointer bg-transparent border-0 outline-none"
+            onClick={() => {
+              onGoToDashboard?.();
+              setNavigationOpen(false);
+            }}
+            className="flex items-center gap-3 text-left"
           >
-            <span className="flex h-5 w-5 items-center justify-center rounded-[4px] bg-lime text-bg text-[10px] font-extrabold font-mono">
-              ⬡
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-lime text-bg shadow-sm">
+              <Layers size={21} />
             </span>
-            <span className="hidden sm:inline">SIM-KIT OPS</span>
+            <span>
+              <span className="block font-syne text-sm font-bold tracking-wide">SIM-KIT OPS</span>
+              <span className="text-xs text-text-secondary">Field associate</span>
+            </span>
           </button>
-          <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
-            {onGoToDashboard && (
-              <Button variant={assignmentsActive ? "primary" : "ghost"} onClick={onGoToDashboard} className="py-1 px-3 text-xs">
-                <ClipboardList size={14} /><span className="hidden sm:inline">Assignments</span>
-              </Button>
-            )}
-            {onGoToTracker && (
-              <Button variant={trackerActive ? "primary" : "ghost"} onClick={onGoToTracker} className="py-1 px-3 text-xs">
-                <KanbanSquare size={14} /><span className="hidden sm:inline">Company Tracker</span>
-              </Button>
-            )}
-            {onGoToSchedule && (
-              <Button variant={scheduleActive ? "primary" : "ghost"} onClick={onGoToSchedule} className="py-1 px-3 text-xs">
-                <Calendar size={14} /><span className="hidden sm:inline">My Schedule</span>
-              </Button>
-            )}
-            {showDashboardBtn && (
-              <Button variant="secondary" onClick={onGoToDashboard} className="py-1 px-3 text-xs">
-                <span>Dashboard</span>
-              </Button>
-            )}
-            {profileName && (
-              <span className="hidden sm:inline-block font-mono text-[10px] tracking-widest text-text-secondary bg-surface-raised px-2.5 py-1 border border-border rounded-[4px]">
-                {profileName.toUpperCase()}
-              </span>
-            )}
+          <button
+            aria-label="Close navigation"
+            onClick={() => setNavigationOpen(false)}
+            className="rounded-lg p-2 hover:bg-surface-raised lg:hidden"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <nav aria-label="Field associate navigation" className="flex-1 space-y-2 px-4 py-6">
+          <p className="mb-4 px-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-text-secondary">
+            Workspace
+          </p>
+          {navigation.map(({ label, icon: Icon, action, active }) => (
+            <button
+              key={label}
+              aria-current={active ? "page" : undefined}
+              onClick={() => {
+                action?.();
+                setNavigationOpen(false);
+              }}
+              className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-medium transition-colors ${active ? "bg-lime/15 text-lime shadow-sm ring-1 ring-lime/20" : "text-text-secondary hover:bg-surface-raised hover:text-text-primary"}`}
+            >
+              <Icon size={19} />
+              <span>{label}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="m-4 rounded-2xl border border-border bg-background p-4">
+          <div className="mb-4 flex min-w-0 items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-lime/15 text-lime">
+              <User size={20} />
+            </span>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold">{profileName || "Field associate"}</p>
+              <p className="text-xs text-text-secondary">Your field workspace</p>
+            </div>
+          </div>
+          <button
+            onClick={onSignOut}
+            className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-sm text-text-secondary hover:bg-surface-raised hover:text-text-primary"
+          >
+            <LogOut size={16} />
+            Sign out
+          </button>
+        </div>
+      </aside>
+      <div className="min-w-0 lg:pl-64">
+        <header className="sticky top-0 z-30 border-b border-border bg-surface/90 backdrop-blur-md">
+          <div className="mx-auto flex h-20 max-w-7xl items-center justify-between gap-3 px-4 sm:px-8">
+            <div className="flex min-w-0 items-center gap-3">
+              <button
+                aria-label="Open navigation"
+                aria-expanded={navigationOpen}
+                aria-controls="associate-navigation"
+                onClick={() => setNavigationOpen(true)}
+                className="rounded-xl border border-border p-2 lg:hidden"
+              >
+                <Menu size={20} />
+              </button>
+              <div className="min-w-0">
+                <p className="text-xs text-text-secondary">Field associate workspace</p>
+                <h1 className="truncate font-syne text-lg font-bold">{activeTitle}</h1>
+              </div>
+            </div>
             <button
               onClick={toggleTheme}
-              className="text-text-secondary hover:text-lime transition-colors p-1.5 cursor-pointer bg-transparent border-0 outline-none flex items-center justify-center"
-              title={themeMode === "light" ? "Switch to Dark Mode" : "Switch to Light Mode"}
+              className="rounded-xl border border-border p-2.5 text-text-secondary transition-colors hover:bg-surface-raised"
+              aria-label={themeMode === "light" ? "Switch to Dark Mode" : "Switch to Light Mode"}
             >
-              {themeMode === "light" ? (
-                <Moon size={16} strokeWidth={2} />
-              ) : (
-                <Sun size={16} strokeWidth={2} />
-              )}
+              {themeMode === "light" ? <Moon size={18} /> : <Sun size={18} />}
             </button>
-            <Button variant="ghost" onClick={onSignOut} className="py-1 px-2 sm:px-3 text-xs">
-              <LogOut size={14} />
-              <span className="hidden sm:inline">Sign out</span>
-            </Button>
           </div>
-        </div>
+        </header>
+        <main className="mx-auto min-w-0 max-w-7xl px-4 pb-10 sm:px-8">{children}</main>
       </div>
-      <div className="mx-auto max-w-6xl px-6">{children}</div>
     </div>
   );
 }
