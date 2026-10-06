@@ -833,6 +833,28 @@ function BusinessConsultantPage() {
             </div>
           </div>
 
+          <div className="bg-surface-raised/40 p-4 rounded-xl border border-border/80 flex gap-3">
+            <User className="text-lime w-5 h-5 shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <div className="font-mono text-[9px] uppercase tracking-wider text-text-secondary">
+                Assessor
+              </div>
+              <p className="mt-1 font-semibold text-text-primary text-sm break-words">
+                {meta.assessor_name || "Name not provided"}
+              </p>
+              {meta.assessor_phone ? (
+                <a
+                  href={`tel:${meta.assessor_phone}`}
+                  className="mt-1 flex items-center gap-1.5 text-lime hover:underline font-mono text-xs font-bold"
+                >
+                  <Phone size={11} /> {meta.assessor_phone}
+                </a>
+              ) : (
+                <p className="mt-1 text-xs text-text-secondary">Mobile number not provided</p>
+              )}
+            </div>
+          </div>
+
           {false && (
             <>
               {/* Client Form Sharing */}
