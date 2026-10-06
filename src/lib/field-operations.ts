@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 
 export type Phase = "assessment" | "installation" | "commissioning";
+export type VisitType = Phase | "follow_up";
 export type Associate = {
   id: string;
   name: string;
@@ -39,7 +40,7 @@ export type Visit = {
   site_id: string;
   assignee_id: string;
   company_name: string;
-  visit_type: Phase;
+  visit_type: VisitType;
   scheduled_for: string;
   shift: string | null;
   expected_arrival: string | null;

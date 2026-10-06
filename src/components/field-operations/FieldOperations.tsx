@@ -22,7 +22,7 @@ import {
   YAxis,
 } from "recharts";
 import { toast } from "sonner";
-import { Button, Input, Label, Select } from "@/components/ui-kit";
+import { Button, Input, Label, Select, Textarea } from "@/components/ui-kit";
 import {
   Dialog,
   DialogContent,
@@ -50,6 +50,7 @@ import {
   type Earning,
   type FieldBoard,
   type Phase,
+  type VisitType,
 } from "@/lib/field-operations";
 import logoUrl from "../../../image copy.png";
 import { FieldVisitScheduler } from "@/components/field-visit-scheduler/FieldVisitScheduler";
@@ -59,6 +60,7 @@ const panel = "rounded-2xl border border-border bg-surface p-4 sm:p-6";
 const colors = ["#84cc16", "#38bdf8", "#a78bfa"];
 const phases: Phase[] = ["assessment", "installation", "commissioning"];
 const payablePhases: Phase[] = ["assessment", "commissioning"];
+const visitLabels = { ...stageLabel, follow_up: "Follow-up / issue resolution" };
 
 function LoadMessage({
   loading,
@@ -177,7 +179,7 @@ function ScheduleComposer({
   initialDate?: string;
   reload: () => Promise<void>;
 }) {
-  const [stage, setStage] = useState<Phase | null>(null);
+  const [stage, setStage] = useState<VisitType | null>(null);
   const [companyId, setCompanyId] = useState("");
   const [date, setDate] = useState(
     initialDate && initialDate >= board.today ? initialDate : board.today,
@@ -186,9 +188,13 @@ function ScheduleComposer({
   const [arrival, setArrival] = useState("");
   const [end, setEnd] = useState("");
   const [priority, setPriority] = useState("normal");
+  const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const companies = board.sites.filter(
-    (s) => s.active !== false && s.worker_ids.includes(associateId) && s.phase === stage,
+    (s) =>
+      s.active !== false &&
+      s.worker_ids.includes(associateId) &&
+      (stage === "follow_up" ? manager : s.phase === stage),
   );
   const selected = companies.find((s) => s.site_id === companyId);
   const save = async (event: React.FormEvent) => {
@@ -196,16 +202,20 @@ function ScheduleComposer({
     if (!selected || !shift || !arrival || !end || end <= arrival)
       return toast.error("Select a shift and enter an end time after arrival.");
     setBusy(true);
-    const { error } = await fieldRpc("field_ops_schedule", {
-      _site: companyId,
-      _associate: associateId,
-      _phase: selected.phase,
-      _date: date,
-      _shift: shift,
-      _arrival: arrival,
-      _end: end,
-      _priority: manager ? priority : "normal",
-    });
+    const { error } = await fieldRpc(
+      stage === "follow_up" ? "field_ops_schedule_follow_up" : "field_ops_schedule",
+      {
+        _site: companyId,
+        _associate: associateId,
+        ...(stage === "follow_up" ? {} : { _phase: selected.phase }),
+        _date: date,
+        _shift: shift,
+        _arrival: arrival,
+        _end: end,
+        _priority: manager ? priority : "normal",
+        ...(stage === "follow_up" ? { _note: note } : {}),
+      },
+    );
     if (error) toast.error(error.message);
     else {
       toast.success("Company visit scheduled.");
@@ -213,22 +223,23 @@ function ScheduleComposer({
       setShift("");
       setArrival("");
       setEnd("");
+      setNote("");
       await reload();
     }
     setBusy(false);
   };
   return (
     <div className="space-y-3">
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className={`grid gap-3 ${manager ? "md:grid-cols-2 xl:grid-cols-4" : "md:grid-cols-3"}`}>
         {phases.map((p) => (
           <button
             key={p}
             onClick={() => setStage(stage === p ? null : p)}
             aria-pressed={stage === p}
-            className={`${panel} text-left transition-all hover:-translate-y-0.5 hover:border-lime hover:shadow-md ${stage === p ? "border-lime bg-lime/10 shadow-sm" : ""}`}
+            className={`flex flex-col items-start justify-start rounded-xl border border-border bg-surface p-3 text-left transition-colors hover:border-lime ${stage === p ? "border-lime bg-lime/10" : ""}`}
           >
-            <span className="font-semibold">{stageLabel[p]}</span>
-            <span className="mt-2 block text-sm text-text-secondary">
+            <span className="text-xs font-semibold leading-5">{stageLabel[p]}</span>
+            <span className="mt-1 block text-[11px] text-text-secondary">
               {
                 board.sites.filter(
                   (s) => s.active !== false && s.worker_ids.includes(associateId) && s.phase === p,
@@ -238,9 +249,28 @@ function ScheduleComposer({
             </span>
           </button>
         ))}
+        {manager && (
+          <button
+            onClick={() => setStage(stage === "follow_up" ? null : "follow_up")}
+            aria-pressed={stage === "follow_up"}
+            className={`flex flex-col items-start justify-start rounded-xl border border-border bg-surface p-3 text-left transition-colors hover:border-lime ${stage === "follow_up" ? "border-lime bg-lime/10" : ""}`}
+          >
+            <span className="text-xs font-semibold leading-5">Company follow-up / issue visit</span>
+            <span className="mt-1 block text-[11px] text-text-secondary">
+              {
+                board.sites.filter((s) => s.active !== false && s.worker_ids.includes(associateId))
+                  .length
+              }{" "}
+              companies
+            </span>
+            <span className="mt-1 block text-[10px] leading-4 text-text-secondary">
+              All assigned companies, including submitted and commissioned
+            </span>
+          </button>
+        )}
       </div>
       {stage && (
-        <div className={`${panel} max-h-64 space-y-2 overflow-y-auto`}>
+        <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl border border-border bg-surface p-3">
           {companies.length ? (
             companies.map((s) => (
               <button
@@ -248,13 +278,13 @@ function ScheduleComposer({
                 onClick={() => setCompanyId(s.site_id)}
                 className="flex w-full items-center justify-between rounded-xl border border-border p-3 text-left hover:border-lime"
               >
-                <span>
-                  <span className="block font-semibold">{s.company_name}</span>
+                <span className="min-w-0">
+                  <span className="block text-xs font-semibold leading-5">{s.company_name}</span>
                   <span className="mt-1 block text-xs text-text-secondary">
                     {s.status || stageLabel[s.phase as Phase]}
                   </span>
                 </span>
-                <Plus size={16} />
+                <Plus size={14} className="ml-2 shrink-0" />
               </button>
             ))
           ) : (
@@ -272,9 +302,11 @@ function ScheduleComposer({
           <DialogHeader>
             <DialogTitle>Schedule {selected?.company_name}</DialogTitle>
             <DialogDescription>
-              {selected && selected.phase !== "complete"
-                ? stageLabel[selected.phase]
-                : "Company visit"}
+              {stage === "follow_up"
+                ? visitLabels.follow_up
+                : selected && selected.phase !== "complete"
+                  ? stageLabel[selected.phase]
+                  : "Company visit"}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={(e) => void save(e)} className="space-y-4">
@@ -324,6 +356,17 @@ function ScheduleComposer({
                   <option value="high">High</option>
                   <option value="emergency">Emergency</option>
                 </Select>
+              </div>
+            )}
+            {stage === "follow_up" && manager && (
+              <div>
+                <Label>Issue / visit reason</Label>
+                <Textarea
+                  required
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="Describe the issue the associate needs to resolve"
+                />
               </div>
             )}
             <Button type="submit" disabled={busy}>
@@ -391,16 +434,16 @@ function VisitList({
       )}
       {visits.map((v) => {
         const company = board.sites.find((s) => s.site_id === v.site_id);
-        const ready = company?.[`${v.visit_type}_ready`];
+        const ready = v.visit_type === "follow_up" || company?.[`${v.visit_type}_ready`];
         return (
-          <article key={v.id} className={panel}>
+          <article key={v.id} className="rounded-xl border border-border bg-surface p-3 sm:p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h3 className="font-semibold">{v.company_name}</h3>
-                <p className="mt-1 text-sm text-text-secondary">
-                  {stageLabel[v.visit_type]} · {v.scheduled_for}
+                <h3 className="text-sm font-semibold">{v.company_name}</h3>
+                <p className="mt-1 text-xs text-text-secondary">
+                  {visitLabels[v.visit_type]} · {v.scheduled_for}
                 </p>
-                <p className="mt-1 text-sm">
+                <p className="mt-1 text-xs">
                   {v.shift ? `Shift ${v.shift} · ` : ""}
                   {v.expected_arrival?.slice(0, 5) || "Time not recorded"}
                   {v.expected_end ? ` – ${v.expected_end.slice(0, 5)}` : ""}
@@ -465,7 +508,7 @@ function VisitList({
                 </div>
               )}
             </div>
-            {!manager && !ready && v.status !== "completed" && (
+            {!manager && !ready && v.visit_type !== "follow_up" && v.status !== "completed" && (
               <p className="mt-3 text-xs text-text-secondary">
                 Complete all required {phaseLabel[v.visit_type].toLowerCase()} work
                 {v.visit_type === "commissioning" ? " and manager approval" : ""} before marking

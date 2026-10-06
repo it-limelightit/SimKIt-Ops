@@ -13,6 +13,7 @@ const site = "00000000-0000-4000-8000-000000000011";
 const site2 = "00000000-0000-4000-8000-000000000012";
 const historicSite = "00000000-0000-4000-8000-000000000013";
 const orderSite = "00000000-0000-4000-8000-000000000014";
+const followWorker = "00000000-0000-4000-8000-000000000304";
 const asUser = async (id) => db.query("SELECT set_config('request.jwt.claim.sub',$1,false)", [id]);
 const scalar = async (sql, args = []) => Object.values((await db.query(sql, args)).rows[0])[0];
 let today;
@@ -71,6 +72,15 @@ before(async () => {
     readFileSync(
       new URL(
         "../supabase/migrations/20261005140000_field_operations_assessment_commissioning_pay.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  await db.exec(
+    readFileSync(
+      new URL(
+        "../supabase/migrations/20261006120000_field_operations_follow_up_visits.sql",
         import.meta.url,
       ),
       "utf8",
@@ -767,4 +777,139 @@ test("pay policy migration zeros unpaid installation, preserves recorded payment
     Number(await scalar("SELECT amount FROM field_earnings WHERE site_id=$1", [installSite])),
     0,
   );
+});
+
+test("only managers schedule assigned-company follow-ups, including commissioned companies, with valid timing and a reason", async () => {
+  await db.query("INSERT INTO auth.users VALUES($1)", [followWorker]);
+  await db.query(
+    "INSERT INTO profiles(id,name,email) VALUES($1,'Follow-up Associate','follow@example.test')",
+    [followWorker],
+  );
+  await db.query("INSERT INTO user_roles VALUES($1,'worker')", [followWorker]);
+  const followSite = "00000000-0000-4000-8000-000000000301";
+  const secondSite = "00000000-0000-4000-8000-000000000302";
+  const unfinished = "00000000-0000-4000-8000-000000000303";
+  for (const id of [followSite, secondSite, unfinished]) {
+    await db.query(
+      "INSERT INTO sites(id,name,company_name,assigned_worker_id,task_notes) VALUES($1,'Follow-up factory','Follow-up factory',$2,$3)",
+      [
+        id,
+        followWorker,
+        id === unfinished
+          ? null
+          : id === secondSite
+            ? '[METADATA:{"status":"Commissioned","status_source":"manager"}]'
+            : '[METADATA:{"status":"Submitted","status_source":"manager"}]',
+      ],
+    );
+  }
+  const scheduled = await scalar("SELECT ((now() AT TIME ZONE 'Asia/Kolkata')::date + 2)::text");
+  const args = [
+    followSite,
+    followWorker,
+    scheduled,
+    "10:00-12:00",
+    "09:00",
+    "11:00",
+    "high",
+    "Resolve device issue",
+  ];
+  const schedule = (values = args) =>
+    db.query("SELECT field_ops_schedule_follow_up($1,$2,$3,$4,$5,$6,$7,$8)", values);
+  await asUser(followWorker);
+  await assert.rejects(schedule(), /Manager access required/);
+  await asUser(manager);
+  await assert.rejects(schedule([followSite, other, ...args.slice(2)]), /not assigned/);
+  await assert.rejects(schedule([...args.slice(0, 7), " "]), /Describe the issue/);
+  await assert.rejects(schedule([...args.slice(0, 3), null, ...args.slice(4)]), /shift/);
+  await assert.rejects(schedule([...args.slice(0, 5), "08:00", ...args.slice(6)]), /shift/);
+  await assert.rejects(schedule([...args.slice(0, 6), "invalid", args[7]]), /priority/);
+  await assert.rejects(
+    schedule([followSite, followWorker, "2020-01-01", ...args.slice(3)]),
+    /today or a future/,
+  );
+  await db.query("SET ROLE authenticated");
+  let id;
+  try {
+    id = Object.values((await schedule()).rows[0])[0];
+  } finally {
+    await db.query("RESET ROLE");
+  }
+  await assert.rejects(schedule(), /already scheduled/);
+  await assert.rejects(schedule([secondSite, ...args.slice(1)]), /overlap/);
+  const laterDate = await scalar("SELECT ($1::date + 1)::text", [scheduled]);
+  await schedule([secondSite, followWorker, laterDate, ...args.slice(3)]);
+  await schedule([
+    unfinished,
+    followWorker,
+    laterDate,
+    "14:00-16:00",
+    "14:00",
+    "16:00",
+    "normal",
+    "Resolve an assessment-site issue",
+  ]);
+  const board = await scalar("SELECT field_ops_board()");
+  const follow = board.visits.find((v) => v.id === id);
+  assert.equal(follow.visit_type, "follow_up");
+  assert.equal(follow.priority, "high");
+  assert.equal(follow.note, "Resolve device issue");
+  assert.equal(follow.expected_arrival, "09:00:00");
+  assert.equal(board.sites.find((s) => s.site_id === followSite).status, "Submitted");
+  await asUser(followWorker);
+  await db.query("SELECT field_ops_attendance($1,true)", [followWorker]);
+  await assert.rejects(
+    db.query("SELECT field_ops_schedule($1,$2,'follow_up',$3,'10:00-12:00','09:00','11:00')", [
+      followSite,
+      followWorker,
+      today,
+    ]),
+    /no pending visit stage/,
+  );
+});
+
+test("follow-up completion retains attendance/access checks and creates no phase work or earnings", async () => {
+  const followSite = "00000000-0000-4000-8000-000000000301";
+  const id = await scalar(
+    "SELECT id FROM field_visit_schedules WHERE site_id=$1 AND visit_type='follow_up'",
+    [followSite],
+  );
+  const earningsBefore = (await db.query("SELECT * FROM field_earnings ORDER BY id")).rows;
+  const siteBefore = (await db.query("SELECT * FROM sites WHERE id=$1", [followSite])).rows;
+  assert.equal(
+    await scalar("SELECT field_ops_phase_ready($1,'commissioning')", [followSite]),
+    false,
+  );
+  await asUser(other);
+  await assert.rejects(db.query("SELECT field_ops_complete_visit($1)", [id]), /access denied/);
+  await asUser(manager);
+  await db.query("SELECT field_ops_attendance($1,false)", [followWorker]);
+  await asUser(followWorker);
+  await assert.rejects(db.query("SELECT field_ops_complete_visit($1)", [id]), /Mark online first/);
+  await db.query("SELECT field_ops_attendance($1,true)", [followWorker]);
+  await db.query("SELECT field_ops_complete_visit($1,true,'Customer unavailable')", [id]);
+  assert.equal(
+    await scalar("SELECT status FROM field_visit_schedules WHERE id=$1", [id]),
+    "delayed",
+  );
+  await db.query("SELECT field_ops_complete_visit($1)", [id]);
+  assert.equal(
+    await scalar("SELECT status FROM field_visit_schedules WHERE id=$1", [id]),
+    "completed",
+  );
+  await db.query("SELECT field_ops_complete_visit($1)", [id]);
+  assert.deepEqual(
+    (await db.query("SELECT * FROM field_earnings ORDER BY id")).rows,
+    earningsBefore,
+  );
+  assert.deepEqual(
+    (await db.query("SELECT * FROM sites WHERE id=$1", [followSite])).rows,
+    siteBefore,
+  );
+  for (const table of ["assessment", "installation", "commissioning"]) {
+    assert.equal(
+      await scalar(`SELECT count(*)::int FROM ${table} WHERE site_id=$1`, [followSite]),
+      0,
+    );
+  }
 });
