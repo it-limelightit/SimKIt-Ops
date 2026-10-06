@@ -1578,6 +1578,11 @@ function AssociateDetails({
   const [date, setDate] = useState(board.today);
   const [busy, setBusy] = useState(false);
   const events = board.attendance.filter((a) => a.associate_id === associate.id);
+  const completedWorkDates = new Set(
+    board.earnings
+      .filter((entry) => entry.associate_id === associate.id && (entry.eligible || entry.paid))
+      .map((entry) => entry.earning_date),
+  );
   const days = monthDays(month);
   const offline = async () => {
     setBusy(true);
@@ -1701,12 +1706,13 @@ function AssociateDetails({
                   const future = d > board.today;
                   const beforeJoining =
                     d < indiaDate(new Date(associate.joined)) || d < board.tracking_started;
-                  const online = daily.some((a) => a.online);
+                  const completedWork = completedWorkDates.has(d);
+                  const online = Boolean(last?.online || completedWork);
                   return (
                     <button
                       key={d}
                       onClick={() => setDate(d)}
-                      title={`${d}: ${future || beforeJoining ? "No attendance expected" : online ? "Marked online" : "Offline"}${last ? ` · Latest: ${last.online ? "online" : "offline"}` : ""}`}
+                      title={`${d}: ${future || beforeJoining ? "No attendance expected" : completedWork ? "Completed work" : online ? "Marked online" : "Offline"}${last ? ` · Latest: ${last.online ? "online" : "offline"}` : ""}`}
                       className={`rounded-lg py-2 ${future || beforeJoining ? "text-text-secondary" : online ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"} ${date === d ? "ring-2 ring-lime" : ""}`}
                     >
                       {Number(d.slice(-2))}
@@ -1728,7 +1734,12 @@ function AssociateDetails({
               {!compact && (
                 <p className="mt-3 text-xs">
                   Active days this month:{" "}
-                  {days.filter((d) => events.some((a) => a.work_date === d && a.online)).length}
+                  {
+                    days.filter(
+                      (d) =>
+                        events.find((a) => a.work_date === d)?.online || completedWorkDates.has(d),
+                    ).length
+                  }
                 </p>
               )}
             </aside>
