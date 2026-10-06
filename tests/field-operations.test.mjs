@@ -274,6 +274,20 @@ test("commissioning needs approval; editing its earning date preserves approval 
     "SELECT field_ops_edit_commissioning_date($1,(now() AT TIME ZONE 'Asia/Kolkata')::date-2,'Actual site work')",
     [commission.id],
   );
+  const correctedDate = await scalar("SELECT ((now() AT TIME ZONE 'Asia/Kolkata')::date-2)::text");
+  await db.exec("SET ROLE authenticated");
+  try {
+    await assert.rejects(db.query("SELECT * FROM field_earnings"), /permission denied/);
+    const board = await scalar("SELECT field_ops_board()");
+    const reported = board.earnings.find((entry) => entry.id === commission.id);
+    assert.equal(reported.earning_date, correctedDate);
+    assert.equal(
+      new Date(reported.completed_at).getTime(),
+      new Date(commission.completed_at).getTime(),
+    );
+  } finally {
+    await db.exec("RESET ROLE");
+  }
   assert.equal(await scalar("SELECT count(*)::int FROM field_earning_date_changes"), 1);
   assert.equal(
     String(await scalar("SELECT completed_at FROM field_earnings WHERE id=$1", [commission.id])),
