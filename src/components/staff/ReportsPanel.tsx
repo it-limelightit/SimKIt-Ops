@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { useCommissioningWorkDates } from "@/hooks/use-commissioning-work-dates";
+import { commissioningWorkTimestamp } from "@/utils/commissioning-work-date";
 import { supabase } from "@/integrations/supabase/client";
 import { Button, Input, Label, Select } from "@/components/ui-kit";
 import { parseSiteMetadata } from "@/lib/site-metadata";
@@ -192,6 +194,7 @@ export function ReportsPanel() {
   const [assessments, setAssessments] = useState<any[]>([]);
   const [installations, setInstallations] = useState<any[]>([]);
   const [commissionings, setCommissionings] = useState<any[]>([]);
+  const commissioningWorkDates = useCommissioningWorkDates();
   const [materials, setMaterials] = useState<any[]>([]);
   const [filters, setFilters] = useState({
     search: "",
@@ -494,8 +497,13 @@ export function ReportsPanel() {
       (row) => !auditKeys.has(`${row.activityType}:${row.siteId}:${row.fromStatus}:${row.toStatus}`),
     );
     return [...auditRows, ...fallbackStatusRows, ...phaseRows]
+      .map((row) => row.toStatus.trim() === "Commissioned" &&
+        (row.activityType === "status_change" || row.activityType === "update")
+        ? { ...row, changedAt: commissioningWorkTimestamp(
+            commissioningWorkDates.get(row.siteId)?.date, row.changedAt)! }
+        : row)
       .sort((a, b) => new Date(b.changedAt).getTime() - new Date(a.changedAt).getTime());
-  }, [sites, assessments, installations, commissionings, auditLogs, consultantMap]);
+  }, [sites, assessments, installations, commissionings, auditLogs, consultantMap, commissioningWorkDates]);
 
   const filteredLogRows = useMemo(() => {
     const search = filters.search.trim().toLowerCase();

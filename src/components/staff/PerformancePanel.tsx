@@ -1,4 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { useCommissioningWorkDates, commissioningDateChanged, type CommissioningWorkDate } from "@/hooks/use-commissioning-work-dates";
+import { commissioningWorkTimestamp } from "@/utils/commissioning-work-date";
+import { fieldRpc } from "@/lib/field-operations";
 import { supabase } from "@/integrations/supabase/client";
 import { parseSiteMetadata } from "@/lib/site-metadata";
 import { toast } from "sonner";
@@ -75,6 +78,7 @@ export function getAppointmentTimingStatus(scheduledDateStr: string | null, sche
 }
 
 export function PerformancePanel() {
+  const commissioningWorkDates = useCommissioningWorkDates();
   const [rows, setRows] = useState<ConsultantRow[] | null>(null);
   const [allSiteDetails, setAllSiteDetails] = useState<SiteDetail[]>([]);
   const [openConsultant, setOpenConsultant] = useState<string | null>(null);
@@ -153,7 +157,9 @@ export function PerformancePanel() {
           commissioningUpdatedAt: cr?.updated_at ?? null,
           assessmentCompletedAt: phaseCompletionAt(assessment, ar?.updated_at ?? null, "assessment", site.task_notes),
           installationCompletedAt: phaseCompletionAt(installation, ir?.updated_at ?? null, "installation", site.task_notes),
-          commissioningCompletedAt: phaseCompletionAt(commissioning, cr?.updated_at ?? null, "commissioning", site.task_notes),
+          commissioningCompletedAt: commissioningWorkTimestamp(
+            commissioningWorkDates.get(site.id)?.date,
+            phaseCompletionAt(commissioning, cr?.updated_at ?? null, "commissioning", site.task_notes)),
           status: getCanonicalStatus(site, aMap, iMap, cMap, materials),
           assessmentPct,
           installationPct,
@@ -184,7 +190,7 @@ export function PerformancePanel() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, []);
+  }, [commissioningWorkDates]);
 
   const filteredRows = useMemo(() => {
     if (!rows) return [];
@@ -372,6 +378,7 @@ export function PerformancePanel() {
               factoryAnalytics={factoryAnalytics}
               factoryPeriod={factoryPeriod}
               onFactoryPeriodChange={setFactoryPeriod}
+              commissioningWorkDates={commissioningWorkDates}
             />
           )}
         </>
@@ -569,10 +576,12 @@ function FactoryAnalysisDashboard({
   factoryAnalytics,
   factoryPeriod,
   onFactoryPeriodChange,
+  commissioningWorkDates,
 }: {
   factoryAnalytics: FactoryAnalytics;
   factoryPeriod: string;
   onFactoryPeriodChange: (value: string) => void;
+  commissioningWorkDates: ReadonlyMap<string, CommissioningWorkDate>;
 }) {
   const [openCompanyId, setOpenCompanyId] = useState<string | null>(null);
   const [savingMilestone, setSavingMilestone] = useState<string | null>(null);
@@ -601,6 +610,21 @@ function FactoryAnalysisDashboard({
     const table = phase;
     const savingKey = `${row.id}-${phase}`;
     setSavingMilestone(savingKey);
+    const earning = commissioningWorkDates.get(row.id);
+    if (phase === "commissioning" && earning) {
+      const { error } = await fieldRpc("field_ops_edit_commissioning_date", {
+        _earning: earning.id,
+        _date: date,
+        _reason: "Commissioning work date corrected from Factory Analysis",
+      });
+      setSavingMilestone(null);
+      if (error) toast.error(`Could not save commissioning date: ${error.message}`);
+      else {
+        window.dispatchEvent(new Event(commissioningDateChanged));
+        toast.success("Commissioning work date corrected.");
+      }
+      return;
+    }
     const phaseTable = supabase.from(table as any) as any;
     const { data: existing, error: readError } = await phaseTable.select("data").eq("site_id", row.id).maybeSingle();
     if (readError) {

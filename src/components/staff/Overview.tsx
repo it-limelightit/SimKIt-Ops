@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { useCommissioningWorkDates } from "@/hooks/use-commissioning-work-dates";
+import { commissioningWorkTimestamp } from "@/utils/commissioning-work-date";
 import { matchesOverviewFilters, toLocalDateKey } from "@/utils/overview-filters";
 import { useNavigate } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
@@ -188,6 +190,7 @@ export function Overview() {
   const [rawAssessments, setRawAssessments] = useState<any[]>([]);
   const [rawInstallations, setRawInstallations] = useState<any[]>([]);
   const [rawCommissionings, setRawCommissionings] = useState<any[]>([]);
+  const commissioningWorkDates = useCommissioningWorkDates();
   const [rawCommissioningApprovalRequests, setRawCommissioningApprovalRequests] = useState<any[]>([]);
   const [rawProfiles, setRawProfiles] = useState<any[]>([]);
   const [rawMaterials, setRawMaterials] = useState<any[]>([]);
@@ -893,7 +896,13 @@ export function Overview() {
       appt_time: site.appt_time,
       task_notes: site.task_notes,
       consultant_stage: site.consultant_stage,
-      progress: { a: aP, i: iP, c: cP, updated, appt },
+      progress: {
+        a: aP, i: iP, c: cP,
+        updated: canonicalStatus.trim() === "Commissioned"
+          ? commissioningWorkTimestamp(commissioningWorkDates.get(site.id)?.date, updated)
+          : updated,
+        appt,
+      },
       workerIds,
       company_name: site.company_name ?? null,
       meta: {

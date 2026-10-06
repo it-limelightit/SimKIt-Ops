@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth-store";
 import { useFieldOperations } from "@/hooks/use-field-operations";
+import { commissioningDateChanged } from "@/hooks/use-commissioning-work-dates";
 import {
   earningsTotal,
   fieldRpc,
@@ -825,7 +826,8 @@ function EarningsView({
     if (error) toast.error(error.message);
     else {
       setEditing(null);
-      toast.success("Commissioning earnings date updated.");
+      toast.success("Commissioning work date updated.");
+      window.dispatchEvent(new Event(commissioningDateChanged));
       await reload();
     }
     setBusy(false);
