@@ -1,1 +1,15 @@
-project_id = "mbycybczlccvgcqdlqwj"
+project_id = "jhhiwyvrhfhvvougkqmm"
+
+# Attendance authenticates user JWTs or dedicated webhook credentials in code.
+[functions.attendance-enroll-user]
+verify_jwt = false
+[functions.attendance-device-event]
+verify_jwt = false
+[functions.attendance-command-retry]
+verify_jwt = false
+[functions.attendance-photo-access]
+verify_jwt = false
+[functions.attendance-photo-cleanup]
+verify_jwt = false
+[functions.attendance-leave-email]
+verify_jwt = false

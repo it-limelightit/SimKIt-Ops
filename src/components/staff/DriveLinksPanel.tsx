@@ -4,6 +4,7 @@ import { Card, EmptyState } from "@/components/ui-kit";
 import { Folder, ExternalLink, Link2, Info } from "lucide-react";
 import { toast } from "sonner";
 import { parseSiteMetadata } from "@/lib/site-metadata";
+import { SiteDocumentLink } from "@/components/SiteDocumentLink";
 
 export type Site = {
   id: string;
@@ -161,7 +162,7 @@ export function DriveLinksPanel() {
                         <div className="text-[9px] font-mono uppercase tracking-widest text-text-secondary font-bold mb-1">Uploaded Sections</div>
                         <div className="divide-y divide-border/50 border border-border rounded-[8px] overflow-hidden">
                           {siteMedia.map((m) => (
-                            <a
+                            <SiteDocumentLink
                               key={m.id}
                               href={m.file_path}
                               target="_blank"
@@ -182,7 +183,7 @@ export function DriveLinksPanel() {
                               <div className="flex h-6 w-6 items-center justify-center rounded-[4px] bg-border hover:bg-lime/20 hover:text-lime text-text-primary transition-colors shrink-0 group-hover:bg-lime/10 group-hover:text-lime">
                                 <ExternalLink size={12} />
                               </div>
-                            </a>
+                            </SiteDocumentLink>
                           ))}
                         </div>
                       </div>

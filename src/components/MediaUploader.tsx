@@ -3,6 +3,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Trash2, Link as LinkIcon, ExternalLink, FileText, UploadCloud, Loader2 } from "lucide-react";
 import { Input, Button } from "@/components/ui-kit";
+import { SiteDocumentLink } from "@/components/SiteDocumentLink";
+import { getSiteDocumentPath } from "@/lib/site-documents";
 
 export type MediaRow = {
   id: string;
@@ -91,7 +93,7 @@ export function MediaUploader({
           site_id: siteId,
           phase,
           section,
-          file_path: publicUrl,
+          file_path: isMom ? publicUrl.replace("/object/public/site-docs/", "/object/authenticated/site-docs/") : publicUrl,
           file_name: file.name,
           file_type: file.type || 'application/octet-stream',
           caption: isMom ? "MOM Document" : "Uploaded Media",
@@ -141,11 +143,20 @@ export function MediaUploader({
     if (disabled) return;
     try {
       const bucketName = isMom ? "site-docs" : "site-media";
-      const marker = `/public/${bucketName}/`;
-      const index = filePath.indexOf(marker);
-      if (index !== -1) {
-        const storagePath = filePath.substring(index + marker.length);
-        await supabase.storage.from(bucketName).remove([storagePath]);
+      if (isMom) {
+        const projectUrl = supabase.storage.from("site-docs").getPublicUrl("").data.publicUrl;
+        const storagePath = getSiteDocumentPath(filePath, projectUrl);
+        if (storagePath) {
+          const { error } = await supabase.storage.from("site-docs").remove([storagePath]);
+          if (error) throw error;
+        }
+      } else {
+        const marker = `/public/${bucketName}/`;
+        const index = filePath.indexOf(marker);
+        if (index !== -1) {
+          const storagePath = filePath.substring(index + marker.length);
+          await supabase.storage.from(bucketName).remove([storagePath]);
+        }
       }
 
       await supabase.from("media").delete().eq("id", id);
@@ -176,7 +187,7 @@ export function MediaUploader({
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <a
+                <SiteDocumentLink
                   href={it.file_path}
                   target="_blank"
                   rel="noopener noreferrer"
@@ -184,7 +195,7 @@ export function MediaUploader({
                   title="View / Download"
                 >
                   <ExternalLink size={16} />
-                </a>
+                </SiteDocumentLink>
                 {!disabled && (
                   <button
                     onClick={() => handleDelete(it.id, it.file_path)}

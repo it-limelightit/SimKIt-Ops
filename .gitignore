@@ -36,4 +36,16 @@ dist-ssr
 .vercel
 *.md
 !FIELD_ASSOCIATE_ATTENDANCE_EARNINGS_PLAN.md
+!MANAGER_DEVICE_ATTENDANCE_PLAN.md
+!ATTENDANCE_ARCHITECTURE_SIMPLE_FLOW.md
+!ATTENDANCE_DEPLOYMENT.md
+!ATTENDANCE_LOVABLE_ENROLL_DEPLOY.md
+!SUPABASE_MIGRATION_RUNBOOK.md
+!SUPABASE_DATA_IMPORT_ORDER.md
+# Local attendance adapter queue and command state contain employee metadata.
+integrations/attendance-mqtt-bridge/*.sqlite*
 .tmp/
+# Downloaded full database exports contain Auth data/password hashes.
+/bucket-database_export_*-files.zip
+/site-docs-export.zip
+/Backup_data/
