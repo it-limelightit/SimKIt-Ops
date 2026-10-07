@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "test:field-ops": "node --test tests/field-operations.test.mjs",
+    "test:attendance": "node --test tests/device-attendance.test.mjs tests/attendance-edge.test.mjs tests/attendance-mqtt.test.mjs",
     "format": "prettier --write ."
   },
   "dependencies": {

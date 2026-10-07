@@ -16,6 +16,7 @@ import { Route as ClientFormRouteImport } from './routes/client-form'
 import { Route as CompanyTrackerRouteImport } from './routes/company-tracker'
 import { Route as ManagerRouteImport } from './routes/manager'
 import { Route as ManagerIndexRouteImport } from './routes/manager.index'
+import { Route as ManagerAttendanceRouteImport } from './routes/manager.attendance'
 import { Route as ManagerBusinessConsultantsRouteImport } from './routes/manager.business-consultants'
 import { Route as ManagerCompanyTrackerRouteImport } from './routes/manager.company-tracker'
 import { Route as ManagerDriveLinksRouteImport } from './routes/manager.drive-links'
@@ -60,6 +61,11 @@ const ManagerRoute = ManagerRouteImport.update({
 const ManagerIndexRoute = ManagerIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => ManagerRoute,
+} as any)
+const ManagerAttendanceRoute = ManagerAttendanceRouteImport.update({
+  id: '/attendance',
+  path: '/attendance',
   getParentRoute: () => ManagerRoute,
 } as any)
 const ManagerBusinessConsultantsRoute =
@@ -122,6 +128,7 @@ export interface FileRoutesByFullPath {
   '/client-form': typeof ClientFormRoute
   '/company-tracker': typeof CompanyTrackerRoute
   '/manager': typeof ManagerRouteWithChildren
+  '/manager/attendance': typeof ManagerAttendanceRoute
   '/manager/business-consultants': typeof ManagerBusinessConsultantsRoute
   '/manager/company-tracker': typeof ManagerCompanyTrackerRoute
   '/manager/drive-links': typeof ManagerDriveLinksRoute
@@ -140,6 +147,7 @@ export interface FileRoutesByTo {
   '/business-consultant': typeof BusinessConsultantRoute
   '/client-form': typeof ClientFormRoute
   '/company-tracker': typeof CompanyTrackerRoute
+  '/manager/attendance': typeof ManagerAttendanceRoute
   '/manager/business-consultants': typeof ManagerBusinessConsultantsRoute
   '/manager/company-tracker': typeof ManagerCompanyTrackerRoute
   '/manager/drive-links': typeof ManagerDriveLinksRoute
@@ -160,6 +168,7 @@ export interface FileRoutesById {
   '/client-form': typeof ClientFormRoute
   '/company-tracker': typeof CompanyTrackerRoute
   '/manager': typeof ManagerRouteWithChildren
+  '/manager/attendance': typeof ManagerAttendanceRoute
   '/manager/business-consultants': typeof ManagerBusinessConsultantsRoute
   '/manager/company-tracker': typeof ManagerCompanyTrackerRoute
   '/manager/drive-links': typeof ManagerDriveLinksRoute
@@ -181,6 +190,7 @@ export interface FileRouteTypes {
     | '/client-form'
     | '/company-tracker'
     | '/manager'
+    | '/manager/attendance'
     | '/manager/business-consultants'
     | '/manager/company-tracker'
     | '/manager/drive-links'
@@ -199,6 +209,7 @@ export interface FileRouteTypes {
     | '/business-consultant'
     | '/client-form'
     | '/company-tracker'
+    | '/manager/attendance'
     | '/manager/business-consultants'
     | '/manager/company-tracker'
     | '/manager/drive-links'
@@ -218,6 +229,7 @@ export interface FileRouteTypes {
     | '/client-form'
     | '/company-tracker'
     | '/manager'
+    | '/manager/attendance'
     | '/manager/business-consultants'
     | '/manager/company-tracker'
     | '/manager/drive-links'
@@ -289,6 +301,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/manager/'
       preLoaderRoute: typeof ManagerIndexRouteImport
+      parentRoute: typeof ManagerRoute
+    }
+    '/manager/attendance': {
+      id: '/manager/attendance'
+      path: '/attendance'
+      fullPath: '/manager/attendance'
+      preLoaderRoute: typeof ManagerAttendanceRouteImport
       parentRoute: typeof ManagerRoute
     }
     '/manager/business-consultants': {
@@ -365,6 +384,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface ManagerRouteChildren {
+  ManagerAttendanceRoute: typeof ManagerAttendanceRoute
   ManagerBusinessConsultantsRoute: typeof ManagerBusinessConsultantsRoute
   ManagerCompanyTrackerRoute: typeof ManagerCompanyTrackerRoute
   ManagerDriveLinksRoute: typeof ManagerDriveLinksRoute
@@ -379,6 +399,7 @@ interface ManagerRouteChildren {
 }
 
 const ManagerRouteChildren: ManagerRouteChildren = {
+  ManagerAttendanceRoute: ManagerAttendanceRoute,
   ManagerBusinessConsultantsRoute: ManagerBusinessConsultantsRoute,
   ManagerCompanyTrackerRoute: ManagerCompanyTrackerRoute,
   ManagerDriveLinksRoute: ManagerDriveLinksRoute,
