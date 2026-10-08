@@ -253,8 +253,8 @@ export function AttendancePanel() {
       )}
       {board && !board.settings?.absence_cutoff && (
         <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-4 text-sm text-amber-600">
-          Start time is 10:00 AM with 15 minutes grace. Complete working days and absence cutoff in
-          Office settings. Missing scans require review until attendance coverage is confirmed.
+          Complete working days and absence cutoff in Office settings. Missing scans require review
+          until attendance coverage is confirmed.
         </div>
       )}
       <nav

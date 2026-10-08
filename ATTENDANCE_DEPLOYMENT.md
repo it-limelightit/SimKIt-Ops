@@ -1,5 +1,19 @@
 # Manager device attendance: implementation and setup
 
+## Current deployment status — 8 October 2026
+
+The active Supabase project is `jhhiwyvrhfhvvougkqmm`. All ten attendance tables exist with Row Level Security enabled, and the `attendance-photos` bucket is private. Do **not** run the base CREATE TABLE migration again on this project. All six attendance Edge Functions are now deployed and active. Each rejected unauthenticated POST requests with HTTP 401. An authenticated cleanup call returned HTTP 200 with no failed deletions; command retry returned `configured: false, sent: 0`, because broker credentials and protocol remain unset. An authenticated device request with an invalid serial was rejected before any scan write.
+
+Attendance webhook/Cron/email signing secrets were generated and saved privately under `.tmp/supabase-migration-jhhiwyvrhfhvvougkqmm/attendance-secrets.private.json`, then installed in Supabase Edge Function Secrets. The matching Cron secret and project URL were saved in Vault. Both attendance Cron jobs are active, scheduled once per minute. Office policy was verified as 10:00 AM with 15 minutes grace; absence cutoff remains unset pending manager confirmation. No actual employee enrollment or face scan has been tested against the device.
+
+Deployment used the project's management API and touched only the six attendance functions, attendance-specific secrets, Vault names and schedules, plus the required Cron extensions. No other function or application credential was changed. Repeat deployment is available via `node supabase/scripts/deploy_attendance_cloud.mjs <private-migration-env-path>`; `--configure-only` skips code redeployment. The script prints no credentials and refuses a Vault update if the locally saved Cron secret cannot authenticate the cleanup function. Keep the private files out of Git.
+
+For the shortest Dashboard deployment instructions, open [supabase/dashboard-deploy/README.md](supabase/dashboard-deploy/README.md). That directory now contains a self-contained source file for **each** attendance Edge Function. The files are generated from the real implementation; they do not introduce another backend or modify the MQTT bridge.
+
+Actual device enrollment requires confirmed command JSON, command topic, reply topic and acknowledgment fields. The screenshot alone does not establish them. Continuous face scans also require the device or broker to forward events to HTTPS. Deployment by itself does not establish either connection. Automatic email leave requests require a configured inbound mail provider/gateway; manual leave requests and manager review are available independently.
+
+Rebuild Dashboard files after changing source: `node supabase/scripts/build_attendance_dashboard.mjs`. Read-only cloud audit: `node supabase/scripts/check_attendance_cloud.mjs .tmp/supabase-migration-jhhiwyvrhfhvvougkqmm/migration.env`.
+
 ## Implemented locally
 
 Manager navigation now includes Attendance at `/manager/attendance`, with Daily Attendance, Manage Users, Leave Requests, office settings, scan history, late highlights, and private photo viewing. New attendance tables/functions are separate from field-associate online/offline records and earnings. No existing payroll or phase workflow has been replaced.
@@ -8,7 +22,29 @@ The database starts with the user-confirmed **10:00 AM** shift and **15 minutes 
 
 The user supplied serial **AYUE22065256** and observed topic **aiface/AYUE22065256/sub/stellar**. This is `stellar`, with two l characters. The screenshot shows a `sendlog` event on that topic, so its command direction is not established. Do not publish guessed enrollment JSON there.
 
-This is local implementation, not confirmation of live device connectivity. Database migration, function deployment, secrets, Cron, broker integration, and email-provider routing need to be installed in the intended environment before live use.
+### Device manual and live topic verification — 8 October 2026
+
+Read the supplied 40-page `aiface_mqtt+json_api.pdf` (revision 1.0, 2 January 2025). Page 6 documents command topic `aiface/<serial>/pub` and response topic `aiface/<serial>/sub`. This installation adds `/stellar`: a non-destructive `checklive` on `aiface/AYUE22065256/pub` received no matching reply in 12 seconds, whereas the same command on **`aiface/AYUE22065256/pub/stellar`** returned `ret: checklive`, the correct serial and `result: true` on **`aiface/AYUE22065256/sub/stellar`**. Broker login and this device round-trip were tested from the local machine, not from the hosted Edge runtime.
+
+Page 40 documents remote enrollment with `cmd: adduser`, numeric `enrollid`, `backupnum: 50`, `admin: 0`, the employee's `name` and `flag: 10` (automatic registration). The name and department in SimKit remain database-owned; the device command does not include department. The exact template is prepared in the private MQTT file. The verified command topic is configured in Supabase; the enrollment template is deliberately not activated there until the correct person is ready at the device. No enrollment command was sent in these connectivity checks.
+
+The manual's final adduser section does **not** document its completion reply or any echoed command UUID. Do not substitute a setuserinfo acknowledgment or declare enrollment complete from PUBACK. Capture the actual fresh registration response before implementing confirmation mapping. Page 7 documents attendance `sendlog` records (`enrollid`, local `time`, `mode`, `inout`, optional base64 `image`), with face mode 8. Native vendor payloads still need translation to the authenticated Edge Function contract; topic configuration does not establish HTTP forwarding.
+
+### Separate receiver: live local test and VPS handoff
+
+Added `integrations/aiface-attendance-receiver`, which reuses the untouched bridge's protocol and durable metadata queue. It subscribes to this device's exact topic, forwards face-entry records and supplied JPEG/PNG images to the existing attendance Edge Function, and sends periodic `checklive` requests. Only fresh replies from the actual device generate Supabase heartbeats. Receipt acknowledgments are sent after successful delivery and contain no door-opening controls. The existing VPS script and bridge source files were not modified.
+
+A live receiver test on the local computer successfully delivered device heartbeats and attendance events. Supabase now has populated `last_heartbeat_at` and `last_scan_at`; 27 scan events existed at verification. This does not mean employee 9002 is registered: its enrollment remains pending, with zero command attempts. The enrollment template has not been enabled in Supabase while awaiting the correct person's readiness.
+
+The user has no VPS access; another administrator manages it. Permanent operation is not deployed there yet. A credential-free release is prepared at `.tmp/aiface-attendance-receiver.zip`, and administrator instructions are in `integrations/aiface-attendance-receiver/README.md`. The separate private VPS environment file is `.tmp/supabase-migration-jhhiwyvrhfhvvougkqmm/attendance-receiver.vps.env`; it requires only broker credentials and the dedicated webhook secret, not a Supabase management or service-role key. The current local receiver is a temporary test and should be stopped after the VPS service is confirmed. QoS 0 outages and unuploaded in-memory photos across restarts remain limitations described in the receiver guide.
+
+### Render deployment option
+
+The receiver now includes a Render Web Service entrypoint (`web.mjs`), a public read-only `/health` liveness endpoint, a standalone MQTT dependency lockfile, local copies of its tested helpers, and `render.yaml`. The Render entrypoint was tested locally against the real device; its health endpoint returned HTTP 200 and real heartbeats reached Supabase. Render itself has not been deployed because no Render account/repository access was supplied. Follow `integrations/aiface-attendance-receiver/RENDER_DEPLOYMENT.md`; the private environment file is `.tmp/supabase-migration-jhhiwyvrhfhvvougkqmm/attendance-receiver.render.env`.
+
+Render Free can be used for a preview, but sleeps after idle inbound HTTP traffic and discards its ephemeral queue on restarts. It does not guarantee continuous production attendance. Vercel request-limited Functions cannot host this permanent MQTT subscriber. Supabase's existing request-scoped functions and the production website remain in their current platforms; neither requires a platform change for the separate receiver.
+
+The database, six functions, baseline attendance secrets and Cron are installed in the new Supabase project. Broker integration and inbound email-provider routing remain required for live device and automatic email use. This is not confirmation of live device connectivity.
 
 ## 1. Database
 
