@@ -93,7 +93,7 @@ function ManagerLayout() {
 
       knownFactorySubmissionKeys.current = new Map(
         (data ?? [])
-          .filter((row: any) => row.site_id)
+          .filter((row: any) => row.site_id && getFactoryFormState(row.data).completed)
           .map((row: any) => [
             row.site_id,
             getFactoryFormState(row.data).submissionKey,
@@ -113,11 +113,15 @@ function ManagerLayout() {
           const next = payload.new as { site_id?: string; data?: Record<string, any> } | null;
           const siteId = next?.site_id;
           const state = getFactoryFormState(next?.data);
-          const isSubmitted = state.submitted;
           const submissionKey = state.submissionKey;
           const previousSubmissionKey = siteId ? knownFactorySubmissionKeys.current.get(siteId) : undefined;
 
-          if (!siteId || !isSubmitted || previousSubmissionKey === submissionKey) return;
+          if (!siteId) return;
+          if (!state.completed) {
+            knownFactorySubmissionKeys.current.delete(siteId);
+            return;
+          }
+          if (previousSubmissionKey === submissionKey) return;
 
           knownFactorySubmissionKeys.current.set(siteId, submissionKey);
           const companyName = await getCompanyName(siteId);

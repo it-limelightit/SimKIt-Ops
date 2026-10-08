@@ -1,11 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { InventoryPanel } from "@/components/inventory/InventoryPanel";
-import { InventoryStockPanel } from "@/components/inventory/InventoryStockPanel";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button, Card } from "@/components/ui-kit";
 import { toast } from "sonner";
-import { Database, UserCheck, RefreshCw, Truck, Boxes, Table2 } from "lucide-react";
+import { Database, UserCheck, RefreshCw, Truck, Table2 } from "lucide-react";
 
 export const Route = createFileRoute("/manager/logistic")({
   ssr: false,
@@ -15,7 +14,7 @@ export const Route = createFileRoute("/manager/logistic")({
 
 function LogisticPageWithSeeder() {
   const [seeding, setSeeding] = useState(false);
-  const [activeTab, setActiveTab] = useState<"dispatch" | "deviceInfo" | "inventory">("dispatch");
+  const [activeTab, setActiveTab] = useState<"dispatch" | "deviceInfo">("dispatch");
 
   const runSeeder = async (isAuto = false) => {
     setSeeding(true);
@@ -131,23 +130,8 @@ function LogisticPageWithSeeder() {
           <Table2 size={15} />
           Device Info
         </button>
-        <button
-          onClick={() => setActiveTab("inventory")}
-          className={`px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-2 ${
-            activeTab === "inventory"
-              ? "bg-violet text-white shadow-md"
-              : "bg-surface-raised/40 text-text-secondary hover:text-text-primary"
-          }`}
-        >
-          <Boxes size={15} />
-          Inventory Management
-        </button>
       </div>
 
-      {activeTab === "inventory" ? (
-        <InventoryStockPanel />
-      ) : (
-        <>
           {/* Premium Debug/Data Seeding panel */}
           {activeTab === "dispatch" && <Card className="border border-border/80 bg-surface-raised/20 p-5 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="space-y-1">
@@ -179,8 +163,6 @@ function LogisticPageWithSeeder() {
             viewMode={activeTab === "deviceInfo" ? "table" : "cards"}
             showLogisticsKtas={activeTab !== "deviceInfo"}
           />
-        </>
-      )}
     </div>
   );
 }

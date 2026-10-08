@@ -14,6 +14,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Boxes,
+  Package,
   Sun,
   Moon,
   ClipboardList,
@@ -59,18 +60,18 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
     localStorage.setItem("themeMode", next);
   };
 
-  const DRIVE_URL = "https://drive.google.com/drive/folders/17I5gB1lJOG9sBaPGa5JwR-HE9wxUpHVA";
   const items: { to: string; label: string; icon: React.ElementType; href?: string }[] = [
     { to: `${base}`, label: "Overview", icon: LayoutDashboard },
     { to: `${base}/sites`, label: "Sites", icon: MapPin },
     { to: `${base}/business-consultants`, label: "Field Associates", icon: Users },
     { to: `${base}/factory-data`, label: "Factory Form Data", icon: ClipboardList },
     { to: `${base}/performance`, label: "Performance", icon: Activity },
-    { to: `${base}/drive-links`, label: "Links of Drive", icon: Folder, href: DRIVE_URL },
+    { to: `${base}/drive-links`, label: "Links of Drive", icon: Folder },
     { to: `${base}/company-tracker`, label: "Company Tracker", icon: KanbanSquare },
     { to: `${base}/field-visit-tracker`, label: "Field Visit Tracker", icon: CalendarDays },
     { to: `${base}/attendance`, label: "Attendance", icon: Clock3 },
     { to: `${base}/logistic`, label: "Logistic", icon: Boxes },
+    { to: `${base}/inventory`, label: "Inventory Management", icon: Package },
     { to: `${base}/reports`, label: "Report and Logs", icon: BarChart3 },
   ];
 

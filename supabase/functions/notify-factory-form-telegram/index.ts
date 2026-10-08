@@ -21,11 +21,11 @@ const corsHeaders = {
 };
 
 function isFactoryFormSubmitted(payload: WebhookPayload) {
-  return payload.record?.data?.assessment_phase_submitted === true;
+  return payload.record?.data?.assessment_phase_submitted === true && payload.record?.data?.factory_operations_done === true;
 }
 
 function wasAlreadySubmitted(payload: WebhookPayload) {
-  return payload.old_record?.data?.assessment_phase_submitted === true;
+  return payload.old_record?.data?.assessment_phase_submitted === true && payload.old_record?.data?.factory_operations_done === true;
 }
 
 function formatSubmittedAt(value?: string) {
