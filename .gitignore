@@ -48,4 +48,5 @@ integrations/attendance-mqtt-bridge/*.sqlite*
 # Downloaded full database exports contain Auth data/password hashes.
 /bucket-database_export_*-files.zip
 /site-docs-export.zip
+/site-docs-mom-3-companies.zip
 /Backup_data/

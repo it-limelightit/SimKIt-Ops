@@ -14,5 +14,5 @@ export function getFactoryFormState(data: AssessmentData) {
 export function shouldNotifyFactorySubmission(previous: AssessmentData, next: AssessmentData) {
   const before = getFactoryFormState(previous);
   const after = getFactoryFormState(next);
-  return after.submitted && (!before.submitted || (!before.completed && after.completed));
+  return after.completed && !before.completed;
 }

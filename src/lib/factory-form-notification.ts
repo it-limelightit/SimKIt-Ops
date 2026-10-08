@@ -51,6 +51,9 @@ export const notifyFactoryFormSubmittedFn = createServerFn({ method: "POST" })
     assessmentData: Record<string, any>;
   })
   .handler(async ({ data }) => {
+    if (!getFactoryFormState(data.assessmentData).completed) {
+      return { success: false, skipped: true, error: "Factory form is pending" };
+    }
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     const chatId = process.env.TELEGRAM_CHAT_ID;
     if (!botToken || !chatId) {

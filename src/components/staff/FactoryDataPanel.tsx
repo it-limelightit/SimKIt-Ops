@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { getFactoryFormState } from "@/lib/factory-form-state";
+import { phaseChanges, persistPhaseChanges } from "@/lib/phase-draft";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, Button, Input, Select, Badge, Skeleton, Label } from "@/components/ui-kit";
 import {
@@ -81,6 +82,7 @@ type SiteWithStatus = Site & {
   isDone: boolean;
   isSubmitted: boolean;
   updatedAt?: string;
+  submittedAt?: string;
   credentialCreated: boolean;
   managerPassword: string;
   hasManagerPassword: boolean;
@@ -329,6 +331,7 @@ export function FactoryDataPanel() {
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<Record<string, any>>({});
+  const [editBaseline, setEditBaseline] = useState<Assessment | null>(null);
   const [certificateDialogOpen, setCertificateDialogOpen] = useState(false);
   const [certificateCompanyName, setCertificateCompanyName] = useState("");
   const [certificateDate, setCertificateDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -521,15 +524,17 @@ export function FactoryDataPanel() {
           isDone,
           isSubmitted,
           updatedAt: assess?.updated_at,
+          submittedAt: assess?.data?.factory_form_submitted_at,
           credentialCreated: credentialStatus[s.id] ?? !!siteMeta.credential_created,
           managerPassword: siteMeta.manager_password || "",
           hasManagerPassword: hasOwnerPasswords,
           ownersMissingPassword,
-          submittedMonth: assess?.updated_at ? assess.updated_at.slice(0, 7) : "",
+          submittedMonth: (assess?.data?.factory_form_submitted_at || assess?.updated_at || "").slice(0, 7),
         };
       })
-      // Keep submitted assessments visible while the factory form is pending.
-      .filter(s => s.isSubmitted)
+      // Show completed factory forms; an assessment may be submitted while its
+      // factory form is still pending.
+      .filter(s => s.isSubmitted && s.isDone)
       .sort((a, b) => {
         if (a.credentialCreated !== b.credentialCreated) {
           return a.credentialCreated ? 1 : -1;
@@ -580,13 +585,14 @@ export function FactoryDataPanel() {
 
   // Sync editData state when selected site changes
   useEffect(() => {
+    if (isEditing && editBaseline?.site_id === selectedSiteId) return;
     if (selectedAssessment) {
       setEditData(selectedAssessment.data || {});
     } else {
       setEditData({});
     }
     setIsEditing(false);
-  }, [selectedSiteId, selectedAssessment]);
+  }, [selectedSiteId, selectedAssessment, isEditing, editBaseline]);
 
 
   // Filtered sites list
@@ -650,22 +656,24 @@ export function FactoryDataPanel() {
       factory_op_owners: owners,
     };
 
-    const { error } = await supabase
+    const { data: savedRows, error } = await supabase
       .from("assessment")
       .update({
         data: nextData,
         updated_at: new Date().toISOString(),
       } as never)
-      .eq("site_id", siteId);
+      .eq("site_id", siteId)
+      .eq("updated_at", assessment.updated_at)
+      .select("site_id,updated_at");
 
     setSavingOwnerPasswordKey(null);
 
-    if (error) {
-      toast.error("Could not save owner password: " + error.message);
+    if (error || !savedRows?.length) {
+      toast.error(error ? "Could not save owner password: " + error.message : "Form changed in another session. Refresh before saving the password.");
       return;
     }
 
-    setAssessments(prev => prev.map((a) => (a.site_id === siteId ? { ...a, data: nextData, updated_at: new Date().toISOString() } : a)));
+    setAssessments(prev => prev.map((a) => (a.site_id === siteId ? { ...a, data: nextData, updated_at: savedRows[0].updated_at } : a)));
     setPasswordDrafts(prev => ({ ...prev, [key]: nextPassword }));
     toast.success(nextPassword.trim() ? "Owner password saved." : "Owner password cleared.");
 
@@ -700,22 +708,24 @@ export function FactoryDataPanel() {
     };
     const updatedAt = new Date().toISOString();
 
-    const { error } = await supabase
+    const { data: savedRows, error } = await supabase
       .from("assessment")
       .update({
         data: nextData,
         updated_at: updatedAt,
       } as never)
-      .eq("site_id", siteId);
+      .eq("site_id", siteId)
+      .eq("updated_at", assessment.updated_at)
+      .select("site_id,updated_at");
 
     setSavingOwnerPasswordKey(null);
 
-    if (error) {
-      toast.error("Could not save technician password: " + error.message);
+    if (error || !savedRows?.length) {
+      toast.error(error ? "Could not save technician password: " + error.message : "Form changed in another session. Refresh before saving the password.");
       return;
     }
 
-    setAssessments(prev => prev.map((a) => (a.site_id === siteId ? { ...a, data: nextData, updated_at: updatedAt } : a)));
+    setAssessments(prev => prev.map((a) => (a.site_id === siteId ? { ...a, data: nextData, updated_at: savedRows[0].updated_at } : a)));
     setPasswordDrafts(prev => ({ ...prev, [key]: nextPassword }));
     toast.success(nextPassword.trim() ? "Technician password saved." : "Technician password cleared.");
 
@@ -766,22 +776,24 @@ export function FactoryDataPanel() {
     };
     const updatedAt = new Date().toISOString();
 
-    const { error } = await supabase
+    const { data: savedRows, error } = await supabase
       .from("assessment")
       .update({
         data: nextData,
         updated_at: updatedAt,
       } as never)
-      .eq("site_id", siteId);
+      .eq("site_id", siteId)
+      .eq("updated_at", assessment.updated_at)
+      .select("site_id,updated_at");
 
     setSavingOwnerPasswordKey(null);
 
-    if (error) {
-      toast.error("Could not save owner details: " + error.message);
+    if (error || !savedRows?.length) {
+      toast.error(error ? "Could not save owner details: " + error.message : "Form changed in another session. Refresh before adding the owner.");
       return;
     }
 
-    setAssessments(prev => prev.map((a) => (a.site_id === siteId ? { ...a, data: nextData, updated_at: updatedAt } : a)));
+    setAssessments(prev => prev.map((a) => (a.site_id === siteId ? { ...a, data: nextData, updated_at: savedRows[0].updated_at } : a)));
     setNewOwnerDrafts(prev => ({ ...prev, [siteId]: { name: "", contact: "", email: "", password: "" } }));
     setCredentialDialog({
       ownerName: nextOwner.name,
@@ -963,17 +975,14 @@ export function FactoryDataPanel() {
     });
 
     try {
-      const { error } = await supabase
-        .from("assessment")
-        .update({
-          data: editData,
-          updated_at: new Date().toISOString()
-        } as never)
-        .eq("site_id", selectedSiteId);
+      if (!editBaseline || editBaseline.site_id !== selectedSiteId) {
+        toast.error("Please reopen the form before editing.");
+        return;
+      }
+      const saved = await persistPhaseChanges(supabase, "assessment", selectedSiteId, null,
+        phaseChanges(editData, editBaseline.data), () => true, editBaseline.data);
 
-      if (error) {
-        toast.error("Failed to save changes: " + error.message);
-      } else {
+      if (saved) {
         toast.success("Changes saved successfully");
         setIsEditing(false);
         if (newlySavedCredentialOwner) {
@@ -1583,6 +1592,7 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                         </div>
 
                         <div className="text-[10px] font-mono text-text-dim">
+                          <div>{s.submittedAt ? `Submitted: ${formatDate(s.submittedAt)}` : "Submitted: N/A"}</div>
                           {s.updatedAt ? `Updated: ${formatDate(s.updatedAt)}` : "Updated: N/A"}
                         </div>
 
@@ -1651,10 +1661,10 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                         <span className="text-[10px] uppercase font-mono tracking-widest text-lime font-bold">
                           Part 2 &bull; Detailed Form Showcase
                         </span>
-                        {selectedSite.fillStatus === "completed" && (
+                        {selectedSiteData?.fillStatus === "completed" && (
                           <Badge tone="success" className="text-[9px] py-0 px-2 font-mono">Completed</Badge>
                         )}
-                        {selectedSite.fillStatus === "in_progress" && (
+                        {selectedSiteData?.fillStatus === "in_progress" && (
                           <Badge tone="warning" className="text-[9px] py-0 px-2 font-mono">Factory Form Pending</Badge>
                         )}
                       </div>
@@ -1713,6 +1723,7 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                             size="sm"
                             onClick={() => {
                               setEditData(selectedAssessment?.data || {});
+                              setEditBaseline(selectedAssessment || null);
                               setIsEditing(true);
                             }}
                             className="py-1 px-3 text-xs flex items-center gap-1 cursor-pointer"

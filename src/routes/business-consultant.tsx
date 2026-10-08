@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
+import { persistPhaseChanges } from "@/lib/phase-draft";
 import { useAuth } from "@/lib/auth-store";
 import {
   Badge,
@@ -526,19 +527,19 @@ function BusinessConsultantPage() {
       return;
     }
 
-    const { data: assessmentRow } = await supabase
+    const { data: assessmentRow, error: assessmentReadError } = await supabase
       .from("assessment")
       .select("data")
       .eq("site_id", site.id)
       .maybeSingle();
 
     const existingData = (assessmentRow?.data ?? {}) as Record<string, any>;
-    const { error } = await supabase.from("assessment").upsert(
-      {
-        site_id: site.id,
-        worker_id: userId,
-        data: {
-          ...existingData,
+    if (assessmentReadError) {
+      toast.error("Could not load the saved assessment. Please retry.");
+      return;
+    }
+    try {
+      const saved = await persistPhaseChanges(supabase, "assessment", site.id, userId, {
           assessment_phase_submitted: true,
           assessment_details_submitted: true,
           factory_form_submitted_at:
@@ -546,13 +547,9 @@ function BusinessConsultantPage() {
           device_order_completed: true,
           device_order_completed_at:
             existingData.device_order_completed_at || new Date().toISOString(),
-        },
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "site_id" },
-    );
-
-    if (error) {
+      }, () => true);
+      if (!saved) return;
+    } catch {
       toast.error("Device order saved, but assessment status could not be completed.");
       return;
     }
