@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { getFactoryFormState, shouldNotifyFactorySubmission } from "@/lib/factory-form-state";
 
 type SiteNameData = {
   name?: string | null;
@@ -67,7 +68,7 @@ export const notifyFactoryFormSubmittedFn = createServerFn({ method: "POST" })
       body: JSON.stringify({
         chat_id: chatId,
         text: [
-          "New factory form submitted",
+          getFactoryFormState(data.assessmentData).title,
           "",
           `Company: ${companyName}`,
           `Date & Time: ${formatSubmittedAt(data.assessmentData.factory_form_submitted_at)}`,
@@ -88,7 +89,7 @@ export async function notifyAfterNewFactoryFormSubmission(
   previousData: Record<string, any> | null | undefined,
   assessmentData: Record<string, any>,
 ) {
-  if (previousData?.assessment_phase_submitted === true || assessmentData.assessment_phase_submitted !== true) return;
+  if (!shouldNotifyFactorySubmission(previousData, assessmentData)) return;
   try {
     await notifyFactoryFormSubmittedFn({ data: { siteId, assessmentData } });
   } catch (error) {

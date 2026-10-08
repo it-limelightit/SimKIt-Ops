@@ -1,4 +1,5 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
+import { getFactoryFormState } from "@/lib/factory-form-state";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, Button, Input, Select, Badge, Skeleton, Label } from "@/components/ui-kit";
 import {
@@ -333,7 +334,7 @@ export function FactoryDataPanel() {
   const [certificateDate, setCertificateDate] = useState(() => new Date().toISOString().slice(0, 10));
 
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const [sitesRes, assessmentsRes, contactsRes, machinesRes] = await Promise.all([
         supabase.from("sites").select("id, name, company_name, city, address, task_notes, consultant_stage").order("name"),
@@ -342,19 +343,30 @@ export function FactoryDataPanel() {
         supabase.from("machines").select("*"),
       ]);
 
+      for (const result of [sitesRes, assessmentsRes, contactsRes, machinesRes]) {
+        if (result.error) throw result.error;
+      }
       setSites(sitesRes.data ?? []);
       setAssessments(assessmentsRes.data ?? []);
       setContacts(contactsRes.data ?? []);
       setMachines(machinesRes.data ?? []);
     } catch (err) {
       console.error("Error loading factory form data:", err);
+      toast.error("Could not refresh factory form data. Please try again.");
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     void loadData();
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void loadData();
+    };
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    const refreshTimer = window.setInterval(refreshWhenVisible, 15000);
 
     // Set up Real-Time Subscriptions for Auto-fetch
     const channel = supabase
@@ -390,9 +402,12 @@ export function FactoryDataPanel() {
       .subscribe();
 
     return () => {
+      window.clearInterval(refreshTimer);
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
       void supabase.removeChannel(channel);
     };
-  }, []);
+  }, [loadData]);
 
   // Helpers to get specific data
   const selectedSite = useMemo(() => sites.find(s => s.id === selectedSiteId), [sites, selectedSiteId]);
@@ -490,8 +505,7 @@ export function FactoryDataPanel() {
       .map(s => {
         const assess = assessments.find(a => a.site_id === s.id);
         const siteMeta = parseSiteMetadata(s.task_notes);
-        const isSubmitted = !!assess?.data?.assessment_phase_submitted;
-        const isDone = !!assess?.data?.factory_operations_done;
+        const { submitted: isSubmitted, completed: isDone } = getFactoryFormState(assess?.data);
         const owners = Array.isArray(assess?.data?.factory_op_owners) ? assess.data.factory_op_owners : [];
         const ownersMissingPassword = owners.filter((owner, index) => !getOwnerPassword(owner, index, siteMeta.manager_password).trim()).length;
         const hasOwnerPasswords = hasPasswordForEveryOwner(owners, siteMeta.manager_password);
@@ -514,9 +528,8 @@ export function FactoryDataPanel() {
           submittedMonth: assess?.updated_at ? assess.updated_at.slice(0, 7) : "",
         };
       })
-      // Pending Factory Forms are not displayed, irrespective of whether the
-      // assessment was handled by a Field Associate or a dual-role user.
-      .filter(s => s.isSubmitted && s.isDone)
+      // Keep submitted assessments visible while the factory form is pending.
+      .filter(s => s.isSubmitted)
       .sort((a, b) => {
         if (a.credentialCreated !== b.credentialCreated) {
           return a.credentialCreated ? 1 : -1;
@@ -1528,7 +1541,7 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                               <Badge tone="success" className="text-[9px] py-0 px-1.5 font-mono">Completed</Badge>
                             )}
                             {s.fillStatus === "in_progress" && (
-                              <Badge tone="warning" className="text-[9px] py-0 px-1.5 font-mono animate-pulse">In Progress</Badge>
+                              <Badge tone="warning" className="text-[9px] py-0 px-1.5 font-mono">Factory Form Pending</Badge>
                             )}
                           </div>
                           <h4 className="font-bold text-sm text-text-primary uppercase tracking-tight truncate mt-0.5">
@@ -1642,7 +1655,7 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                           <Badge tone="success" className="text-[9px] py-0 px-2 font-mono">Completed</Badge>
                         )}
                         {selectedSite.fillStatus === "in_progress" && (
-                          <Badge tone="warning" className="text-[9px] py-0 px-2 font-mono animate-pulse">In Progress</Badge>
+                          <Badge tone="warning" className="text-[9px] py-0 px-2 font-mono">Factory Form Pending</Badge>
                         )}
                       </div>
                       <h2 className="text-xl font-extrabold font-syne text-text-primary uppercase tracking-tight mt-0.5">
