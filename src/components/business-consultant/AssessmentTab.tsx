@@ -393,13 +393,29 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit, requ
               ? { ...data, factory_operations_done: true }
               : data;
 
+            const { data: previousAssessment, error: previousAssessmentError } = await supabase
+              .from("assessment")
+              .select("data")
+              .eq("site_id", siteId)
+              .maybeSingle();
+            if (previousAssessmentError) {
+              toast.error("Could not check the saved assessment. Please try again.");
+              return;
+            }
+            const previousAssessmentData = previousAssessment?.data as AData | null | undefined;
+
             // Persist the current draft first so partially completed Factory Operations
             // data remains visible in Factory Form Data after assessment submission.
             const draftSaved = await save(dataToSave);
             if (!draftSaved) return;
 
             if (onSubmit) await onSubmit();
-            if (requireDeviceOrderCompletion) return;
+            if (requireDeviceOrderCompletion) {
+              if (previousAssessmentData?.assessment_phase_submitted === true) {
+                await notifyAfterNewFactoryFormSubmission(siteId, previousAssessmentData, dataToSave);
+              }
+              return;
+            }
 
             const nextData = {
               ...dataToSave,
@@ -408,7 +424,7 @@ export function AssessmentTab({ siteId, workerId, hiddenSections, onSubmit, requ
               factory_form_submitted_at: new Date().toISOString(),
             };
             const saved = await save(nextData);
-            if (saved) await notifyAfterNewFactoryFormSubmission(siteId, dataToSave, nextData);
+            if (saved) await notifyAfterNewFactoryFormSubmission(siteId, previousAssessmentData, nextData);
             toast.success("Assessment phase submitted.");
           }}
           className="w-full sm:w-auto text-base py-3 px-8"

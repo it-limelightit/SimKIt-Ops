@@ -122,10 +122,9 @@ export const saveClientFormByTokenFn = createServerFn({ method: "POST" })
     }
 
     const saveResult = res as { success: boolean; error?: string };
-    const wasAlreadySubmitted = existingForm?.assessmentData?.assessment_phase_submitted === true;
     const isSubmittedNow = assessmentData.assessment_phase_submitted === true;
 
-    if (saveResult.success && isSubmittedNow && !wasAlreadySubmitted && existingForm?.site?.id) {
+    if (saveResult.success && isSubmittedNow && existingForm?.site?.id) {
       await notifyAfterNewFactoryFormSubmission(existingForm.site.id, existingForm.assessmentData, assessmentData);
     }
 

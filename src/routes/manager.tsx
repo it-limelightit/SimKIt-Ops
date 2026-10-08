@@ -4,6 +4,7 @@ import { useAuth } from "@/lib/auth-store";
 import { StaffShell } from "@/components/staff/StaffShell";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { getFactoryFormState } from "@/lib/factory-form-state";
 
 export const Route = createFileRoute("/manager")({
   ssr: false,
@@ -46,9 +47,12 @@ function ManagerLayout() {
       });
     };
 
-    const showFactoryFormNotification = (companyName: string) => {
-      const title = "New factory form submitted";
-      const body = companyName ? `${companyName} submitted factory form data.` : "A company submitted factory form data.";
+    const showFactoryFormNotification = (companyName: string, assessmentData: Record<string, any>) => {
+      const state = getFactoryFormState(assessmentData);
+      const title = state.title;
+      const body = state.completed
+        ? `${companyName} submitted factory form data.`
+        : `${companyName} submitted an assessment. Factory form details are pending.`;
 
       toast.success(body, {
         action: {
@@ -92,7 +96,7 @@ function ManagerLayout() {
           .filter((row: any) => row.site_id)
           .map((row: any) => [
             row.site_id,
-            row.data?.factory_form_submitted_at || "submitted",
+            getFactoryFormState(row.data).submissionKey,
           ]),
       );
     };
@@ -108,15 +112,16 @@ function ManagerLayout() {
         async (payload) => {
           const next = payload.new as { site_id?: string; data?: Record<string, any> } | null;
           const siteId = next?.site_id;
-          const isSubmitted = !!next?.data?.assessment_phase_submitted;
-          const submissionKey = next?.data?.factory_form_submitted_at || "submitted";
+          const state = getFactoryFormState(next?.data);
+          const isSubmitted = state.submitted;
+          const submissionKey = state.submissionKey;
           const previousSubmissionKey = siteId ? knownFactorySubmissionKeys.current.get(siteId) : undefined;
 
           if (!siteId || !isSubmitted || previousSubmissionKey === submissionKey) return;
 
           knownFactorySubmissionKeys.current.set(siteId, submissionKey);
           const companyName = await getCompanyName(siteId);
-          showFactoryFormNotification(companyName);
+          showFactoryFormNotification(companyName, next?.data || {});
         },
       )
       .subscribe();
