@@ -1,0 +1,26 @@
+{
+  "attendance-enroll-user": {
+    "file": "attendance-enroll-user.ts",
+    "sha256": "3ca6bfab4ca2f0afa7a22f0a69d663990dd1598d74128c417d885c2b6fd503aa"
+  },
+  "attendance-device-event": {
+    "file": "attendance-device-event.ts",
+    "sha256": "1e87bdc21974c6d86c84482bd69a8f4a4bbcfd73373fdee953e6632fefa8022c"
+  },
+  "attendance-command-retry": {
+    "file": "attendance-command-retry.ts",
+    "sha256": "a534b0300f6e5898ee301db3fa8ec87a59ba8f5c8682d07ba77691592300d46d"
+  },
+  "attendance-photo-access": {
+    "file": "attendance-photo-access.ts",
+    "sha256": "6b6922260a475da0abb50387a12011242210e8081541f810eff631a52029813f"
+  },
+  "attendance-photo-cleanup": {
+    "file": "attendance-photo-cleanup.ts",
+    "sha256": "7b1c03264a609783237cd5e386aab3f9104daee365ce3049002c8e23e8090a4a"
+  },
+  "attendance-leave-email": {
+    "file": "attendance-leave-email.ts",
+    "sha256": "baa51bc0dd3412dd1f80dc32518b7b469ea7eb0c132342d57d913763ca47611b"
+  }
+}

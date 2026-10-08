@@ -24,9 +24,9 @@ function text(value) {
   if (bytes.length > 65535 || value.includes("\0")) throw new Error("Invalid MQTT string");
   return concat(word(bytes.length), bytes);
 }
-function packet(header, body2) {
-  if (body2.length > 65536) throw new Error("MQTT packet too large");
-  let length = body2.length;
+function packet(header, body) {
+  if (body.length > 65536) throw new Error("MQTT packet too large");
+  let length = body.length;
   const encoded = [];
   do {
     let digit = length % 128;
@@ -34,7 +34,7 @@ function packet(header, body2) {
     if (length) digit |= 128;
     encoded.push(digit);
   } while (length);
-  return concat(Uint8Array.of(header, ...encoded), body2);
+  return concat(Uint8Array.of(header, ...encoded), body);
 }
 function validTopic(value) {
   if (typeof value !== "string" || !value || value.length > 256 || /[+#\0]/.test(value))
@@ -304,8 +304,8 @@ function adminClient() {
     auth: { persistSession: false, autoRefreshToken: false }
   });
 }
-function json(body2, status = 200) {
-  return Response.json(body2, { status, headers: cors });
+function json(body, status = 200) {
+  return Response.json(body, { status, headers: cors });
 }
 function serve(handler) {
   Deno.serve(async (req) => {
@@ -322,45 +322,14 @@ function serve(handler) {
     }
   });
 }
-async function body(req, max = 16384) {
-  const reader = req.body?.getReader();
-  if (!reader) throw new HttpError(400, "Request body required");
-  const chunks = [];
-  let size = 0;
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    size += value.length;
-    if (size > max) {
-      await reader.cancel();
-      throw new HttpError(413, "Request too large");
-    }
-    chunks.push(value);
-  }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.length;
-  }
-  const result = JSON.parse(new TextDecoder().decode(bytes));
-  if (!result || typeof result !== "object" || Array.isArray(result))
-    throw new HttpError(400, "JSON object required");
-  return result;
-}
-async function manager(req) {
-  const token = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  if (!token) throw new HttpError(401, "Sign in required");
-  const admin = adminClient();
-  const { data, error } = await admin.auth.getUser(token);
-  if (error || !data.user) throw new HttpError(401, "Invalid session");
-  const role = await admin.from("user_roles").select("role").eq("user_id", data.user.id).eq("role", "supervisor").maybeSingle();
-  if (role.error || !role.data) throw new HttpError(403, "Manager access required");
-  const user = createClient(env("SUPABASE_URL"), env("SUPABASE_ANON_KEY"), {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-    auth: { persistSession: false, autoRefreshToken: false }
-  });
-  return { admin, user, userId: data.user.id };
+async function secret(req, name) {
+  const expected = env(name);
+  const given = req.headers.get("x-attendance-secret") || "";
+  const hash = async (text2) => new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text2)));
+  const [a, b] = await Promise.all([hash(expected), hash(given)]);
+  let mismatch = 0;
+  for (let i = 0; i < a.length; i++) mismatch |= a[i] ^ b[i];
+  if (mismatch || !given) throw new HttpError(401, "Unauthorized webhook");
 }
 function checked(result) {
   if (result.error) throw new HttpError(400, result.error.message);
@@ -440,61 +409,8 @@ async function publishPending(admin, employee) {
   return { configured: true, sent };
 }
 
-// supabase/functions/_shared/attendance-validation.ts
-function requiredText(value, field2, max = 128) {
-  if (typeof value !== "string" || !value.trim() || value.trim().length > max)
-    throw new Error(`Invalid ${field2}`);
-  return value.trim();
-}
-function dateOrNull(value) {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const date = /* @__PURE__ */ new Date(`${value}T00:00:00Z`);
-  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value ? value : null;
-}
-function uuid(value) {
-  const text2 = requiredText(value, "id", 36);
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text2))
-    throw new Error("Invalid id");
-  return text2;
-}
-
-// supabase/functions/attendance-enroll-user/index.ts
+// supabase/functions/attendance-command-retry/index.ts
 serve(async (req) => {
-  const { admin, user } = await manager(req);
-  const input = await body(req);
-  let employee;
-  if (input.action === "retry") {
-    employee = uuid(input.employee_id);
-    checked(await user.rpc("attendance_retry_enrollment", { _employee: employee }));
-  } else {
-    const department = requiredText(input.department, "department", 20);
-    if (!["firmware", "hardware", "logistic", "software", "manager"].includes(department))
-      throw new Error("Invalid department");
-    const start = input.employment_start ? dateOrNull(input.employment_start) : null;
-    if (input.employment_start && !start) throw new Error("Invalid employment start date");
-    const email = input.email ? requiredText(input.email, "email", 254).toLowerCase() : null;
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Invalid email");
-    employee = checked(
-      await user.rpc("attendance_save_employee", {
-        _name: requiredText(input.name, "name", 120),
-        _department: department,
-        _enroll_id: requiredText(input.enroll_id, "enroll_id", 64),
-        _email: email,
-        _email_verified: input.email_verified === true,
-        _start: start
-      })
-    );
-  }
-  let publishing;
-  try {
-    publishing = await publishPending(admin, employee);
-  } catch {
-    publishing = { configured: false, sent: 0 };
-  }
-  const current = await admin.from("attendance_employees").select("enrollment_status").eq("id", employee).maybeSingle();
-  return json({
-    employee_id: employee,
-    status: current.data?.enrollment_status || "pending",
-    publishing
-  });
+  await secret(req, "ATTENDANCE_CRON_SECRET");
+  return json(await publishPending(adminClient()));
 });

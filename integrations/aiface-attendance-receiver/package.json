@@ -1,0 +1,16 @@
+{
+  "name": "simkit-aiface-attendance-receiver",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.15.0 <23"
+  },
+  "scripts": {
+    "start": "node --env-file=.env receiver.mjs",
+    "start:render": "node web.mjs",
+    "test": "node --test receiver.test.mjs"
+  },
+  "dependencies": {
+    "mqtt": "^5.10.4"
+  }
+}

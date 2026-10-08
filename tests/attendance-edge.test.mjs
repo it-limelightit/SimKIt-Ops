@@ -127,15 +127,24 @@ before(async () => {
   );
   for (const name of [
     "attendance-enroll-user",
+    "attendance-command-retry",
     "attendance-device-event",
     "attendance-photo-access",
     "attendance-photo-cleanup",
     "attendance-leave-email",
   ]) {
     current = name;
-    const source = readFileSync(new URL(`${name}/index.ts`, root), "utf8")
+    const sourceUrl =
+      process.env.ATTENDANCE_TEST_BUNDLES === "1"
+        ? new URL(`../dashboard-deploy/${name}.ts`, root)
+        : new URL(`${name}/index.ts`, root);
+    const source = readFileSync(sourceUrl, "utf8")
       .replaceAll("../_shared/attendance.ts", common)
-      .replaceAll("../_shared/attendance-validation.ts", validation);
+      .replaceAll("../_shared/attendance-validation.ts", validation)
+      .replace(
+        /import \{ createClient \} from [^;]+;/,
+        "const createClient = globalThis.__attendanceCreateClient;",
+      );
     await import(encode(source));
   }
 });
@@ -163,6 +172,25 @@ const request = (name, input = {}, headers = {}) =>
       body: JSON.stringify(input),
     }),
   );
+test("scheduled retries reject unauthenticated callers without leasing device commands", async () => {
+  for (const headers of [{}, { "x-attendance-secret": "wrong" }]) {
+    assert.equal((await request("attendance-command-retry", {}, headers)).status, 401);
+    assert.equal(state.calls.length, 0);
+  }
+});
+test("scheduled retries leave commands pending when MQTT credentials are incomplete", async () => {
+  env.ATTENDANCE_PUBLISH_MODE = "mqtt";
+  const response = await request(
+    "attendance-command-retry",
+    {},
+    {
+      "x-attendance-secret": env.ATTENDANCE_CRON_SECRET,
+    },
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { configured: false, sent: 0 });
+  assert.equal(state.calls.length, 0);
+});
 test("enrollment can publish directly from the Edge Function without using the HTTP bridge", async () => {
   Object.assign(env, {
     ATTENDANCE_PUBLISH_MODE: "mqtt",
