@@ -1,0 +1,79 @@
+.light-theme .attendance-page,
+.light-theme .attendance-dialog {
+  --mint: #047857;
+  --warning: #b45309;
+  --coral: #b91c1c;
+  --violet: #6d28d9;
+}
+
+.attendance-dialog input:not([type="checkbox"]),
+.attendance-dialog select {
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+.attendance-dialog input:focus-visible,
+.attendance-dialog select:focus-visible {
+  border-color: var(--lime);
+  outline: 2px solid color-mix(in srgb, var(--lime) 20%, transparent);
+  outline-offset: 1px;
+}
+
+.attendance-dialog > button:first-child {
+  z-index: 30;
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 8px;
+  opacity: 0.8;
+}
+
+.attendance-dialog > button:first-child:hover {
+  opacity: 1;
+}
+
+.attendance-page nav button,
+.attendance-page table tbody tr {
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease;
+}
+
+.attendance-page table thead th {
+  letter-spacing: 0.01em;
+}
+
+.attendance-page input[type="date"] {
+  color-scheme: dark;
+}
+
+.light-theme .attendance-page input[type="date"] {
+  color-scheme: light;
+}
+
+.attendance-filters input,
+.attendance-filters select {
+  min-width: 0;
+  height: 38px;
+  font-size: 13px;
+}
+
+.employee-directory {
+  min-width: 1040px;
+}
+
+.employee-directory td:first-child {
+  min-width: 180px;
+}
+
+.employee-directory td:last-child {
+  width: 1%;
+}
+
+.employee-directory td:last-child button {
+  min-height: 32px;
+  padding: 5px 8px;
+}

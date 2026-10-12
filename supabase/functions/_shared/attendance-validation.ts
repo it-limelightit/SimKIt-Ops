@@ -1,3 +1,11 @@
+// Photos expire at 02:00 Asia/Kolkata on the day after their attendance date.
+export function photoExpiryTime(scannedAt: string) {
+  const local = new Date(Date.parse(scannedAt) + 330 * 60000);
+  return (
+    Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() + 1, 2) - 330 * 60000
+  );
+}
+
 export function requiredText(value: unknown, field: string, max = 128): string {
   if (typeof value !== "string" || !value.trim() || value.trim().length > max)
     throw new Error(`Invalid ${field}`);

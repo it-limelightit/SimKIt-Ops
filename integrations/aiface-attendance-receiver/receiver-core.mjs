@@ -1,3 +1,11 @@
+// End the scan's India calendar day, then retain photos until 02:00 the next day.
+export function photoExpiryTime(scannedAt) {
+  const local = new Date(Date.parse(scannedAt) + 330 * 60000);
+  return (
+    Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() + 1, 2) - 330 * 60000
+  );
+}
+
 export function heartbeatReply(message, packet, deviceId, pendingAt, now = Date.now()) {
   return (
     !packet.retain &&
@@ -19,4 +27,19 @@ export function inferPhotoMime(image) {
   if (Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).equals(bytes.subarray(0, 8)))
     return "image/png";
   return null;
+}
+
+export function deviceProfile(message, packet, deviceId, topic, now = Date.now()) {
+  if (packet.retain || packet.topic !== topic || message.cmd !== "senduser") return null;
+  if (message.sn !== deviceId || Number(message.backupnum) !== 50) return null;
+  if (!Number.isSafeInteger(message.enrollid) || message.enrollid < 0) return null;
+  if (!inferPhotoMime(message.record)) return null;
+  // Enrollment photos are not attendance photos. Forward no name or image data.
+  return {
+    kind: "device_profile",
+    device_id: deviceId,
+    topic,
+    enroll_id: String(message.enrollid),
+    observed_at: new Date(now).toISOString(),
+  };
 }

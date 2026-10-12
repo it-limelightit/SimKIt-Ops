@@ -30,6 +30,10 @@ function builder(table) {
       filters[k] = v;
       return this;
     },
+    in(k, v) {
+      filters[k] = v;
+      return this;
+    },
     neq() {
       return this;
     },
@@ -80,7 +84,7 @@ const client = {
         return state.removeResult;
       },
       upload: async () => state.uploadResult,
-      list: async () => ({ data: [], error: null }),
+      list: async (_path, options) => ({ data: state.list(options), error: null }),
       createSignedUrl: async (path, seconds) => {
         state.signed.push({ path, seconds });
         return { data: { signedUrl: "https://test.supabase.co/private" }, error: null };
@@ -94,6 +98,7 @@ function reset() {
     writes: [],
     removed: [],
     signed: [],
+    list: () => [],
     table: (table, op) => ({
       data: table === "user_roles" ? { role: "supervisor" } : op === "select" ? null : [],
       error: null,
@@ -313,6 +318,52 @@ test("historical heartbeats cannot create live health evidence", async () => {
   assert.equal((await request("attendance-device-event", data, headers)).status, 200);
   assert.equal(state.calls[0].name, "attendance_heartbeat");
 });
+test("device profile confirms only a matched employee and does not store an enrollment photo", async () => {
+  const input = {
+    kind: "device_profile",
+    device_id: env.ATTENDANCE_DEVICE_ID,
+    topic: "ack",
+    enroll_id: "9003",
+    observed_at: new Date().toISOString(),
+  };
+  const headers = { "x-attendance-secret": env.ATTENDANCE_DEVICE_WEBHOOK_SECRET };
+  state.rpc = () => ({ data: true, error: null });
+  const response = await request("attendance-device-event", input, headers);
+  assert.deepEqual(await response.json(), { accepted: true, confirmed: true });
+  assert.equal(state.calls[0].name, "attendance_confirm_device_profile");
+  assert.equal(state.calls[0].args._source, "profile");
+  assert.equal(state.writes.length, 0);
+  state.rpc = () => ({ data: false, error: null });
+  assert.equal(
+    (await (await request("attendance-device-event", input, headers)).json()).confirmed,
+    false,
+  );
+});
+test("only validated scans can confirm enrollment; rejected scans remain reviewable", async () => {
+  const input = {
+    kind: "scan",
+    device_id: env.ATTENDANCE_DEVICE_ID,
+    topic: "scan",
+    event_id: "evidence",
+    enroll_id: "9003",
+    recognized: true,
+    scanned_at: new Date().toISOString(),
+  };
+  const headers = { "x-attendance-secret": env.ATTENDANCE_DEVICE_WEBHOOK_SECRET };
+  state.rpc = (name) => ({
+    data:
+      name === "attendance_ingest_scan"
+        ? { id: "event", state: "valid", expires_at: new Date().toISOString() }
+        : true,
+    error: null,
+  });
+  assert.equal((await request("attendance-device-event", input, headers)).status, 200);
+  assert.equal(state.calls[1].args._source, "scan");
+  state.calls = [];
+  state.rpc = () => ({ data: { id: "event", state: "failed_recognition" }, error: null });
+  assert.equal((await request("attendance-device-event", input, headers)).status, 200);
+  assert.equal(state.calls.length, 1);
+});
 test("attendance is saved even when image upload fails; same event is retryable", async () => {
   const id = "00000000-0000-4000-8000-000000000004";
   state.rpc = () => ({
@@ -414,7 +465,10 @@ test("photo URL lifetime is capped by remaining photo retention", async () => {
 });
 test("cleanup only marks photos deleted after Storage removal succeeds", async () => {
   state.table = (table, op) => ({
-    data: op === "select" ? [{ event_id: "event", storage_path: "expired.jpg" }] : [],
+    data:
+      op === "select" && !state.writes.length
+        ? [{ event_id: "event", storage_path: "expired.jpg" }]
+        : [],
     error: null,
   });
   state.removeResult = { data: null, error: { message: "Storage unavailable" } };
@@ -438,6 +492,56 @@ test("cleanup only marks photos deleted after Storage removal succeeds", async (
   );
   assert.equal(state.writes[0].value.status, "deleted");
 });
+test("nightly cleanup processes every expired batch without modifying attendance tables", async () => {
+  const photos = Array.from({ length: 260 }, (_, i) => ({
+    event_id: String(i),
+    storage_path: `${i}.jpg`,
+  }));
+  state.table = (_table, op) => ({
+    data:
+      op === "select"
+        ? photos.filter((p) => !state.removed.includes(p.storage_path)).slice(0, 100)
+        : [],
+    error: null,
+  });
+  const response = await request(
+    "attendance-photo-cleanup",
+    {},
+    { "x-attendance-secret": env.ATTENDANCE_CRON_SECRET },
+  );
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).deleted, 260);
+  assert.equal(state.removed.length, 260);
+  assert.ok(state.writes.every((w) => w.table === "attendance_photos"));
+});
+
+test("02:00 IST cleanup removes yesterday's orphan photos across pages and keeps today's photos", async () => {
+  const originalNow = Date.now;
+  Date.now = () => Date.parse("2026-10-10T02:00:00+05:30");
+  try {
+    const files = [
+      ...Array.from({ length: 105 }, (_, i) => ({
+        name: `old-${i}.jpg`,
+        created_at: "2026-10-09T23:59:59+05:30",
+      })),
+      { name: "today.jpg", created_at: "2026-10-10T00:01:00+05:30" },
+    ];
+    state.table = () => ({ data: [], error: null });
+    state.list = ({ offset, limit }) =>
+      files.filter((f) => !state.removed.includes(f.name)).slice(offset, offset + limit);
+    const response = await request(
+      "attendance-photo-cleanup",
+      {},
+      { "x-attendance-secret": env.ATTENDANCE_CRON_SECRET },
+    );
+    assert.equal(response.status, 200);
+    assert.equal(state.removed.length, 105);
+    assert.ok(!state.removed.includes("today.jpg"));
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
 test("email gateway signatures and freshness are verified before leave writes", async () => {
   const input = {
     message_id: "mail-1",
@@ -471,3 +575,4 @@ test("email gateway signatures and freshness are verified before leave writes", 
   );
   assert.equal(state.calls[0].name, "attendance_email_leave");
 });
+

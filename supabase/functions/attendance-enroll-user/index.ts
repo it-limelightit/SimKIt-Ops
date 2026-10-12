@@ -37,9 +37,19 @@ serve(async (req) => {
     .select("enrollment_status")
     .eq("id", employee)
     .maybeSingle();
+  const latest = await admin
+    .from("attendance_device_commands")
+    .select("status,next_attempt_at")
+    .eq("employee_id", employee)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
   return json({
     employee_id: employee,
     status: current.data?.enrollment_status || "pending",
     publishing,
+    command_status: latest.data?.status || null,
+    confirmation_deadline:
+      latest.data?.status === "published" ? latest.data.next_attempt_at : null,
   });
 });

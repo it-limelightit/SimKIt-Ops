@@ -278,7 +278,15 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
       </aside>
 
       <main className="flex-1 overflow-x-hidden min-w-0">
-        <div className="mx-auto max-w-6xl px-6 py-10 md:px-10 md:py-12">{children}</div>
+        <div
+          className={
+            path === "/manager/attendance" || path === "/manager/attendance/"
+              ? "w-full"
+              : "mx-auto max-w-6xl px-6 py-10 md:px-10 md:py-12"
+          }
+        >
+          {children}
+        </div>
       </main>
     </div>
   );

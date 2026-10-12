@@ -57,37 +57,73 @@ function checked(result) {
   return result.data;
 }
 
+// supabase/functions/_shared/attendance-validation.ts
+function photoExpiryTime(scannedAt) {
+  const local = new Date(Date.parse(scannedAt) + 330 * 6e4);
+  return Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() + 1, 2) - 330 * 6e4;
+}
+
 // supabase/functions/attendance-photo-cleanup/index.ts
 serve(async (req) => {
   await secret(req, "ATTENDANCE_CRON_SECRET");
   const admin = adminClient();
-  const expired = checked(
-    await admin.from("attendance_photos").select("*").lte("expires_at", (/* @__PURE__ */ new Date()).toISOString()).neq("status", "deleted").order("expires_at").limit(100)
-  );
+  const cutoff = Date.now();
   let deleted = 0;
   let failed = 0;
-  for (const photo of expired || []) {
+  while (true) {
+    const expired = checked(
+      await admin.from("attendance_photos").select("*").lte("expires_at", new Date(cutoff).toISOString()).neq("status", "deleted").order("expires_at").limit(100)
+    );
+    if (!expired?.length) break;
     try {
-      checked(await admin.storage.from("attendance-photos").remove([photo.storage_path]));
       checked(
-        await admin.from("attendance_photos").update({ status: "deleted", deleted_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("event_id", photo.event_id)
+        await admin.storage.from("attendance-photos").remove(expired.map((p) => p.storage_path))
       );
-      deleted++;
+      checked(
+        await admin.from("attendance_photos").update({ status: "deleted", deleted_at: (/* @__PURE__ */ new Date()).toISOString() }).in(
+          "event_id",
+          expired.map((p) => p.event_id)
+        )
+      );
+      deleted += expired.length;
     } catch {
-      failed++;
+      failed += expired.length;
+      break;
     }
   }
-  const files = checked(
-    await admin.storage.from("attendance-photos").list("", { limit: 100, sortBy: { column: "created_at", order: "asc" } })
-  );
-  for (const file of files || []) {
-    const meta = checked(
-      await admin.from("attendance_photos").select("expires_at,status").eq("storage_path", file.name).maybeSingle()
+  let offset = 0;
+  while (true) {
+    const files = checked(
+      await admin.storage.from("attendance-photos").list("", { limit: 100, offset, sortBy: { column: "created_at", order: "asc" } })
     );
-    if (meta && Date.parse(meta.expires_at) <= Date.now() || !meta && file.created_at && Date.parse(file.created_at) + 864e5 <= Date.now()) {
-      const result = await admin.storage.from("attendance-photos").remove([file.name]);
-      if (result.error) failed++;
+    if (!files?.length) break;
+    const metadata = checked(
+      await admin.from("attendance_photos").select("storage_path,expires_at,status").in(
+        "storage_path",
+        files.map((file) => file.name)
+      )
+    );
+    const byPath = new Map(
+      (metadata || []).map((p) => [
+        p.storage_path,
+        p
+      ])
+    );
+    const removable = files.filter((file) => {
+      const meta = byPath.get(file.name);
+      return meta ? Date.parse(meta.expires_at) <= cutoff : !!file.created_at && photoExpiryTime(file.created_at) <= cutoff;
+    });
+    let removed = 0;
+    if (removable.length) {
+      const result = await admin.storage.from("attendance-photos").remove(removable.map((file) => file.name));
+      if (result.error) failed += removable.length;
+      else {
+        removed = removable.length;
+        deleted += removed;
+      }
     }
+    offset += files.length - removed;
+    if (files.length < 100) break;
   }
   return json({ deleted, failed }, failed ? 503 : 200);
 });

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import ts from "typescript";
+import { normalizeMessage as normalizeReceiverMessage } from "../integrations/aiface-attendance-receiver/vendor/protocol.mjs";
 const db = new PGlite();
 const manager = "00000000-0000-4000-8000-000000000001";
 const worker = "00000000-0000-4000-8000-000000000002";
@@ -41,6 +42,123 @@ before(async () => {
   );
 });
 after(() => db.close());
+test("employee edits require a manager and preserve enrollment, commands and history", async () => {
+  await db.exec(
+    readFileSync(
+      new URL(
+        "../supabase/migrations/20261010100000_attendance_edit_employee.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  const before = (
+    await db.query("SELECT enroll_id,enrollment_status FROM attendance_employees WHERE id=$1", [
+      employee,
+    ])
+  ).rows[0];
+  const commands = await scalar("SELECT count(*)::int FROM attendance_device_commands");
+  await asUser(worker);
+  await assert.rejects(
+    db.query(
+      "SELECT attendance_update_employee($1,'Edited','hardware','edited@example.test',true,$2::date)",
+      [employee, today],
+    ),
+    /Manager access required/,
+  );
+  await asUser(manager);
+  await db.query(
+    "SELECT attendance_update_employee($1,'Edited','hardware','edited@example.test',true,$2::date)",
+    [employee, today],
+  );
+  const updated = (
+    await db.query(
+      "SELECT name,department,email,email_verified,enroll_id,enrollment_status FROM attendance_employees WHERE id=$1",
+      [employee],
+    )
+  ).rows[0];
+  assert.equal(updated.name, "Edited");
+  assert.equal(updated.department, "hardware");
+  assert.equal(updated.email, "edited@example.test");
+  assert.equal(updated.email_verified, true);
+  assert.equal(updated.enroll_id, before.enroll_id);
+  assert.equal(updated.enrollment_status, before.enrollment_status);
+  assert.equal(await scalar("SELECT count(*)::int FROM attendance_device_commands"), commands);
+  await assert.rejects(
+    db.query("SELECT attendance_update_employee($1,'','software',null,false,$2::date)", [
+      employee,
+      today,
+    ]),
+    /Name is required/,
+  );
+  await db.query(
+    "SELECT attendance_update_employee($1,'Rahul','software','rahul@example.test',true,$2::date)",
+    [employee, today],
+  );
+});
+test("receiver receipt time controls stored timestamp, Indian work date and lateness despite a reset device clock", async () => {
+  await db.exec("BEGIN");
+  try {
+    const d = await scalar("SELECT ((now() AT TIME ZONE 'Asia/Kolkata')::date-1)::text");
+    await db.query("UPDATE attendance_employees SET employment_start=$1::date", [d]);
+    await db.query("UPDATE attendance_settings SET effective_from=$1::date", [d]);
+    const topic = "aiface/AYUE22065256/sub/stellar";
+    const config = {
+      deviceId: "AYUE22065256",
+      topics: [topic],
+      validModes: ["8"],
+      entryValues: ["0"],
+    };
+    const message = {
+      cmd: "sendlog",
+      sn: config.deviceId,
+      count: 1,
+      record: [{ enrollid: "00104", time: "2000-01-01 00:00:00", mode: 8, inout: 0 }],
+    };
+    const receivedAt = Date.parse(`${d}T10:30:00+05:30`);
+    const event = normalizeReceiverMessage(message, topic, config, receivedAt)[0];
+    const ingest = await scalar("SELECT attendance_ingest_scan($1,$2,$3::timestamptz,$4)", [
+      event.event_id,
+      event.enroll_id,
+      event.scanned_at,
+      event.recognized,
+    ]);
+    assert.equal(ingest.state, "valid");
+    const stored = (
+      await db.query("SELECT scanned_at,work_date::text FROM attendance_scan_events WHERE id=$1", [
+        ingest.id,
+      ])
+    ).rows[0];
+    assert.equal(new Date(stored.scanned_at).getTime(), receivedAt);
+    assert.equal(stored.work_date, d);
+    assert.equal(
+      await scalar(
+        "SELECT late_minutes FROM attendance_daily_records WHERE employee_id=$1 AND work_date=$2::date",
+        [employee, d],
+      ),
+      15,
+    );
+    // UTC previous evening must belong to the next Indian work day.
+    const midnightReceipt = Date.parse(`${d}T00:10:00+05:30`);
+    const midnightEvent = normalizeReceiverMessage(
+      { ...message, record: [{ ...message.record[0], event_id: "receipt-midnight" }] },
+      topic,
+      config,
+      midnightReceipt,
+    )[0];
+    const midnight = await scalar("SELECT attendance_ingest_scan($1,$2,$3::timestamptz,true)", [
+      midnightEvent.event_id,
+      midnightEvent.enroll_id,
+      midnightEvent.scanned_at,
+    ]);
+    assert.equal(
+      await scalar("SELECT work_date::text FROM attendance_scan_events WHERE id=$1", [midnight.id]),
+      d,
+    );
+  } finally {
+    await db.exec("ROLLBACK");
+  }
+});
 test("direct MQTT migration can be reapplied without changing data or service-only access", async () => {
   const before = await scalar("SELECT count(*)::int FROM attendance_employees");
   await db.exec(
@@ -424,5 +542,191 @@ test("validation rejects missing timezone, impossible dates, and disguised image
   assert.throws(
     () => validation.photoBytes(Buffer.from("not a photo").toString("base64"), "image/jpeg"),
     /content/,
+  );
+});
+
+test("device evidence repairs enrollment without inventing command acknowledgments or attendance", async () => {
+  const e = await scalar("SELECT attendance_save_employee('Profile user','software','9003')");
+  const [command] = await scalar("SELECT attendance_claim_commands($1)", [e]);
+  await db.query("SELECT attendance_mqtt_finish_command($1,$2,'published',NULL)", [
+    command.id,
+    command.lease_token,
+  ]);
+  await db.query("UPDATE attendance_device_commands SET status='failed' WHERE id=$1", [command.id]);
+  await db.query("UPDATE attendance_employees SET enrollment_status='failed' WHERE id=$1", [e]);
+  await db.query("SELECT attendance_ingest_scan('profile-evidence','9003',now(),true)");
+  const source = readFileSync(
+    new URL(
+      "../supabase/migrations/20261009110000_attendance_device_profile_confirmation.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  await db.exec(source);
+  assert.equal(
+    await scalar("SELECT enrollment_status FROM attendance_employees WHERE id=$1", [e]),
+    "enrolled",
+  );
+  assert.equal(
+    await scalar("SELECT status FROM attendance_device_commands WHERE id=$1", [command.id]),
+    "failed",
+  );
+  const audits = await scalar(
+    "SELECT count(*)::int FROM attendance_audit_logs WHERE action='device_profile_confirmed' AND record_id=$1",
+    [e],
+  );
+  const records = await scalar("SELECT count(*)::int FROM attendance_daily_records");
+  await db.exec(source);
+  assert.equal(
+    await scalar(
+      "SELECT count(*)::int FROM attendance_audit_logs WHERE action='device_profile_confirmed' AND record_id=$1",
+      [e],
+    ),
+    audits,
+  );
+  assert.equal(
+    await scalar("SELECT attendance_confirm_device_profile('9003','profile',now())"),
+    true,
+  );
+  assert.equal(await scalar("SELECT count(*)::int FROM attendance_daily_records"), records);
+  assert.equal(
+    await scalar("SELECT attendance_confirm_device_profile('unknown','profile',now())"),
+    false,
+  );
+  await assert.rejects(
+    db.query("SELECT attendance_confirm_device_profile('9003','profile',now()-interval '2 days')"),
+    /Fresh profile/,
+  );
+  await assert.rejects(
+    db.query("SELECT attendance_confirm_device_profile('9003','scan',now()-interval '1 hour')"),
+    /Validated recognized scan/,
+  );
+  for (const role of ["anon", "authenticated"])
+    assert.equal(
+      await scalar(
+        "SELECT has_function_privilege($1,'attendance_confirm_device_profile(text,text,timestamptz)','EXECUTE')",
+        [role],
+      ),
+      false,
+    );
+  assert.equal(
+    await scalar(
+      "SELECT has_function_privilege('service_role','attendance_confirm_device_profile(text,text,timestamptz)','EXECUTE')",
+    ),
+    true,
+  );
+});
+
+test("nightly photo migration preserves entries, applies 02:00 IST expiry and remains idempotent", async () => {
+  const records = await scalar("SELECT count(*)::int FROM attendance_daily_records");
+  const scans = await scalar("SELECT count(*)::int FROM attendance_scan_events");
+  const migration = readFileSync(
+    new URL(
+      "../supabase/migrations/20261009180000_attendance_photos_nightly_ist.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  await db.exec(migration);
+  await db.exec(migration);
+  for (const stamp of ["2026-10-09T00:01:00+05:30", "2026-10-09T23:59:59+05:30"]) {
+    const expiry = await scalar("SELECT attendance_photo_expires_at($1::timestamptz)", [stamp]);
+    assert.equal(new Date(expiry).toISOString(), "2026-10-09T20:30:00.000Z");
+  }
+  const midnight = await scalar("SELECT attendance_photo_expires_at('2026-10-09T18:30:00Z')");
+  assert.equal(new Date(midnight).toISOString(), "2026-10-10T20:30:00.000Z");
+  assert.equal(await scalar("SELECT count(*)::int FROM attendance_daily_records"), records);
+  assert.equal(await scalar("SELECT count(*)::int FROM attendance_scan_events"), scans);
+  assert.equal(await scalar("SELECT status FROM attendance_photos LIMIT 1"), "deleted");
+  assert.equal(
+    await scalar(
+      "SELECT has_function_privilege('authenticated','attendance_ingest_scan(text,text,timestamptz,boolean)','EXECUTE')",
+    ),
+    false,
+  );
+  const stamp = await scalar(
+    "SELECT scanned_at::text FROM attendance_scan_events WHERE event_id='late'",
+  );
+  const duplicate = await scalar(
+    "SELECT attendance_ingest_scan('late','00104',$1::timestamptz,true)",
+    [stamp],
+  );
+  assert.equal(
+    new Date(duplicate.expires_at).getTime(),
+    new Date(
+      await scalar("SELECT attendance_photo_expires_at($1::timestamptz)", [stamp]),
+    ).getTime(),
+  );
+});
+
+test("directory deletion preserves evidence and rejected requests expire after 24 hours", async () => {
+  await db.exec(
+    readFileSync(
+      new URL(
+        "../supabase/migrations/20261012110000_attendance_directory_cleanup.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  await asUser(manager);
+  const id = await scalar(
+    "SELECT attendance_save_employee('Directory test','software','directory-delete',null,false,$1::date)",
+    [today],
+  );
+  await db.query(
+    "SELECT attendance_ingest_scan('directory-evidence','directory-delete',now(),true)",
+  );
+  const leave = await scalar(
+    "SELECT attendance_create_leave($1,$2::date,$2::date,'Test request')",
+    [id, today],
+  );
+  await db.query("SELECT attendance_review_leave($1,'rejected')", [leave]);
+  let board = await scalar("SELECT attendance_board($1::date)", [today]);
+  assert.ok(board.leaves.some((l) => l.id === leave));
+  await db.query(
+    "UPDATE attendance_leave_requests SET reviewed_at=now()-interval '24 hours' WHERE id=$1",
+    [leave],
+  );
+  board = await scalar("SELECT attendance_board($1::date)", [today]);
+  assert.ok(!board.leaves.some((l) => l.id === leave));
+  assert.equal(
+    await scalar("SELECT count(*)::int FROM attendance_leave_requests WHERE id=$1", [leave]),
+    1,
+  );
+  await asUser(worker);
+  await assert.rejects(
+    db.query("SELECT attendance_delete_employee($1)", [id]),
+    /Manager access required/,
+  );
+  await asUser(manager);
+  await db.query("SELECT attendance_delete_employee($1)", [id]);
+  board = await scalar("SELECT attendance_board($1::date)", [today]);
+  assert.ok(!board.employees.some((e) => e.id === id));
+  assert.ok(board.rows.some((row) => row.employee_id === id));
+  const history = await scalar("SELECT attendance_history($1,$2::date)", [id, today]);
+  assert.equal(history.events.length, 1);
+  assert.equal(await scalar("SELECT active FROM attendance_employees WHERE id=$1", [id]), false);
+  assert.equal(
+    await scalar(
+      "SELECT count(*)::int FROM attendance_device_commands WHERE employee_id=$1 AND status IN ('pending','publishing','published')",
+      [id],
+    ),
+    0,
+  );
+  assert.equal(
+    await scalar(
+      "SELECT count(*)::int FROM attendance_audit_logs WHERE record_id=$1 AND action='employee_deleted'",
+      [id],
+    ),
+    1,
+  );
+  await assert.rejects(
+    db.query("SELECT attendance_set_active($1,true)", [id]),
+    /cannot be reactivated/,
+  );
+  await assert.rejects(
+    db.query("SELECT attendance_delete_employee($1)", [id]),
+    /Employee not found/,
   );
 });

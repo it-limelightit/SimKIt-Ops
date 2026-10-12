@@ -13,7 +13,8 @@ END $$;
 
 -- Re-running replaces these two jobs only; unrelated schedules are untouched.
 SELECT cron.unschedule(jobid) FROM cron.job WHERE jobname IN ('attendance-photo-cleanup','attendance-command-retry');
-SELECT cron.schedule('attendance-photo-cleanup','* * * * *',$job$
+-- pg_cron runs in UTC: 20:30 UTC = 02:00 Asia/Kolkata on the following day.
+SELECT cron.schedule('attendance-photo-cleanup','30 20 * * *',$job$
   SELECT net.http_post(
     url := (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name='attendance_project_url' LIMIT 1) || '/functions/v1/attendance-photo-cleanup',
     headers := jsonb_build_object('Content-Type','application/json','x-attendance-secret',(SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name='attendance_cron_secret' LIMIT 1)),

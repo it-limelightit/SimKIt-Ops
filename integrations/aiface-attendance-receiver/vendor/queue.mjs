@@ -11,9 +11,11 @@ export class EventQueue {
     const id =
       event.kind === "scan"
         ? `scan:${event.event_id}`
-        : event.kind === "enrollment_ack"
-          ? `ack:${event.command_id}:${event.success}`
-          : `heartbeat:${Date.now()}`;
+        : event.kind === "device_profile"
+          ? `profile:${event.device_id}:${event.enroll_id}:${event.observed_at}`
+          : event.kind === "enrollment_ack"
+            ? `ack:${event.command_id}:${event.success}`
+            : `heartbeat:${Date.now()}`;
     if (this.db.prepare("SELECT id FROM events WHERE id=?").get(id)) return id;
     if (this.db.prepare("SELECT count(*) AS count FROM events").get().count >= 10000)
       this.db

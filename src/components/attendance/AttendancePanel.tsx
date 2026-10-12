@@ -1,12 +1,17 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import {
   CalendarDays,
-  CheckCircle2,
   Clock3,
+  ChevronLeft,
+  ChevronRight,
+  Download,
   ImageIcon,
   Plus,
   RefreshCw,
   Settings2,
+  Pencil,
+  Trash2,
   Users,
   Wifi,
   WifiOff,
@@ -31,62 +36,108 @@ import {
   timeLabel,
   type AttendanceRow,
   type Employee,
-  type History,
   type Leave,
   type Settings,
 } from "@/lib/device-attendance";
+import { AttendanceOverview } from "./AttendanceOverview";
+import { AttendanceEvidenceDialogs, type AttendanceRecordView } from "./AttendanceEvidenceDialogs";
+import "./attendance.css";
+import {
+  attendanceCsv,
+  formatAttendanceDuration,
+  matchesAttendanceStatus,
+} from "@/lib/attendance-analytics";
 
-const fieldClass = "w-full rounded-md border border-border bg-surface px-3 py-2 text-sm";
+const fieldClass =
+  "h-11 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:border-lime focus:outline-none focus:ring-2 focus:ring-lime/15";
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className="block space-y-2 text-sm">
-      <span className="text-text-secondary">{label}</span>
+    <label className="block min-w-0 space-y-1.5 text-sm">
+      <span className="text-xs font-medium text-text-secondary">{label}</span>
       {children}
     </label>
   );
 }
-function Status({ value }: { value: string }) {
+function Status({ value, lateMinutes }: { value: string; lateMinutes?: number | null }) {
   const tone = ["present", "enrolled", "approved"].includes(value)
-    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+    ? "border-mint/20 bg-mint/10 text-mint"
     : value === "late"
-      ? "bg-amber-500/10 text-amber-600"
+      ? "border-warning/20 bg-warning/10 text-warning"
       : value === "on_leave"
-        ? "bg-blue-500/10 text-blue-500"
+        ? "border-violet/20 bg-violet/10 text-violet"
         : ["failed", "absent", "rejected"].includes(value)
-          ? "bg-red-500/10 text-red-500"
-          : "bg-surface text-text-secondary";
+          ? "border-coral/20 bg-coral/10 text-coral"
+          : value === "needs_review"
+            ? "border-violet/20 bg-violet/10 text-violet"
+            : "border-border bg-surface-raised text-text-secondary";
   return (
-    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${tone}`}>
-      {statusLabels[value] || value}
+    <span
+      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-medium ${tone}`}
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
+      {value === "late" && lateMinutes != null && lateMinutes > 0
+        ? `${formatAttendanceDuration(lateMinutes)} late`
+        : statusLabels[value] || value}
     </span>
   );
 }
 function Empty({ children }: { children: ReactNode }) {
   return <div className="p-12 text-center text-sm text-text-secondary">{children}</div>;
 }
-type EnrollResponse = { status: string; publishing: { configured: boolean; sent: number } };
+type EnrollResponse = {
+  status: string;
+  publishing: { configured: boolean; sent: number };
+  command_status?: string | null;
+  confirmation_deadline?: string | null;
+};
 function enrollmentNotice(result: EnrollResponse) {
   if (result.status === "enrolled") toast.success("Employee registration confirmed by the device.");
   else if (result.status === "failed")
-    toast.error("User saved. Enrollment failed; review device status before retrying.");
-  else if (!result.publishing.configured) toast("User saved. Device integration setup is pending.");
+    toast.error(
+      "Enrollment failed. Check the employee's registration on the device before retrying.",
+    );
+  else if (result.command_status === "published")
+    toast(
+      "The enrollment command was already published. Complete face registration at the device. A new command can be requested after the current attempt times out.",
+    );
+  else if (result.command_status === "publishing")
+    toast("The enrollment command is being sent. Wait for the status to update before retrying.");
+  else if (!result.publishing.configured)
+    toast("Enrollment is pending. Device integration is unavailable; contact your administrator.");
   else if (result.publishing.sent) toast.success("Enrollment sent. Awaiting device confirmation.");
-  else toast("User saved. Enrollment is queued; check connection and retry status.");
+  else
+    toast(
+      "Enrollment is pending. This request did not confirm a command was sent; check the employee's registration on the device.",
+    );
 }
 
 export function AttendancePanel() {
-  const [date, setDate] = useState(indiaDate());
+  const navigate = useNavigate();
+  const [date, setDate] = useState(() => {
+    const requested =
+      typeof window === "undefined"
+        ? null
+        : new URLSearchParams(window.location.search).get("date");
+    return requested && /^\d{4}-\d{2}-\d{2}$/.test(requested) && requested <= indiaDate()
+      ? requested
+      : indiaDate();
+  });
   const { board, error, loading, reload } = useDeviceAttendance(date);
   const [tab, setTab] = useState<"daily" | "users" | "leave">("daily");
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("all");
   const [status, setStatus] = useState("all");
+  const [sort, setSort] = useState("name");
+  const [employeeState, setEmployeeState] = useState("all");
+  const [enrollment, setEnrollment] = useState("all");
   const [employeeOpen, setEmployeeOpen] = useState(false);
+  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [review, setReview] = useState<{ leave: Leave; decision: string } | null>(null);
   const [activeChange, setActiveChange] = useState<Employee | null>(null);
-  const [history, setHistory] = useState<{ name: string; data: History } | null>(null);
+  const [deletingEmployee, setDeletingEmployee] = useState<Employee | null>(null);
+  const [history, setHistory] = useState<AttendanceRecordView>(null);
   const [photo, setPhoto] = useState<{
     url: string;
     expires_at: string;
@@ -117,19 +168,53 @@ export function AttendancePanel() {
       setPhoto(await attendanceFunction("attendance-photo-access", { event_id: eventId }));
     });
   }
-  const rows = (board?.rows || []).filter(
-    (row) =>
-      (department === "all" || row.department === department) &&
-      (status === "all" || row.status === status) &&
-      `${row.name} ${row.enroll_id}`.toLowerCase().includes(search.toLowerCase()),
+  function openEmployee(employeeId: string) {
+    if (board?.employees.some((item) => item.id === employeeId))
+      void navigate({
+        to: "/manager/attendance/history/$employeeId",
+        params: { employeeId },
+        search: { date },
+      });
+    else toast.error("Employee details are unavailable. Refresh attendance and try again.");
+  }
+  const overviewRows = (board?.rows || []).filter((row) =>
+    `${row.name} ${row.enroll_id}`.toLowerCase().includes(search.trim().toLowerCase()),
   );
+  const attendanceByEmployee = new Map((board?.rows || []).map((row) => [row.employee_id, row]));
+  const rows = overviewRows
+    .filter(
+      (row) =>
+        (department === "all" || row.department === department) &&
+        matchesAttendanceStatus(row, status) &&
+        `${row.name} ${row.enroll_id}`.toLowerCase().includes(search.trim().toLowerCase()),
+    )
+    .sort((a, b) => {
+      if (sort === "late")
+        return (b.late_minutes ?? -1) - (a.late_minutes ?? -1) || a.name.localeCompare(b.name);
+      if (sort === "entry")
+        return (
+          (a.entry_at ? Date.parse(a.entry_at) : Infinity) -
+            (b.entry_at ? Date.parse(b.entry_at) : Infinity) || a.name.localeCompare(b.name)
+        );
+      return a.name.localeCompare(b.name);
+    });
   const employees = (board?.employees || []).filter(
     (e) =>
       (department === "all" || e.department === department) &&
+      (employeeState === "all" || e.active === (employeeState === "active")) &&
+      (enrollment === "all" || e.enrollment_status === enrollment) &&
+      (status === "all" ||
+        !!(
+          attendanceByEmployee.get(e.id) &&
+          matchesAttendanceStatus(attendanceByEmployee.get(e.id)!, status)
+        )) &&
       `${e.name} ${e.enroll_id}`.toLowerCase().includes(search.toLowerCase()),
   );
   const leaves = (board?.leaves || []).filter(
     (l) =>
+      (l.status !== "rejected" ||
+        !l.reviewed_at ||
+        now < Date.parse(l.reviewed_at) + 24 * 60 * 60 * 1000) &&
       (status === "all" || l.status === status) &&
       `${l.employee_name || ""} ${l.sender_email || ""}`
         .toLowerCase()
@@ -138,40 +223,45 @@ export function AttendancePanel() {
   const pending = (board?.leaves || []).filter((l) =>
     ["pending", "needs_review"].includes(l.status),
   ).length;
-  const totals = [
-    {
-      label: "Present",
-      count: board?.rows.filter((r) => r.entry_at).length || 0,
-      icon: CheckCircle2,
-    },
-    {
-      label: "Late",
-      count: board?.rows.filter((r) => (r.late_minutes || 0) > 0).length || 0,
-      icon: Clock3,
-    },
-    {
-      label: "On leave",
-      count: board?.rows.filter((r) => r.status === "on_leave").length || 0,
-      icon: CalendarDays,
-    },
-    {
-      label: "Absent",
-      count: board?.rows.filter((r) => r.status === "absent").length || 0,
-      icon: Users,
-    },
-  ];
   const deviceState = board?.device.state || "unknown";
   function chooseTab(value: typeof tab) {
     setTab(value);
     setStatus("all");
+    setSearch("");
+    setDepartment("all");
+    setEmployeeState("all");
+    setEnrollment("all");
   }
+  function moveDate(offset: number) {
+    const next = new Date(date + "T12:00:00+05:30");
+    next.setUTCDate(next.getUTCDate() + offset);
+    const value = indiaDate(next);
+    if (value <= indiaDate()) setDate(value);
+  }
+  function exportReport() {
+    const blob = new Blob([attendanceCsv(rows, date)], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "attendance-" + date + ".csv";
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast.success("Exported " + rows.length + " employee records.");
+  }
+  const hasFilters =
+    !!search ||
+    department !== "all" ||
+    status !== "all" ||
+    (tab === "users" && (employeeState !== "all" || enrollment !== "all"));
+  const visibleCount =
+    tab === "daily" ? rows.length : tab === "users" ? employees.length : leaves.length;
   function photoAction(row: {
     event_id: string | null;
     photo_status: string | null;
     photo_expires_at: string | null;
   }) {
     if (row.photo_expires_at && Date.parse(row.photo_expires_at) <= now)
-      return <span className="text-xs text-text-dim">Expired after 24 hours</span>;
+      return <span className="text-xs text-text-secondary">Expired at 2:00 am IST</span>;
     if (row.event_id && row.photo_status === "available")
       return (
         <Button
@@ -185,61 +275,77 @@ export function AttendancePanel() {
         </Button>
       );
     return (
-      <span className="text-xs text-text-dim">{row.event_id ? "Photo unavailable" : "—"}</span>
+      <span className="text-xs text-text-secondary">
+        {row.event_id ? "Photo unavailable" : "—"}
+      </span>
     );
   }
   return (
-    <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-8">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p className="mb-1 text-xs font-mono uppercase tracking-widest text-lime">
-            People & attendance
-          </p>
-          <h1 className="font-syne text-3xl font-bold">Attendance</h1>
-          <p className="mt-2 text-sm text-text-secondary">
-            Office entries, employee enrollment, and leave requests.
-          </p>
-        </div>
+    <div className="attendance-page w-full space-y-3 p-3 font-sans text-text-primary sm:p-4 lg:px-5">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Attendance</h1>
         <div className="flex flex-wrap gap-2">
           <Button
-            variant="secondary"
             size="sm"
+            variant="secondary"
             disabled={loading || busy}
             onClick={() => void reload()}
+            aria-label="Refresh attendance"
           >
-            <RefreshCw size={15} />
-            Refresh
+            <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+            <span className="hidden sm:inline">Refresh</span>
           </Button>
           <Button
-            variant="secondary"
             size="sm"
+            variant="secondary"
             disabled={!board || busy}
             onClick={() => setSettingsOpen(true)}
           >
-            <Settings2 size={15} />
+            <Settings2 size={16} />
             Office settings
           </Button>
-          <Button size="sm" disabled={!board || busy} onClick={() => setEmployeeOpen(true)}>
-            <Plus size={16} />
-            Add user
+          <Button
+            size="sm"
+            disabled={!board || busy}
+            onClick={() => {
+              setEditingEmployee(null);
+              setEmployeeOpen(true);
+            }}
+          >
+            <Plus size={17} />
+            Add employee
           </Button>
         </div>
       </header>
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface px-4 py-3 text-xs text-text-secondary">
-        <span className="flex items-center gap-2">
-          {deviceState === "online" ? (
-            <Wifi size={15} className="text-emerald-500" />
-          ) : (
-            <WifiOff size={15} />
-          )}
-          Device {deviceState} · Last scan: {timeLabel(board?.device.last_scan_at || null)} IST
-        </span>
-        <span>
-          Entry policy:{" "}
-          {board?.settings
-            ? `${timeLabel(`2000-01-01T${board.settings.shift_start}+05:30`)} + ${board.settings.grace_minutes} min grace`
-            : "Not configured"}{" "}
-          · Asia/Kolkata
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-xs sm:px-3.5">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+          <span
+            className={
+              "inline-flex items-center gap-2 font-medium " +
+              (deviceState === "online" ? "text-mint" : "text-warning")
+            }
+          >
+            {deviceState === "online" ? <Wifi size={15} /> : <WifiOff size={15} />}Device{" "}
+            {deviceState}
+          </span>
+          <span className="text-text-secondary">
+            Last received scan{" "}
+            <span className="ml-1 font-medium text-text-primary">
+              {board?.device.last_scan_at
+                ? new Date(board.device.last_scan_at).toLocaleString("en-IN", {
+                    timeZone: "Asia/Kolkata",
+                    day: "numeric",
+                    month: "short",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  }) + " IST"
+                : "No scans yet"}
+            </span>
+          </span>
+        </div>
+        <span className="text-text-secondary">
+          {board?.server_time ? `Updated ${timeLabel(board.server_time)} IST · ` : ""}Auto-refresh
+          15s
         </span>
       </div>
       {error && (
@@ -252,31 +358,38 @@ export function AttendancePanel() {
         </div>
       )}
       {board && !board.settings?.absence_cutoff && (
-        <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-4 text-sm text-amber-600">
+        <div className="rounded-lg border border-amber-500/25 bg-warning/5 p-4 text-sm text-warning">
           Complete working days and absence cutoff in Office settings. Missing scans require review
           until attendance coverage is confirmed.
         </div>
       )}
       <nav
         aria-label="Attendance sections"
-        className="flex gap-1 overflow-x-auto border-b border-border"
+        className="flex gap-1 overflow-x-auto rounded-lg border border-border bg-surface p-1"
       >
         {(
           [
-            ["daily", "Daily Attendance"],
-            ["users", "Manage Users"],
-            ["leave", "Leave Requests"],
+            ["daily", "Daily attendance", CalendarDays],
+            ["users", "Employees", Users],
+            ["leave", "Leave requests", Clock3],
           ] as const
-        ).map(([key, label]) => (
+        ).map(([key, label, Icon]) => (
           <button
             key={key}
+            type="button"
             onClick={() => chooseTab(key)}
             aria-current={tab === key ? "page" : undefined}
-            className={`whitespace-nowrap border-b-2 px-4 py-3 text-sm font-semibold ${tab === key ? "border-lime text-lime" : "border-transparent text-text-secondary hover:text-text-primary"}`}
+            className={
+              "flex items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-lime " +
+              (tab === key
+                ? "bg-lime/10 text-lime"
+                : "text-text-secondary hover:bg-surface-raised hover:text-text-primary")
+            }
           >
+            <Icon size={16} />
             {label}
             {key === "leave" && pending > 0 && (
-              <span className="ml-2 rounded-full bg-lime/15 px-2 py-0.5 text-xs text-lime">
+              <span className="rounded-full bg-lime/15 px-2 py-0.5 text-xs text-lime tabular-nums">
                 {pending}
               </span>
             )}
@@ -284,41 +397,174 @@ export function AttendancePanel() {
         ))}
       </nav>
       {tab === "daily" && (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {totals.map(({ label, count, icon: Icon }) => (
-            <Card key={label} className="p-5">
-              <div className="flex items-center justify-between text-text-secondary">
-                <span className="text-sm">{label}</span>
-                <Icon size={18} />
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold tracking-tight sm:text-lg">
+                {date === indiaDate() ? "Today’s attendance" : dateLabel(date)}
+              </h2>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-0.5 rounded-lg border border-border bg-surface p-0.5">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Previous day"
+                  onClick={() => moveDate(-1)}
+                >
+                  <ChevronLeft size={17} />
+                </Button>
+                <input
+                  aria-label="Attendance date"
+                  type="date"
+                  value={date}
+                  max={indiaDate()}
+                  onChange={(e) => {
+                    if (e.target.value && e.target.value <= indiaDate()) setDate(e.target.value);
+                  }}
+                  className="min-w-0 rounded bg-transparent px-1 py-1 text-sm text-text-primary focus-visible:outline-2 focus-visible:outline-lime"
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Next day"
+                  disabled={date >= indiaDate()}
+                  onClick={() => moveDate(1)}
+                >
+                  <ChevronRight size={17} />
+                </Button>
               </div>
-              <p className="mt-3 text-3xl font-bold">{count}</p>
-              {label === "Present" && (
-                <p className="mt-1 text-xs text-text-dim">Includes late arrivals</p>
+              {date !== indiaDate() && (
+                <Button variant="secondary" size="sm" onClick={() => setDate(indiaDate())}>
+                  Today
+                </Button>
               )}
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={!board || loading || !!error || !rows.length}
+                onClick={exportReport}
+              >
+                <Download size={16} />
+                Export CSV
+              </Button>
+            </div>
+          </div>
+          {board && !loading ? (
+            <AttendanceOverview
+              rows={overviewRows}
+              status={status}
+              onStatus={setStatus}
+              department={department}
+              onDepartment={setDepartment}
+            />
+          ) : loading ? (
+            <div
+              className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6"
+              aria-label="Loading overview"
+            >
+              {[1, 2, 3, 4, 5, 6, 7].map((n) => (
+                <div
+                  key={n}
+                  className="h-28 animate-pulse rounded-xl border border-border bg-surface"
+                />
+              ))}
+            </div>
+          ) : null}
+        </>
+      )}
+      {board && tab !== "daily" && (
+        <div className="grid grid-cols-3 gap-3">
+          {(tab === "users"
+            ? [
+                {
+                  label: "Active employees",
+                  count: board.employees.filter((e) => e.active).length,
+                  tone: "text-text-primary",
+                },
+                {
+                  label: "Registered on device",
+                  count: board.employees.filter(
+                    (e) => e.active && e.enrollment_status === "enrolled",
+                  ).length,
+                  tone: "text-mint",
+                },
+                {
+                  label: "Needs registration",
+                  count: board.employees.filter(
+                    (e) => e.active && e.enrollment_status !== "enrolled",
+                  ).length,
+                  tone: "text-warning",
+                },
+              ]
+            : [
+                { label: "Awaiting decision", count: pending, tone: "text-warning" },
+                {
+                  label: "Approved requests",
+                  count: board.leaves.filter((l) => l.status === "approved").length,
+                  tone: "text-mint",
+                },
+                {
+                  label: "Needs matching / review",
+                  count: board.leaves.filter((l) => l.status === "needs_review").length,
+                  tone: "text-violet",
+                },
+              ]
+          ).map((metric) => (
+            <Card
+              key={metric.label}
+              className="flex flex-col justify-between gap-2 rounded-xl p-3 sm:flex-row sm:items-center sm:px-4"
+            >
+              <p className="text-xs leading-relaxed text-text-secondary">{metric.label}</p>
+              <p className={`text-2xl font-semibold tabular-nums ${metric.tone}`}>{metric.count}</p>
             </Card>
           ))}
         </div>
       )}
-      <Card className="overflow-hidden">
-        <div className="grid gap-3 border-b border-border p-4 sm:grid-cols-2 lg:flex lg:items-end">
-          {tab === "daily" && (
-            <Field label="Attendance date">
-              <Input
-                className={fieldClass}
-                type="date"
-                value={date}
-                max={indiaDate()}
-                onChange={(e) => {
-                  if (e.target.value) setDate(e.target.value);
-                }}
-              />
-            </Field>
+      <Card className="overflow-hidden rounded-xl p-0">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
+          <div>
+            <h2 className="text-base font-semibold">
+              {tab === "daily"
+                ? "Employee attendance"
+                : tab === "users"
+                  ? "Employee directory"
+                  : "Leave requests"}
+            </h2>
+            <p className="mt-1 text-xs text-text-secondary">
+              {loading
+                ? "Loading records…"
+                : `${visibleCount} ${tab === "leave" ? "requests" : "employees"} shown`}
+              {tab === "daily" && " · Search and status filters apply to this list"}
+              {tab === "users" && ` · Attendance status for ${dateLabel(date)}`}
+            </p>
+          </div>
+          {hasFilters && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setSearch("");
+                setDepartment("all");
+                setStatus("all");
+                setEmployeeState("all");
+                setEnrollment("all");
+              }}
+            >
+              Clear filters
+            </Button>
           )}
-          <div className="lg:flex-1">
-            <Field label="Search employee">
+        </div>
+        <div
+          className={`attendance-filters grid gap-3 border-b border-border bg-surface/50 p-3 sm:grid-cols-2 ${tab === "users" ? "xl:grid-cols-[minmax(220px,1.5fr)_repeat(4,minmax(0,1fr))]" : "lg:grid-cols-4"}`}
+        >
+          <div className="min-w-0">
+            <Field label={tab === "leave" ? "Search requests" : "Search employee"}>
               <Input
                 className={fieldClass}
-                placeholder="Name or enroll ID"
+                placeholder={
+                  tab === "leave" ? "Employee name or email" : "Search name or enrollment ID"
+                }
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
@@ -340,24 +586,23 @@ export function AttendancePanel() {
               </Select>
             </Field>
           )}
-          {tab !== "users" && (
-            <Field label="Status">
+          {
+            <Field label={tab === "users" ? "Attendance status" : "Status"}>
               <Select
                 className={fieldClass}
                 value={status}
                 onChange={(e) => setStatus(e.target.value)}
               >
                 <option value="all">All statuses</option>
-                {(tab === "daily"
-                  ? [
-                      "present",
-                      "late",
-                      "on_leave",
-                      "awaiting_scan",
-                      "absent",
-                      "off_day",
-                      "needs_review",
-                    ]
+                {tab !== "leave" && (
+                  <>
+                    <option value="recorded">All recorded entries</option>
+                    <option value="on_time">All on-time arrivals</option>
+                    <option value="late_arrivals">All late arrivals</option>
+                  </>
+                )}
+                {(tab !== "leave"
+                  ? ["present", "late", "on_leave", "absent", "off_day"]
                   : ["pending", "needs_review", "approved", "rejected", "cancelled"]
                 ).map((s) => (
                   <option key={s} value={s}>
@@ -366,6 +611,42 @@ export function AttendancePanel() {
                 ))}
               </Select>
             </Field>
+          }
+          {tab === "daily" && (
+            <Field label="Sort by">
+              <Select className={fieldClass} value={sort} onChange={(e) => setSort(e.target.value)}>
+                <option value="name">Employee name</option>
+                <option value="entry">Earliest entry</option>
+                <option value="late">Longest delay</option>
+              </Select>
+            </Field>
+          )}
+          {tab === "users" && (
+            <>
+              <Field label="Employee state">
+                <Select
+                  className={fieldClass}
+                  value={employeeState}
+                  onChange={(e) => setEmployeeState(e.target.value)}
+                >
+                  <option value="all">All employees</option>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </Select>
+              </Field>
+              <Field label="Device registration">
+                <Select
+                  className={fieldClass}
+                  value={enrollment}
+                  onChange={(e) => setEnrollment(e.target.value)}
+                >
+                  <option value="all">All registrations</option>
+                  <option value="enrolled">Enrolled</option>
+                  <option value="pending">Pending</option>
+                  <option value="failed">Failed</option>
+                </Select>
+              </Field>
+            </>
           )}
           {tab === "leave" && (
             <Button
@@ -387,18 +668,21 @@ export function AttendancePanel() {
           <>
             <div className="hidden overflow-x-auto md:block">
               <table className="w-full text-left text-sm">
-                <thead className="bg-surface text-xs text-text-secondary">
+                <thead className="bg-surface-raised/50 text-xs text-text-secondary">
                   <tr>
                     {[
                       "Employee",
+                      "ID",
                       "Department",
-                      "Date",
-                      "Entry time (IST)",
+                      "First check-in (IST)",
                       "Status",
-                      "Photo",
-                      "",
+                      "Late duration",
+                      "View details",
                     ].map((h, i) => (
-                      <th key={i} className="px-4 py-3 font-medium">
+                      <th
+                        key={i}
+                        className="px-3 py-2.5 text-xs font-semibold whitespace-nowrap sm:px-4"
+                      >
                         {h}
                       </th>
                     ))}
@@ -408,39 +692,41 @@ export function AttendancePanel() {
                   {rows.map((row) => (
                     <tr
                       key={row.employee_id}
-                      className={`border-t border-border ${(row.late_minutes || 0) > 0 ? "bg-amber-500/5" : ""}`}
+                      className={`border-t border-border transition-colors hover:bg-lime/5 ${(row.late_minutes || 0) > 0 ? "bg-warning/5" : ""}`}
                     >
-                      <td className="px-4 py-4">
-                        <p className="font-semibold">{row.name}</p>
-                        <p className="text-xs text-text-dim">ID {row.enroll_id}</p>
+                      <td className="px-3 py-3 sm:px-4">
+                        <button
+                          type="button"
+                          onClick={() => openEmployee(row.employee_id)}
+                          className="text-left font-semibold hover:text-lime focus-visible:outline-2 focus-visible:outline-lime"
+                        >
+                          {row.name}
+                        </button>
                       </td>
-                      <td className="px-4 capitalize">{row.department}</td>
-                      <td className="px-4 whitespace-nowrap">{dateLabel(date)}</td>
-                      <td className="px-4 whitespace-nowrap">{timeLabel(row.entry_at)}</td>
-                      <td className="px-4">
+                      <td className="px-3 py-3 text-xs text-text-secondary tabular-nums sm:px-4">
+                        {row.enroll_id}
+                      </td>
+                      <td className="px-3 text-text-secondary capitalize sm:px-4">
+                        {row.department}
+                      </td>
+                      <td className="px-3 py-3 whitespace-nowrap tabular-nums sm:px-4">
+                        {timeLabel(row.entry_at)}
+                      </td>
+                      <td className="px-3 py-3 sm:px-4">
                         <Status value={row.status} />
-                        {(row.late_minutes || 0) > 0 && (
-                          <p className="mt-1 text-xs text-amber-600">{row.late_minutes} min late</p>
-                        )}
                         {row.leave_conflict && <p className="mt-1 text-xs">Scanned during leave</p>}
                       </td>
-                      <td className="px-4">{photoAction(row)}</td>
-                      <td className="px-4">
+                      <td
+                        className={`px-3 py-3 whitespace-nowrap tabular-nums sm:px-4 ${(row.late_minutes || 0) > 0 ? "text-warning" : "text-text-secondary"}`}
+                      >
+                        {formatAttendanceDuration(row.late_minutes)}
+                      </td>
+                      <td className="px-3 py-3 sm:px-4">
                         <Button
                           size="sm"
                           variant="ghost"
                           disabled={busy}
-                          onClick={() =>
-                            void act(async () =>
-                              setHistory({
-                                name: row.name,
-                                data: await attendanceRpc("attendance_history", {
-                                  _employee: row.employee_id,
-                                  _date: date,
-                                }),
-                              }),
-                            )
-                          }
+                          onClick={() => openEmployee(row.employee_id)}
                         >
                           Details
                         </Button>
@@ -454,23 +740,33 @@ export function AttendancePanel() {
               {rows.map((row) => (
                 <div
                   key={row.employee_id}
-                  className={`space-y-3 p-4 ${(row.late_minutes || 0) > 0 ? "bg-amber-500/5" : ""}`}
+                  className={`space-y-3 p-4 ${(row.late_minutes || 0) > 0 ? "bg-warning/5" : ""}`}
                 >
                   <div className="flex justify-between gap-2">
                     <div>
-                      <p className="font-semibold">{row.name}</p>
+                      <button
+                        type="button"
+                        onClick={() => openEmployee(row.employee_id)}
+                        className="text-left font-semibold hover:text-lime focus-visible:outline-2 focus-visible:outline-lime"
+                      >
+                        {row.name}
+                      </button>
                       <p className="text-xs capitalize text-text-secondary">
                         {row.department} · ID {row.enroll_id}
                       </p>
                     </div>
-                    <Status value={row.status} />
+                    <Status value={row.status} lateMinutes={row.late_minutes} />
                   </div>
-                  <p className="text-sm">
-                    {dateLabel(date)} · {timeLabel(row.entry_at)} IST
-                    {(row.late_minutes || 0) > 0 && ` · ${row.late_minutes} min late`}
+                  <p className="text-sm tabular-nums">
+                    {row.entry_at
+                      ? `First entry · ${timeLabel(row.entry_at)} IST`
+                      : "No entry recorded"}
+                    {row.status !== "late" &&
+                      (row.late_minutes || 0) > 0 &&
+                      ` · ${formatAttendanceDuration(row.late_minutes)} late`}
                   </p>
                   {row.leave_conflict && (
-                    <p className="text-xs text-amber-600">Scanned during approved leave</p>
+                    <p className="text-xs text-warning">Scanned during approved leave</p>
                   )}
                   <div className="flex gap-2">
                     {photoAction(row)}
@@ -478,78 +774,148 @@ export function AttendancePanel() {
                       variant="ghost"
                       size="sm"
                       disabled={busy}
-                      onClick={() =>
-                        void act(async () =>
-                          setHistory({
-                            name: row.name,
-                            data: await attendanceRpc("attendance_history", {
-                              _employee: row.employee_id,
-                              _date: date,
-                            }),
-                          }),
-                        )
-                      }
+                      onClick={() => openEmployee(row.employee_id)}
                     >
-                      Scan history
+                      View details
                     </Button>
                   </div>
                 </div>
               ))}
             </div>
-            {!rows.length && <Empty>No employees match this date and these filters.</Empty>}
+            {!rows.length && (
+              <Empty>No matching employees. Try another date or clear your filters.</Empty>
+            )}
           </>
         ) : tab === "users" ? (
-          <div className="divide-y divide-border">
-            {employees.map((e) => (
-              <div key={e.id} className="flex flex-wrap items-center justify-between gap-4 p-4">
-                <div>
-                  <p className="font-semibold">
-                    {e.name}{" "}
-                    {!e.active && <span className="text-xs text-text-dim">(Inactive)</span>}
-                  </p>
-                  <p className="mt-1 text-sm capitalize text-text-secondary">
-                    {e.department} · Enroll ID {e.enroll_id}
-                  </p>
-                  {e.email && (
-                    <p className="mt-1 text-xs text-text-dim">
-                      {e.email} ·{" "}
-                      {e.email_verified ? "Email verified by manager" : "Email unverified"}
-                    </p>
-                  )}
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Status value={e.enrollment_status} />
-                  {e.active && e.enrollment_status !== "enrolled" && (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={busy}
-                      onClick={() =>
-                        void act(async () => {
-                          const result = await attendanceFunction<EnrollResponse>(
-                            "attendance-enroll-user",
-                            { action: "retry", employee_id: e.id },
-                          );
-                          enrollmentNotice(result);
-                        })
-                      }
-                    >
-                      Retry enrollment
-                    </Button>
-                  )}
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={busy}
-                    onClick={() => setActiveChange(e)}
-                  >
-                    {e.active ? "Deactivate" : "Reactivate"}
-                  </Button>
-                </div>
-              </div>
-            ))}
+          <div>
+            <div className="overflow-x-auto">
+              <table className="employee-directory w-full text-left text-sm">
+                <caption className="sr-only">
+                  Employee directory with registration, attendance and management actions
+                </caption>
+                <thead className="border-b border-border bg-surface-raised/60 text-xs text-text-secondary">
+                  <tr>
+                    {[
+                      "Employee",
+                      "Enroll ID",
+                      "Department",
+                      "Registration",
+                      "Attendance",
+                      "Actions",
+                    ].map((heading) => (
+                      <th
+                        key={heading}
+                        scope="col"
+                        className={
+                          heading === "Actions"
+                            ? "px-4 py-3 text-right font-medium"
+                            : "px-4 py-3 font-medium"
+                        }
+                      >
+                        {heading}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {employees.map((e) => (
+                    <tr key={e.id} className="hover:bg-surface-raised/40">
+                      <td className="px-4 py-3">
+                        <button
+                          className="text-left font-semibold hover:text-lime focus-visible:outline-lime"
+                          onClick={() => openEmployee(e.id)}
+                        >
+                          {e.name}
+                        </button>
+                        <p className="mt-0.5 text-xs text-text-secondary">
+                          {e.email || "No email added"}
+                        </p>
+                        {!e.active && <span className="text-xs text-text-secondary">Inactive</span>}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs tabular-nums">{e.enroll_id}</td>
+                      <td className="px-4 py-3 capitalize text-text-secondary">{e.department}</td>
+                      <td className="px-4 py-3">
+                        <Status value={e.enrollment_status} />
+                      </td>
+                      <td className="px-4 py-3">
+                        {attendanceByEmployee.get(e.id) ? (
+                          <Status
+                            value={attendanceByEmployee.get(e.id)!.status}
+                            lateMinutes={attendanceByEmployee.get(e.id)!.late_minutes}
+                          />
+                        ) : (
+                          <span className="text-xs text-text-secondary">Unavailable</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
+                          <Button size="sm" variant="ghost" onClick={() => openEmployee(e.id)}>
+                            History
+                          </Button>
+
+                          {e.active && e.enrollment_status !== "enrolled" && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              disabled={busy}
+                              onClick={() =>
+                                void act(async () => {
+                                  const result = await attendanceFunction<EnrollResponse>(
+                                    "attendance-enroll-user",
+                                    { action: "retry", employee_id: e.id },
+                                  );
+                                  enrollmentNotice(result);
+                                })
+                              }
+                            >
+                              Retry enrollment
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={busy}
+                            onClick={() => setActiveChange(e)}
+                          >
+                            {e.active ? "Deactivate" : "Reactivate"}
+                          </Button>
+
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            disabled={busy}
+                            aria-label={"Edit " + e.name}
+                            onClick={() => {
+                              setEditingEmployee(e);
+                              setEmployeeOpen(true);
+                            }}
+                          >
+                            <Pencil size={14} />
+                            Edit
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="danger"
+                            disabled={busy}
+                            aria-label={"Delete " + e.name}
+                            onClick={() => setDeletingEmployee(e)}
+                          >
+                            <Trash2 size={14} />
+                            Delete
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             {!employees.length && (
-              <Empty>Add your first employee to begin attendance tracking.</Empty>
+              <Empty>
+                {board.employees.length
+                  ? "No employees match your filters. Clear filters to see the directory."
+                  : "Add your first employee to begin attendance tracking."}
+              </Empty>
             )}
           </div>
         ) : (
@@ -569,7 +935,7 @@ export function AttendancePanel() {
                   <p className="mt-2 whitespace-pre-wrap break-words text-sm text-text-secondary">
                     {l.reason}
                   </p>
-                  <p className="mt-2 text-xs text-text-dim">
+                  <p className="mt-2 text-xs text-text-secondary">
                     Source: {l.source}
                     {l.comment && ` · Manager: ${l.comment}`}
                   </p>
@@ -607,28 +973,22 @@ export function AttendancePanel() {
               </div>
             ))}
             {!leaves.length && <Empty>No leave requests match your filters.</Empty>}
-            <p className="px-5 py-3 text-xs text-text-dim">
+            <p className="px-5 py-3 text-xs text-text-secondary">
               Showing up to 200 recent requests. Incoming emails remain requests until a manager
-              approves them.
+              approves them. Rejected requests are hidden after 24 hours.
             </p>
           </div>
         )}
       </Card>
-      {tab === "daily" && board && board.review_events.length > 0 && (
-        <Card className="p-5">
-          <h2 className="font-semibold">Device events needing review</h2>
-          <p className="mt-1 text-sm text-text-secondary">
-            These events were preserved but did not mark attendance.
-          </p>
-          <div className="mt-3 space-y-2">
-            {board.review_events.map((e) => (
-              <p key={e.id} className="text-sm">
-                Enroll ID {e.enroll_id} · {timeLabel(e.scanned_at)} IST ·{" "}
-                {e.validation_state.replaceAll("_", " ")}
-              </p>
-            ))}
-          </div>
-        </Card>
+      {tab === "daily" && board && !loading && (
+        <AttendanceOverview
+          section="analytics"
+          rows={overviewRows}
+          status={status}
+          onStatus={setStatus}
+          department={department}
+          onDepartment={setDepartment}
+        />
       )}
       <Dialog
         open={employeeOpen}
@@ -636,17 +996,34 @@ export function AttendancePanel() {
           if (!busy) setEmployeeOpen(open);
         }}
       >
-        <DialogContent className="max-h-[90vh] overflow-y-auto">
+        <DialogContent className="attendance-dialog max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Add attendance user</DialogTitle>
+            <DialogTitle>{editingEmployee ? "Edit employee" : "Add employee"}</DialogTitle>
             <DialogDescription>
-              Save the employee, then request device enrollment.
+              {editingEmployee
+                ? "Update employee details. Enrollment ID stays linked to the existing device registration and attendance history."
+                : "Save the employee, then request device enrollment."}
             </DialogDescription>
           </DialogHeader>
           <EmployeeForm
+            key={`${editingEmployee?.id || "new"}:${employeeOpen}`}
+            current={editingEmployee}
             busy={busy}
             submit={(input) =>
               act(async () => {
+                if (editingEmployee) {
+                  await attendanceRpc("attendance_update_employee", {
+                    _employee: editingEmployee.id,
+                    _name: input.name,
+                    _department: input.department,
+                    _email: input.email || null,
+                    _email_verified: input.email_verified,
+                    _start: input.employment_start,
+                  });
+                  setEmployeeOpen(false);
+                  toast.success("Employee details updated.");
+                  return;
+                }
                 const result = await attendanceFunction<EnrollResponse>(
                   "attendance-enroll-user",
                   input,
@@ -664,7 +1041,7 @@ export function AttendancePanel() {
           if (!busy) setSettingsOpen(open);
         }}
       >
-        <DialogContent className="max-h-[90vh] overflow-y-auto">
+        <DialogContent className="attendance-dialog max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Office attendance settings</DialogTitle>
             <DialogDescription>
@@ -692,7 +1069,7 @@ export function AttendancePanel() {
           if (!busy) setLeaveOpen(open);
         }}
       >
-        <DialogContent>
+        <DialogContent className="attendance-dialog">
           <DialogHeader>
             <DialogTitle>Record leave request</DialogTitle>
             <DialogDescription>Create a full-day request for manager review.</DialogDescription>
@@ -718,7 +1095,7 @@ export function AttendancePanel() {
           if (!open && !busy) setReview(null);
         }}
       >
-        <DialogContent>
+        <DialogContent className="attendance-dialog">
           <DialogHeader>
             <DialogTitle>
               {review?.decision === "approved"
@@ -755,7 +1132,7 @@ export function AttendancePanel() {
           if (!open && !busy) setActiveChange(null);
         }}
       >
-        <DialogContent>
+        <DialogContent className="attendance-dialog">
           <DialogHeader>
             <DialogTitle>
               {activeChange?.active ? "Deactivate" : "Reactivate"} {activeChange?.name}
@@ -783,91 +1160,68 @@ export function AttendancePanel() {
         </DialogContent>
       </Dialog>
       <Dialog
-        open={!!history}
+        open={!!deletingEmployee}
         onOpenChange={(open) => {
-          if (!open) setHistory(null);
+          if (!open && !busy) setDeletingEmployee(null);
         }}
       >
-        <DialogContent className="max-h-[90vh] overflow-y-auto">
+        <DialogContent className="attendance-dialog">
           <DialogHeader>
-            <DialogTitle>{history?.name} · Scan history</DialogTitle>
-            <DialogDescription>{dateLabel(date)} · Times in IST</DialogDescription>
-          </DialogHeader>
-          {history?.data.events.map((e) => (
-            <div key={e.id} className="rounded-lg border border-border p-3">
-              <p className="text-sm font-medium">
-                Scanned: {timeLabel(e.scanned_at)} · {e.validation_state.replaceAll("_", " ")}
-              </p>
-              <p className="mt-1 text-xs text-text-secondary">
-                Received:{" "}
-                {new Date(e.received_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}
-              </p>
-              {photoAction({
-                event_id: e.id,
-                photo_status: e.photo_status || null,
-                photo_expires_at: e.photo_expires_at || null,
-              })}
-            </div>
-          ))}
-          {history?.data.events.length === 0 && (
-            <p className="text-sm text-text-secondary">No scans recorded.</p>
-          )}
-          {history?.data.audit.map((a) => (
-            <p key={a.id} className="text-xs text-text-secondary">
-              {a.action.replaceAll("_", " ")} · {timeLabel(a.occurred_at)} ·{" "}
-              {JSON.stringify(a.details)}
-            </p>
-          ))}
-        </DialogContent>
-      </Dialog>
-      <Dialog
-        open={!!photo}
-        onOpenChange={(open) => {
-          if (!open) setPhoto(null);
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Attendance photo</DialogTitle>
+            <DialogTitle>Delete {deletingEmployee?.name}?</DialogTitle>
             <DialogDescription>
-              Private evidence. Photo expiry:{" "}
-              {photo
-                ? new Date(photo.photo_expires_at).toLocaleString("en-IN", {
-                    timeZone: "Asia/Kolkata",
-                  })
-                : ""}{" "}
-              IST
+              This removes the employee from the directory and stops attendance tracking. Existing
+              attendance records are preserved. Device registration must be removed separately on
+              the device.
             </DialogDescription>
           </DialogHeader>
-          {photo && (
-            <img
-              src={photo.url}
-              alt="Employee attendance scan"
-              className="max-h-[60vh] w-full rounded-lg object-contain"
-            />
-          )}
-          <p className="text-xs text-text-secondary">
-            This preview closes when its short-lived access expires.
-          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" disabled={busy} onClick={() => setDeletingEmployee(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              disabled={busy}
+              onClick={() =>
+                void act(async () => {
+                  await attendanceRpc("attendance_delete_employee", {
+                    _employee: deletingEmployee!.id,
+                  });
+                  setDeletingEmployee(null);
+                  toast.success("Employee deleted.");
+                })
+              }
+            >
+              {busy ? "Deleting?" : "Delete employee"}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
+      <AttendanceEvidenceDialogs
+        record={history}
+        onCloseRecord={() => setHistory(null)}
+        photo={photo}
+        onClosePhoto={() => setPhoto(null)}
+        onViewPhoto={(eventId) => void viewPhoto(eventId)}
+      />
     </div>
   );
 }
 
 function EmployeeForm({
+  current,
   busy,
   submit,
 }: {
+  current?: Employee | null;
   busy: boolean;
   submit: (input: Record<string, unknown>) => Promise<void>;
 }) {
-  const [name, setName] = useState("");
-  const [department, setDepartment] = useState("software");
-  const [enroll, setEnroll] = useState("");
-  const [email, setEmail] = useState("");
-  const [verified, setVerified] = useState(false);
-  const [start, setStart] = useState(indiaDate());
+  const [name, setName] = useState(current?.name || "");
+  const [department, setDepartment] = useState<string>(current?.department || "software");
+  const [enroll, setEnroll] = useState(current?.enroll_id || "");
+  const [email, setEmail] = useState(current?.email || "");
+  const [verified, setVerified] = useState(current?.email_verified || false);
+  const [start, setStart] = useState(current?.employment_start || indiaDate());
   return (
     <form
       className="space-y-4"
@@ -900,6 +1254,7 @@ function EmployeeForm({
           required
           maxLength={64}
           value={enroll}
+          readOnly={!!current}
           onChange={(e) => setEnroll(e.target.value)}
           placeholder="Must match the device ID for this employee"
         />
@@ -935,7 +1290,7 @@ function EmployeeForm({
         </label>
       )}
       <Button type="submit" disabled={busy} className="w-full">
-        {busy ? "Saving…" : "Save & request enrollment"}
+        {busy ? "Saving…" : current ? "Save changes" : "Save & request enrollment"}
       </Button>
     </form>
   );

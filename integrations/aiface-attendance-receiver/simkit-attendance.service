@@ -1,3 +1,4 @@
+# Legacy rollback template only. Keep disabled while root PM2 owns this receiver.
 [Unit]
 Description=SimKit aiface attendance receiver
 After=network-online.target

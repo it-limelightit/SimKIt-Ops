@@ -42,7 +42,6 @@ dist-ssr
 !ATTENDANCE_LOVABLE_ENROLL_DEPLOY.md
 !supabase/dashboard-deploy/README.md
 !integrations/aiface-attendance-receiver/README.md
-!integrations/aiface-attendance-receiver/RENDER_DEPLOYMENT.md
 integrations/aiface-attendance-receiver/*.sqlite*
 !SUPABASE_MIGRATION_RUNBOOK.md
 !SUPABASE_DATA_IMPORT_ORDER.md
