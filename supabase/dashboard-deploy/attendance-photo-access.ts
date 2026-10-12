@@ -110,7 +110,7 @@ serve(async (req) => {
   );
   if (!photo || photo.status !== "available") throw new HttpError(404, "Photo unavailable");
   const remaining = Math.floor((Date.parse(photo.expires_at) - Date.now()) / 1e3);
-  if (remaining < 1) throw new HttpError(410, "Photo expired after 24 hours");
+  if (remaining < 1) throw new HttpError(410, "Photo expired at the next-day 2:00 am IST cutoff");
   const seconds = Math.min(60, remaining - 1);
   if (seconds < 1) throw new HttpError(410, "Photo is expiring; access is closed");
   const url = checked(

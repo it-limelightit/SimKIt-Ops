@@ -1,11 +1,11 @@
 {
   "attendance-enroll-user": {
     "file": "attendance-enroll-user.ts",
-    "sha256": "3ca6bfab4ca2f0afa7a22f0a69d663990dd1598d74128c417d885c2b6fd503aa"
+    "sha256": "1cfde85b07df1501dfb7d12a44a0bd870a70a6b15f14dc5532013550933b5202"
   },
   "attendance-device-event": {
     "file": "attendance-device-event.ts",
-    "sha256": "1e87bdc21974c6d86c84482bd69a8f4a4bbcfd73373fdee953e6632fefa8022c"
+    "sha256": "2c08a212ead0990ece965f43b61546548d5747cbcba8e4216173e6f6cb8855ee"
   },
   "attendance-command-retry": {
     "file": "attendance-command-retry.ts",
@@ -13,11 +13,11 @@
   },
   "attendance-photo-access": {
     "file": "attendance-photo-access.ts",
-    "sha256": "6b6922260a475da0abb50387a12011242210e8081541f810eff631a52029813f"
+    "sha256": "1367d8025b95ec29facd66189984aa1eabb94e756e5b466adadecaaabc163379"
   },
   "attendance-photo-cleanup": {
     "file": "attendance-photo-cleanup.ts",
-    "sha256": "7b1c03264a609783237cd5e386aab3f9104daee365ce3049002c8e23e8090a4a"
+    "sha256": "2e68d1adec6e4d4c01049fa9e2009bf55373f608538346cd845033905255d4c8"
   },
   "attendance-leave-email": {
     "file": "attendance-leave-email.ts",

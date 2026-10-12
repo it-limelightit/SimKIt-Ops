@@ -4,7 +4,12 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { normalizeMessage } from "./vendor/protocol.mjs";
 import { EventQueue } from "./vendor/queue.mjs";
-import { heartbeatReply, inferPhotoMime } from "./receiver-core.mjs";
+import {
+  deviceProfile,
+  heartbeatReply,
+  inferPhotoMime,
+  photoExpiryTime,
+} from "./receiver-core.mjs";
 
 const required = (name) => {
   if (!process.env[name]) throw new Error(`Missing ${name}`);
@@ -77,6 +82,7 @@ client.on("close", () => {
 });
 client.on("error", () => console.error("MQTT connection failed; reconnecting."));
 client.handleMessage = (packet, done) => {
+  const receivedAt = Date.now();
   try {
     if (packet.retain || packet.topic !== eventTopic) return done();
     if (packet.payload.length > 2900000) throw new Error("Packet too large");
@@ -102,6 +108,11 @@ client.handleMessage = (packet, done) => {
         });
       return done();
     }
+    if (message.cmd === "senduser") {
+      const profile = deviceProfile(message, packet, deviceId, eventTopic);
+      if (profile) queue.put(profile);
+      return done();
+    }
     if (message.cmd !== "sendlog") return done();
     const safeRecords = Array.isArray(message.record)
       ? message.record.map((record) => {
@@ -113,28 +124,23 @@ client.handleMessage = (packet, done) => {
     const config = {
       deviceId,
       topics: [eventTopic],
-      timeOffset: "+05:30",
       validModes: ["8"],
       entryValues: ["0"],
       photoField: "image",
       photoMime: "image/jpeg",
     };
-    const events = normalizeMessage(input, eventTopic, config);
+    const events = normalizeMessage(input, eventTopic, config, receivedAt);
     const entries = safeRecords.filter((record) => String(record.inout) === "0");
     events.forEach((event, index) => {
       const id = queue.put(event);
-      const delivered =
-        queue.db.prepare("SELECT status FROM events WHERE id=?").get(id)?.status === "delivered";
-      if (
-        !delivered &&
-        event.photo_base64 &&
-        Date.parse(event.scanned_at) + 86400000 > Date.now() &&
-        photos.size < 50
-      )
+      const queued = queue.db.prepare("SELECT status,body FROM events WHERE id=?").get(id);
+      const delivered = queued?.status === "delivered";
+      const expiry = photoExpiryTime(JSON.parse(queued.body).scanned_at);
+      if (!delivered && event.photo_base64 && expiry > Date.now() && photos.size < 50)
         photos.set(id, {
           photo_base64: event.photo_base64,
           photo_mime: entries[index]._photoMime,
-          expires: Date.parse(event.scanned_at) + 86400000,
+          expires: expiry,
         });
     });
     // Acknowledge device logs only after all corresponding metadata/photo calls succeed.
@@ -168,12 +174,30 @@ async function drain() {
       }
       try {
         const response = await post(event);
-        await response.body?.cancel();
         if (response.ok) {
+          if (event.kind === "device_profile") {
+            const result = await response.json();
+            if (result.confirmed === true) {
+              const cloudtime = new Date(Date.now() + 330 * 60000)
+                .toISOString()
+                .slice(0, 19)
+                .replace("T", " ");
+              await new Promise((resolve, reject) =>
+                client.publish(
+                  commandTopic,
+                  JSON.stringify({ ret: "senduser", result: true, cloudtime }),
+                  { qos: 1, retain: false },
+                  (error) => (error ? reject(error) : resolve()),
+                ),
+              );
+              console.log("Device enrollment profile confirmed in Supabase.");
+            } else console.log("Device profile has no matching active employee; review required.");
+          } else await response.body?.cancel();
           queue.finish(row.id);
           photos.delete(row.id);
           console.log("Attendance event delivered to Supabase.");
         } else {
+          await response.body?.cancel();
           queue.retry(row.id);
           console.error(
             `Attendance delivery rejected (${response.status}); metadata retained for retry.`,

@@ -40,6 +40,7 @@ export type Leave = {
   source: string;
   status: string;
   comment: string | null;
+  reviewed_at?: string | null;
 };
 export type Settings = {
   shift_start: string;
@@ -84,6 +85,11 @@ export const statusLabels: Record<string, string> = {
   approved: "Approved",
   rejected: "Rejected",
   cancelled: "Cancelled",
+  valid: "Valid entry",
+  unknown_employee: "Employee not matched",
+  inactive_employee: "Inactive employee",
+  failed_recognition: "Face not recognized",
+  invalid_time: "Time needs review",
 };
 export function indiaDate(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {

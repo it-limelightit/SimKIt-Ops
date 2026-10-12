@@ -1,5 +1,33 @@
 # Manager device attendance: implementation and setup
 
+## Nightly photo cleanup ? 9 October 2026
+
+Deployed the attendance-only photo-retention migration `20261009180000_attendance_photos_nightly_ist.sql`, photo-access/cleanup Edge Functions and the VPS temporary-photo cutoff. Photos expire at 02:00 Asia/Kolkata on the day following their attendance date. Cleanup runs once daily with `30 20 * * *` in the verified GMT cron timezone, removing previous-day and older overdue photos while keeping today?s photos. The first scheduled nightly run is 10 October 2026 at 02:00 IST. No manual photo deletion was run during deployment; all six existing daily attendance records were retained. Only the attendance receiver restarted; all other PM2 apps and 25 original system services retained their PIDs/status. The private environment remained unchanged and fresh device heartbeats continued. The temporary SSH credential was removed.
+
+## VPS receiver deployment — 9 October 2026
+
+The receiver on `62.72.43.204` now runs as **root** in the existing root PM2 instance (`PM2_HOME=/root/.pm2`), with application name `simkit-attendance` (PM2 ID 3 at deployment). Configuration: `/opt/simkit-attendance/ecosystem.root.config.cjs`; private environment: `/etc/simkit-attendance.env`; persistent metadata queue: `/var/lib/simkit-attendance/receiver.sqlite`. The private Node 22 interpreter is `/opt/simkit-attendance-node/bin/node`; existing runtimes and MQTT scripts remain unchanged.
+
+The process list was saved with `pm2 save`, and the existing `pm2-root.service` is active and enabled for reboot startup. The former isolated `simkit-attendance.service` is stopped and disabled to prevent duplicate startup. Do not re-enable it while root PM2 owns this application. The isolated runtime/configuration is retained as a rollback option.
+
+Verified root OS ownership, PM2 online status, and fresh device heartbeats after cutover. Existing apps `bridge`, `flowsecure-bridge` and `hydroflow-bridge-script` retained their exact PIDs, restart counts and status. All original baseline services remained active. Administrator commands (as root):
+
+```sh
+pm2 list
+pm2 logs simkit-attendance --lines 50
+pm2 restart simkit-attendance
+```
+
+The VPS PM2 receiver is the supported hosting path. Keep any former hosted receiver stopped to avoid duplicate subscribers. The last saved deployment record did not confirm shutdown of the former hosted receiver. No local receiver is required. Deployed on 9 October 2026 at 10:45:18 UTC: the receiver now uses VPS MQTT receipt time for new attendance events. The VPS retains its existing flattened helper layout (`protocol.mjs` and `queue.mjs` beside `receiver.mjs`); source imports were adapted to that layout. Supabase stores that timestamp and calculates the work date and lateness in Asia/Kolkata. Existing records are unchanged.
+
+Receipt-time deployment verification: only `receiver.mjs` and `protocol.mjs` were replaced, with backups at `/opt/simkit-attendance-receipt-20261009`. Only `simkit-attendance` restarted (PID 6392, one restart); the three other PM2 apps retained their exact PIDs, restart counts and status, and all 25 baseline system services retained their PIDs and active state. The private environment hash was unchanged. Node 22 runtime tests verified reset device dates are ignored and duplicates preserve the first receipt timestamp, using an in-memory queue without device or Supabase writes. Fresh real heartbeats reached Supabase after restart and continued in the receiver logs. A new real face scan remains required to verify attendance storage after this deployment. Existing records and queued messages were not rewritten. The temporary local SSH credential was removed.
+
+## Enrollment status correction — 9 October 2026
+
+Device enrollment is now confirmed from a fresh face-profile upload (`senduser`, `backupnum: 50`) or a validated recognized attendance scan. Broker acceptance alone remains insufficient. The migration `20261009110000_attendance_device_profile_confirmation.sql` and updated `attendance-device-event` Edge Function were applied to `jhhiwyvrhfhvvougkqmm`; IDs 8003, 9002 and 9003 were repaired to Enrolled using their existing real scans. No enrollment commands were resent and no attendance records were fabricated.
+
+Deploy receiver updates to `/opt/simkit-attendance` and restart only `simkit-attendance` in the existing root PM2 instance to handle future `senduser` uploads. It discards enrollment image data and forwards only confirmation metadata; attendance photos still come from `sendlog`. Existing receivers already benefit from confirmation on valid attendance scans through the deployed Edge Function. Previous deployment observations below describe the earlier setup state.
+
 ## Current deployment status — 8 October 2026
 
 The active Supabase project is `jhhiwyvrhfhvvougkqmm`. All ten attendance tables exist with Row Level Security enabled, and the `attendance-photos` bucket is private. Do **not** run the base CREATE TABLE migration again on this project. All six attendance Edge Functions are now deployed and active. Each rejected unauthenticated POST requests with HTTP 401. An authenticated cleanup call returned HTTP 200 with no failed deletions; command retry returned `configured: false, sent: 0`, because broker credentials and protocol remain unset. An authenticated device request with an invalid serial was rejected before any scan write.
@@ -24,7 +52,7 @@ The user supplied serial **AYUE22065256** and observed topic **aiface/AYUE220652
 
 ### Device manual and live topic verification — 8 October 2026
 
-Read the supplied 40-page `aiface_mqtt+json_api.pdf` (revision 1.0, 2 January 2025). Page 6 documents command topic `aiface/<serial>/pub` and response topic `aiface/<serial>/sub`. This installation adds `/stellar`: a non-destructive `checklive` on `aiface/AYUE22065256/pub` received no matching reply in 12 seconds, whereas the same command on **`aiface/AYUE22065256/pub/stellar`** returned `ret: checklive`, the correct serial and `result: true` on **`aiface/AYUE22065256/sub/stellar`**. Broker login and this device round-trip were tested from the local machine, not from the hosted Edge runtime.
+Read the supplied 40-page `docs/reference/aiface_mqtt+json_api.pdf` (revision 1.0, 2 January 2025). Page 6 documents command topic `aiface/<serial>/pub` and response topic `aiface/<serial>/sub`. This installation adds `/stellar`: a non-destructive `checklive` on `aiface/AYUE22065256/pub` received no matching reply in 12 seconds, whereas the same command on **`aiface/AYUE22065256/pub/stellar`** returned `ret: checklive`, the correct serial and `result: true` on **`aiface/AYUE22065256/sub/stellar`**. Broker login and this device round-trip were tested from the local machine, not from the hosted Edge runtime.
 
 Page 40 documents remote enrollment with `cmd: adduser`, numeric `enrollid`, `backupnum: 50`, `admin: 0`, the employee's `name` and `flag: 10` (automatic registration). The name and department in SimKit remain database-owned; the device command does not include department. The exact template is prepared in the private MQTT file. The verified command topic is configured in Supabase; the enrollment template is deliberately not activated there until the correct person is ready at the device. No enrollment command was sent in these connectivity checks.
 
@@ -36,15 +64,7 @@ Added `integrations/aiface-attendance-receiver`, which reuses the untouched brid
 
 A live receiver test on the local computer successfully delivered device heartbeats and attendance events. Supabase now has populated `last_heartbeat_at` and `last_scan_at`; 27 scan events existed at verification. This does not mean employee 9002 is registered: its enrollment remains pending, with zero command attempts. The enrollment template has not been enabled in Supabase while awaiting the correct person's readiness.
 
-The user has no VPS access; another administrator manages it. Permanent operation is not deployed there yet. A credential-free release is prepared at `.tmp/aiface-attendance-receiver.zip`, and administrator instructions are in `integrations/aiface-attendance-receiver/README.md`. The separate private VPS environment file is `.tmp/supabase-migration-jhhiwyvrhfhvvougkqmm/attendance-receiver.vps.env`; it requires only broker credentials and the dedicated webhook secret, not a Supabase management or service-role key. The current local receiver is a temporary test and should be stopped after the VPS service is confirmed. QoS 0 outages and unuploaded in-memory photos across restarts remain limitations described in the receiver guide.
-
-### Render deployment option
-
-The receiver now includes a Render Web Service entrypoint (`web.mjs`), a public read-only `/health` liveness endpoint, a standalone MQTT dependency lockfile, local copies of its tested helpers, and `render.yaml`. The Render entrypoint was tested locally against the real device; its health endpoint returned HTTP 200 and real heartbeats reached Supabase. Render itself has not been deployed because no Render account/repository access was supplied. Follow `integrations/aiface-attendance-receiver/RENDER_DEPLOYMENT.md`; the private environment file is `.tmp/supabase-migration-jhhiwyvrhfhvvougkqmm/attendance-receiver.render.env`.
-
-Render Free can be used for a preview, but sleeps after idle inbound HTTP traffic and discards its ephemeral queue on restarts. It does not guarantee continuous production attendance. Vercel request-limited Functions cannot host this permanent MQTT subscriber. Supabase's existing request-scoped functions and the production website remain in their current platforms; neither requires a platform change for the separate receiver.
-
-The database, six functions, baseline attendance secrets and Cron are installed in the new Supabase project. Broker integration and inbound email-provider routing remain required for live device and automatic email use. This is not confirmation of live device connectivity.
+The local test and handoff above are historical. Permanent reception now runs on the VPS under root PM2 as documented at the top of this file. Follow `integrations/aiface-attendance-receiver/README.md` for updates and verification. A local receiver is no longer required. QoS 0 outages and unuploaded in-memory photos across restarts remain limitations described in that guide.
 
 ## 1. Database
 
@@ -254,9 +274,9 @@ Duplicate scan IDs are immutable and safe to retry. Attendance survives photo up
 
 ## 5. Retention and adapter queues
 
-Photo expiry is **scan time + 24 hours**. Expired delayed photos are not stored. Only manager-authorized short-lived URLs are issued; URL lifetime is limited to the remaining retention. The UI closes an expired preview. Already downloaded copies cannot be revoked.
+Photo expiry is **02:00 Asia/Kolkata on the day after the attendance date**. Apply `20261009180000_attendance_photos_nightly_ist.sql` and configure the updated cleanup schedule. Expired delayed photos are not stored. Only manager-authorized short-lived URLs are issued; URL lifetime is limited to the remaining retention. The UI closes an expired preview. Already downloaded copies cannot be revoked.
 
-Cleanup deletes actual Storage objects through the API, keeps attendance history, retries failed deletions, and sweeps old orphaned files. Physical deletion normally occurs within the next scheduled minute, with possible delay during outages. Supabase does not automatically remove copies on the device, broker, or external systems.
+Cleanup deletes actual Storage objects through the API, keeps attendance history, retries failed deletions, and sweeps old orphaned files. Physical deletion runs daily at 02:00 IST (`30 20 * * *` in the live GMT cron timezone), with possible delay during outages. Each run removes the previous day?s photos and older overdue files, while preserving today?s photos. Attendance entries and history are never deleted by this job. Supabase does not automatically remove copies on the device, broker, or external systems.
 
 Adapter metadata is queued durably in SQLite, bounded to 10,000 events, and attempted up to 20 times before a dead-letter state requiring operator review. Successful metadata is pruned after seven days or earlier under queue pressure; Supabase holds permanent attendance history. Monitor dead events and queue size. After fixing a delivery issue, requeue an affected dead event with an operator-reviewed SQLite update of status/attempts/next_at; scan deduplication makes replay safe. Do not erase unknown publishing command state until reconciled with the device.
 
@@ -275,7 +295,7 @@ Check both Cron job history and HTTP response status in `net._http_response`; a 
 
 ## 7. Leave email
 
-Manual full-day leave entry, review, overlap protection, rejection, cancellation, and scan-during-leave conflicts are available immediately after database setup.
+The experimental direct Resend leave email flow was removed on 10 October 2026 at the user's request. A new email workflow must be agreed before reimplementation. Device attendance and manual leave requests are unchanged.
 
 For email automation, configure an inbound email provider/mailbox gateway. It must verify the provider's original webhook signature, extract minimal fields, and sign a normalized JSON object with HMAC-SHA256. No raw email or attachment storage is needed.
 

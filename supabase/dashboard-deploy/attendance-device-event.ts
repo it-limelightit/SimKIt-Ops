@@ -149,6 +149,16 @@ serve(async (req) => {
     );
     return json({ accepted: true });
   }
+  if (input.kind === "device_profile") {
+    const confirmed = checked(
+      await admin.rpc("attendance_confirm_device_profile", {
+        _enroll_id: requiredText(input.enroll_id, "enroll_id", 64),
+        _source: "profile",
+        _observed_at: isoTimestamp(input.observed_at)
+      })
+    );
+    return json({ accepted: true, confirmed: confirmed === true });
+  }
   if (input.kind !== "scan" || typeof input.recognized !== "boolean")
     throw new Error("A scan requires kind and boolean recognized");
   const event = checked(
@@ -159,6 +169,14 @@ serve(async (req) => {
       _recognized: input.recognized
     })
   );
+  if (event.state === "valid")
+    checked(
+      await admin.rpc("attendance_confirm_device_profile", {
+        _enroll_id: requiredText(input.enroll_id, "enroll_id", 64),
+        _source: "scan",
+        _observed_at: isoTimestamp(input.scanned_at)
+      })
+    );
   if (event.state !== "valid" || !input.photo_base64 || Date.parse(event.expires_at) <= Date.now())
     return json({ ...event, photo: "not_stored" });
   try {

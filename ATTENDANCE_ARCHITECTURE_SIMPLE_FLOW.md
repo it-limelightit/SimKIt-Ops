@@ -185,7 +185,7 @@ Late status
 Photo reference and expiry
 ```
 
-Proposed expiry is 24 hours after the validated scan time. Confirm whether the business instead wants 24 hours after upload.
+Photos expire at 02:00 Asia/Kolkata on the day after the attendance date. The nightly cleanup removes previous-day and older overdue photos; attendance entries and history remain.
 
 ```text
 Photo reaches its 24-hour expiry
@@ -250,7 +250,7 @@ Device status should remain Unknown until actual heartbeat/status information is
 - Employees stay saved, with enrollment pending until a command succeeds and the device confirms.
 - Pending commands retry with limits and visible failures.
 - Scans can arrive later if the device or bridge supports durable buffering; that capability must be confirmed.
-- Store scan time separately from server receipt time so delayed delivery does not automatically mean a late employee.
+- The VPS receiver uses MQTT receipt time for attendance, work date and lateness. Supabase also records its own database receipt time. Buffered device logs count when the receiver receives them.
 - Do not automatically classify missing scans as absence while ingestion is unhealthy.
 - Attendance and photo cleanup run on the backend even when no manager has the UI open.
 

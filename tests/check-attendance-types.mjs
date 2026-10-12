@@ -11,6 +11,7 @@ const files = [
   "src/components/attendance/AttendancePanel.tsx",
   "src/hooks/use-device-attendance.ts",
   "src/lib/device-attendance.ts",
+  "src/lib/attendance-analytics.ts",
   "src/routes/manager.attendance.tsx",
   "tests/attendance-deno.d.ts",
   ...edgeFiles,
@@ -30,7 +31,7 @@ host.resolveModuleNames = (names, containing) =>
 const program = ts.createProgram(files, options, host);
 const diagnostics = ts.getPreEmitDiagnostics(program);
 const isAttendance = (path) =>
-  /[/\\](attendance|attendance-[^/\\]+)[/\\]|device-attendance|manager\.attendance|attendance-deno|[/\\]attendance(?:\.ts|-validation)/.test(
+  /[/\\](attendance|attendance-[^/\\]+)[/\\]|device-attendance|attendance-analytics|manager\.attendance|attendance-deno|[/\\]attendance(?:\.ts|-validation)/.test(
     path,
   );
 const relevant = diagnostics.filter((d) => !d.file || isAttendance(d.file.fileName));

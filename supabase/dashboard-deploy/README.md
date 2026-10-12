@@ -21,6 +21,7 @@ This folder contains six **Supabase Edge Functions**, ready to paste into the Su
 | `attendance-photo-cleanup` | `attendance-photo-cleanup.ts` | Removes expired photos, preserving attendance records               |
 | `attendance-leave-email`   | `attendance-leave-email.ts`   | Receives signed, normalized leave emails for manager review         |
 
+
 The browser already calls these names. Keep the app's Supabase environment on the new project; attendance does not require changing Telegram or outgoing email credentials. Existing normal email notifications do not automatically configure inbound leave email.
 
 ## 2. Configure secrets

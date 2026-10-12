@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export function normalizeMessage(message, topic, config) {
+export function normalizeMessage(message, topic, config, receivedAt = Date.now()) {
   if (!config.topics.includes(topic)) throw new Error("Topic not allowed");
   if (!message || typeof message !== "object" || Array.isArray(message))
     throw new Error("JSON object required");
@@ -38,13 +38,11 @@ export function normalizeMessage(message, topic, config) {
   return message.record
     .filter((record) => config.entryValues.includes(String(record.inout)))
     .map((record) => {
-      if (
-        record.enrollid === undefined ||
-        !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(record.time)
-      )
-        throw new Error("Invalid sendlog record");
-      const scannedAt = record.time.replace(" ", "T") + config.timeOffset;
-      if (!Number.isFinite(Date.parse(scannedAt))) throw new Error("Invalid scan time");
+      if (record.enrollid === undefined) throw new Error("Invalid sendlog record");
+      // Attendance uses MQTT receipt time, captured once by the receiver.
+      // A broken or missing device clock must not determine the work date.
+      const scannedAt = new Date(receivedAt).toISOString();
+      // Raw device time is only an opaque deduplication value, never attendance time.
       // Batch logindex can change on replay, so do not use it as event identity.
       const stable = JSON.stringify([
         message.sn,

@@ -28,6 +28,8 @@ import { Route as ManagerPerformanceRouteImport } from './routes/manager.perform
 import { Route as ManagerReportsRouteImport } from './routes/manager.reports'
 import { Route as ManagerSitesRouteImport } from './routes/manager.sites'
 import { Route as ManagerTasksRouteImport } from './routes/manager.tasks'
+import { Route as ManagerAttendanceIndexRouteImport } from './routes/manager.attendance.index'
+import { Route as ManagerAttendanceHistoryEmployeeIdRouteImport } from './routes/manager.attendance.history.$employeeId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -126,6 +128,17 @@ const ManagerTasksRoute = ManagerTasksRouteImport.update({
   path: '/tasks',
   getParentRoute: () => ManagerRoute,
 } as any)
+const ManagerAttendanceIndexRoute = ManagerAttendanceIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ManagerAttendanceRoute,
+} as any)
+const ManagerAttendanceHistoryEmployeeIdRoute =
+  ManagerAttendanceHistoryEmployeeIdRouteImport.update({
+    id: '/history/$employeeId',
+    path: '/history/$employeeId',
+    getParentRoute: () => ManagerAttendanceRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -134,7 +147,7 @@ export interface FileRoutesByFullPath {
   '/client-form': typeof ClientFormRoute
   '/company-tracker': typeof CompanyTrackerRoute
   '/manager': typeof ManagerRouteWithChildren
-  '/manager/attendance': typeof ManagerAttendanceRoute
+  '/manager/attendance': typeof ManagerAttendanceRouteWithChildren
   '/manager/business-consultants': typeof ManagerBusinessConsultantsRoute
   '/manager/company-tracker': typeof ManagerCompanyTrackerRoute
   '/manager/drive-links': typeof ManagerDriveLinksRoute
@@ -147,6 +160,8 @@ export interface FileRoutesByFullPath {
   '/manager/sites': typeof ManagerSitesRoute
   '/manager/tasks': typeof ManagerTasksRoute
   '/manager/': typeof ManagerIndexRoute
+  '/manager/attendance/': typeof ManagerAttendanceIndexRoute
+  '/manager/attendance/history/$employeeId': typeof ManagerAttendanceHistoryEmployeeIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -154,7 +169,6 @@ export interface FileRoutesByTo {
   '/business-consultant': typeof BusinessConsultantRoute
   '/client-form': typeof ClientFormRoute
   '/company-tracker': typeof CompanyTrackerRoute
-  '/manager/attendance': typeof ManagerAttendanceRoute
   '/manager/business-consultants': typeof ManagerBusinessConsultantsRoute
   '/manager/company-tracker': typeof ManagerCompanyTrackerRoute
   '/manager/drive-links': typeof ManagerDriveLinksRoute
@@ -167,6 +181,8 @@ export interface FileRoutesByTo {
   '/manager/sites': typeof ManagerSitesRoute
   '/manager/tasks': typeof ManagerTasksRoute
   '/manager': typeof ManagerIndexRoute
+  '/manager/attendance': typeof ManagerAttendanceIndexRoute
+  '/manager/attendance/history/$employeeId': typeof ManagerAttendanceHistoryEmployeeIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -176,7 +192,7 @@ export interface FileRoutesById {
   '/client-form': typeof ClientFormRoute
   '/company-tracker': typeof CompanyTrackerRoute
   '/manager': typeof ManagerRouteWithChildren
-  '/manager/attendance': typeof ManagerAttendanceRoute
+  '/manager/attendance': typeof ManagerAttendanceRouteWithChildren
   '/manager/business-consultants': typeof ManagerBusinessConsultantsRoute
   '/manager/company-tracker': typeof ManagerCompanyTrackerRoute
   '/manager/drive-links': typeof ManagerDriveLinksRoute
@@ -189,6 +205,8 @@ export interface FileRoutesById {
   '/manager/sites': typeof ManagerSitesRoute
   '/manager/tasks': typeof ManagerTasksRoute
   '/manager/': typeof ManagerIndexRoute
+  '/manager/attendance/': typeof ManagerAttendanceIndexRoute
+  '/manager/attendance/history/$employeeId': typeof ManagerAttendanceHistoryEmployeeIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -212,6 +230,8 @@ export interface FileRouteTypes {
     | '/manager/sites'
     | '/manager/tasks'
     | '/manager/'
+    | '/manager/attendance/'
+    | '/manager/attendance/history/$employeeId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -219,7 +239,6 @@ export interface FileRouteTypes {
     | '/business-consultant'
     | '/client-form'
     | '/company-tracker'
-    | '/manager/attendance'
     | '/manager/business-consultants'
     | '/manager/company-tracker'
     | '/manager/drive-links'
@@ -232,6 +251,8 @@ export interface FileRouteTypes {
     | '/manager/sites'
     | '/manager/tasks'
     | '/manager'
+    | '/manager/attendance'
+    | '/manager/attendance/history/$employeeId'
   id:
     | '__root__'
     | '/'
@@ -253,6 +274,8 @@ export interface FileRouteTypes {
     | '/manager/sites'
     | '/manager/tasks'
     | '/manager/'
+    | '/manager/attendance/'
+    | '/manager/attendance/history/$employeeId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -399,11 +422,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ManagerTasksRouteImport
       parentRoute: typeof ManagerRoute
     }
+    '/manager/attendance/': {
+      id: '/manager/attendance/'
+      path: '/'
+      fullPath: '/manager/attendance/'
+      preLoaderRoute: typeof ManagerAttendanceIndexRouteImport
+      parentRoute: typeof ManagerAttendanceRoute
+    }
+    '/manager/attendance/history/$employeeId': {
+      id: '/manager/attendance/history/$employeeId'
+      path: '/history/$employeeId'
+      fullPath: '/manager/attendance/history/$employeeId'
+      preLoaderRoute: typeof ManagerAttendanceHistoryEmployeeIdRouteImport
+      parentRoute: typeof ManagerAttendanceRoute
+    }
   }
 }
 
+interface ManagerAttendanceRouteChildren {
+  ManagerAttendanceIndexRoute: typeof ManagerAttendanceIndexRoute
+  ManagerAttendanceHistoryEmployeeIdRoute: typeof ManagerAttendanceHistoryEmployeeIdRoute
+}
+
+const ManagerAttendanceRouteChildren: ManagerAttendanceRouteChildren = {
+  ManagerAttendanceIndexRoute: ManagerAttendanceIndexRoute,
+  ManagerAttendanceHistoryEmployeeIdRoute:
+    ManagerAttendanceHistoryEmployeeIdRoute,
+}
+
+const ManagerAttendanceRouteWithChildren =
+  ManagerAttendanceRoute._addFileChildren(ManagerAttendanceRouteChildren)
+
 interface ManagerRouteChildren {
-  ManagerAttendanceRoute: typeof ManagerAttendanceRoute
+  ManagerAttendanceRoute: typeof ManagerAttendanceRouteWithChildren
   ManagerBusinessConsultantsRoute: typeof ManagerBusinessConsultantsRoute
   ManagerCompanyTrackerRoute: typeof ManagerCompanyTrackerRoute
   ManagerDriveLinksRoute: typeof ManagerDriveLinksRoute
@@ -419,7 +470,7 @@ interface ManagerRouteChildren {
 }
 
 const ManagerRouteChildren: ManagerRouteChildren = {
-  ManagerAttendanceRoute: ManagerAttendanceRoute,
+  ManagerAttendanceRoute: ManagerAttendanceRouteWithChildren,
   ManagerBusinessConsultantsRoute: ManagerBusinessConsultantsRoute,
   ManagerCompanyTrackerRoute: ManagerCompanyTrackerRoute,
   ManagerDriveLinksRoute: ManagerDriveLinksRoute,
