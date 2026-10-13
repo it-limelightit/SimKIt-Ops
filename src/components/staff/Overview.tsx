@@ -221,7 +221,7 @@ export function Overview() {
   const [sendingEmail, setSendingEmail] = useState(false);
   const [showCommissioningRequests, setShowCommissioningRequests] = useState(false);
   const [reviewingCommissioningRequestId, setReviewingCommissioningRequestId] = useState<string | null>(null);
-  const canReviewCommissioningRequests = ["patidarnit21@gmail.com", "info@limelightit.io"].includes((email || "").toLowerCase());
+  const canReviewCommissioningRequests = ["nitsanghani1@gmail.com", "info@limelightit.io"].includes((email || "").toLowerCase());
 
   useEffect(() => {
     if (!consultantSiteId) return;

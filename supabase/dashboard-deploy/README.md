@@ -1,6 +1,13 @@
 # Deploy attendance to the new Supabase project
 
-This folder contains six **Supabase Edge Functions**, ready to paste into the Supabase Dashboard editor. Each generated `.ts` file includes its shared attendance helpers, with only the external Supabase SDK import remaining. No separate application server or Docker is required for this deployment method.
+This folder contains seven **Supabase Edge Functions**, ready to paste into the Supabase Dashboard editor. Each generated `.ts` file includes its shared attendance helpers, with only the external Supabase SDK import remaining. No separate application server or Docker is required for this deployment method.
+
+The seventh function, `attendance-employee-account`, was deployed separately on
+12 October 2026. It creates office login accounts or updates linked credentials
+for attendance administrators. Its generated file is `attendance-employee-account.ts`.
+Apply the office employee role/account migrations before deploying it. It checks
+authorization in code, so keep gateway Verify JWT disabled. Passwords must never
+be added to device MQTT templates, employee table columns, logs, or exported reports.
 
 **Current status (8 October 2026):** all six functions below have already been deployed to project `jhhiwyvrhfhvvougkqmm`. Baseline attendance secrets and both Cron schedules are installed. You do not need to paste these files again for the initial setup. Continue with the MQTT configuration and scan forwarding steps; the manual deployment instructions remain here for future updates.
 
@@ -73,7 +80,41 @@ Run `../scripts/setup_attendance_cron.sql` in this project's SQL Editor. It sche
 
 ## 5. Check before live use
 
-1. Sign in locally with a manager (`supervisor`) account using `npm run dev`. Open **Manager → Attendance**.
+### Attendance access and Excel reports (12 October 2026)
+
+Apply `../migrations/20261012120000_attendance_email_access.sql` and redeploy
+`attendance-enroll-user` and `attendance-photo-access` from this folder before
+releasing the updated frontend. Deploy both functions with the migration: the
+photo endpoint uses service-role reads and must enforce the same account restriction.
+
+Only verified accounts for `patidarnit21@gmail.com`, `admin@limelightit.io` and
+`tarun@limelightit.io` can open or manage attendance. Other managers are also
+excluded. This does not grant a supervisor role or access to other manager pages.
+Approved field associates can open Attendance from their workspace navigation.
+
+The admin address was corrected from `.com` to `.io`. Apply
+`../migrations/20261012130000_attendance_admin_email_correction.sql` even if the
+original access migration was already deployed, then redeploy the enrollment and
+photo-access functions. The old `.com` address is no longer authorized.
+
+The employee detail download now produces an `.xlsx` workbook with Overview,
+Daily records and Report guide sheets. Daily records support sorting, filters,
+frozen headings, status colors and filtered totals. All displayed dates and times
+use IST. Verify that an unlisted account cannot open attendance, query its tables,
+invoke attendance RPCs, enroll employees or request photo links.
+
+The overall daily download also produces `.xlsx`, with a scope preview for all
+employees or current filtered results. Its Summary, Department analytics,
+Attendance records and Report guide sheets include recorded coverage,
+punctuality, delay metrics, department data bars, filterable records and filtered
+footer totals. Percentages with no eligible denominator display `N/A`.
+
+Employee workbooks now use a compact summary and attendance ledger with delay
+shown in hours:minutes. Dates before employment start are separated from missing
+records. Reports contain attendance data only. Employee and overall reports can
+also be downloaded as branded PDFs with summary analytics and paginated records.
+
+1. Sign in locally with one of the approved attendance accounts using `npm run dev`. Open **Attendance**.
 2. In Office settings, confirm 10:00 AM start, 15 minutes grace, actual working days and absence cutoff. With this policy, exactly 10:15 AM is within grace; later entry is highlighted as late.
 3. Add a test employee using an unused device enrollment ID. Confirm the device receives the command. Confirm success only when the matching device reply has been received.
 4. Scan the enrolled employee. Verify name, date, entry time, photo and refresh. Repeat the same event to check there is no duplicate record. Test a scan after 10:15 AM on a working day.

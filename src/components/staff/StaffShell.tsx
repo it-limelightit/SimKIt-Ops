@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useAuth } from "@/lib/auth-store";
+import { canManageAttendance } from "@/lib/attendance-access";
+import { canReviewLeave, isTarunLeaveReviewer } from "@/lib/attendance-access";
 import {
   LayoutDashboard,
   MapPin,
@@ -21,16 +23,22 @@ import {
   KanbanSquare,
   CalendarDays,
   Clock3,
+  CalendarCheck,
 } from "lucide-react";
 import { Button } from "../ui-kit";
 
 export function StaffShell({ children, role }: { children: React.ReactNode; role: "supervisor" }) {
-  const { signOut, profile } = useAuth();
+  const { signOut, profile, email, role: currentRole } = useAuth();
   const path = useRouterState({ select: (s) => s.location.pathname });
   const [isOpen, setIsOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const base = "/manager";
-  const displayRole = "manager";
+  const displayRole =
+    currentRole === "supervisor"
+      ? "manager"
+      : canReviewLeave(email)
+        ? "leave reviewer"
+        : "attendance";
 
   const [themeMode, setThemeMode] = useState<"light" | "dark">("light");
 
@@ -60,7 +68,7 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
     localStorage.setItem("themeMode", next);
   };
 
-  const items: { to: string; label: string; icon: React.ElementType; href?: string }[] = [
+  const allItems: { to: string; label: string; icon: React.ElementType; href?: string }[] = [
     { to: `${base}`, label: "Overview", icon: LayoutDashboard },
     { to: `${base}/sites`, label: "Sites", icon: MapPin },
     { to: `${base}/business-consultants`, label: "Field Associates", icon: Users },
@@ -70,10 +78,25 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
     { to: `${base}/company-tracker`, label: "Company Tracker", icon: KanbanSquare },
     { to: `${base}/field-visit-tracker`, label: "Field Visit Tracker", icon: CalendarDays },
     { to: `${base}/attendance`, label: "Attendance", icon: Clock3 },
+    ...(isTarunLeaveReviewer(email)
+      ? []
+      : [{ to: `${base}/leave`, label: "My leave", icon: CalendarCheck }]),
     { to: `${base}/logistic`, label: "Logistic", icon: Boxes },
     { to: `${base}/inventory`, label: "Inventory Management", icon: Package },
     { to: `${base}/reports`, label: "Report and Logs", icon: BarChart3 },
   ];
+  const items: typeof allItems =
+    currentRole === "supervisor"
+      ? allItems.filter((item) => item.to !== `${base}/attendance` || canManageAttendance(email))
+      : [
+          { to: "/business-consultant", label: "Field workspace", icon: LayoutDashboard },
+          ...(canReviewLeave(email) && !isTarunLeaveReviewer(email)
+            ? [{ to: `${base}/leave`, label: "My leave", icon: CalendarCheck }]
+            : []),
+          ...allItems.filter(
+            (item) => item.to === `${base}/attendance` && canManageAttendance(email),
+          ),
+        ];
 
   return (
     <div className="flex min-h-screen flex-col md:flex-row bg-background text-text-primary">
@@ -280,7 +303,10 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
       <main className="flex-1 overflow-x-hidden min-w-0">
         <div
           className={
-            path === "/manager/attendance" || path === "/manager/attendance/"
+            path === "/manager/attendance" ||
+            path === "/manager/attendance/" ||
+            path === "/manager/leave" ||
+            path === "/manager/leave/"
               ? "w-full"
               : "mx-auto max-w-6xl px-6 py-10 md:px-10 md:py-12"
           }

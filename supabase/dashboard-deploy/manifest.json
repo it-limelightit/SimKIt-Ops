@@ -1,7 +1,11 @@
 {
+  "attendance-employee-account": {
+    "file": "attendance-employee-account.ts",
+    "sha256": "68bcf0dc18aeb80ccde13d4ddb33d7ff903d032ad812b989e247108f9fc95315"
+  },
   "attendance-enroll-user": {
     "file": "attendance-enroll-user.ts",
-    "sha256": "1cfde85b07df1501dfb7d12a44a0bd870a70a6b15f14dc5532013550933b5202"
+    "sha256": "fdb732186651159a4fdae87c6d61f7f29be24d3bee8871e7d57a1a1a87f50a72"
   },
   "attendance-device-event": {
     "file": "attendance-device-event.ts",
@@ -13,7 +17,7 @@
   },
   "attendance-photo-access": {
     "file": "attendance-photo-access.ts",
-    "sha256": "1367d8025b95ec29facd66189984aa1eabb94e756e5b466adadecaaabc163379"
+    "sha256": "c23a94fd54936ce5f29092248f25caf3567c29c85a74d384eb2070862baabc9f"
   },
   "attendance-photo-cleanup": {
     "file": "attendance-photo-cleanup.ts",

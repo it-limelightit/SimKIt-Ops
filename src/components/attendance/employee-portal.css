@@ -1,0 +1,55 @@
+.employee-portal {
+  color-scheme: light;
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --surface-raised: #f1f5f9;
+  --border: #e2e8f0;
+  --border-bright: #cbd5e1;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-dim: #64748b;
+  --lime: #4f46e5;
+  --lime-dim: #eef2ff;
+  --coral: #dc2626;
+  --coral-dim: #fef2f2;
+  --violet: #7c3aed;
+  --violet-dim: #f5f3ff;
+  --mint: #047857;
+  --mint-dim: #ecfdf5;
+  --success: #047857;
+  --warning: #b45309;
+  --danger: #dc2626;
+  --primary: #4f46e5;
+  --primary-fg: #ffffff;
+  background: var(--bg);
+  color: var(--text-primary);
+  font-weight: 400;
+}
+.employee-portal h1 {
+  font-size: clamp(1.4rem, 3vw, 1.8rem);
+  line-height: 1.3;
+  font-weight: 700;
+}
+.employee-portal h2 {
+  font-size: 1.05rem;
+  line-height: 1.4;
+  font-weight: 600;
+}
+.employee-portal h3 {
+  font-size: 1rem;
+  line-height: 1.4;
+  font-weight: 600;
+}
+.employee-portal .field-underline {
+  font-weight: 400;
+  border-width: 1px;
+  border-radius: 10px;
+}
+.employee-portal .card-surface {
+  border-width: 1px;
+  box-shadow: 0 2px 6px rgb(15 23 42 / 2%);
+}
+.employee-portal button:focus-visible {
+  outline: 2px solid var(--lime);
+  outline-offset: 3px;
+}

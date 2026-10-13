@@ -54,6 +54,11 @@ function builder(table) {
       state.writes.push({ table, op, value });
       return this;
     },
+    delete() {
+      op = "delete";
+      state.writes.push({ table, op });
+      return this;
+    },
     update(value) {
       op = "update";
       state.writes.push({ table, op, value });
@@ -67,8 +72,19 @@ function builder(table) {
 }
 const client = {
   auth: {
+    admin: {
+      createUser: async (input) => { state.authOps.push({ action: "create", input }); return state.createAccount(input); },
+      getUserById: async (id) => state.getAccount(id),
+      updateUserById: async (id, input) => { state.authOps.push({ action: "update", id, input }); return state.updateAccount(id, input); },
+      deleteUser: async (id) => { state.authOps.push({ action: "delete", id }); return { error: null }; },
+    },
     getUser: async (token) => ({
-      data: { user: token === "valid-manager" ? { id: "manager" } : null },
+      data: {
+        user:
+          token === "valid-manager"
+            ? { id: "manager", email: state.email, email_confirmed_at: state.confirmedAt }
+            : null,
+      },
       error: null,
     }),
   },
@@ -94,13 +110,20 @@ const client = {
 };
 function reset() {
   state = {
+    email: "admin@limelightit.io",
+    confirmedAt: "2026-10-01T00:00:00Z",
     calls: [],
+    authOps: [],
+    createdAppMetadata: null,
+    createAccount: (input) => { state.createdAppMetadata = input.app_metadata; return { data: { user: { id: "office-auth" } }, error: null }; },
+    getAccount: () => ({ data: { user: { app_metadata: state.createdAppMetadata || {} } }, error: null }),
+    updateAccount: () => ({ data: { user: {} }, error: null }),
     writes: [],
     removed: [],
     signed: [],
     list: () => [],
     table: (table, op) => ({
-      data: table === "user_roles" ? { role: "supervisor" } : op === "select" ? null : [],
+      data: table === "user_roles" ? [{ role: "supervisor" }] : op === "select" ? null : [],
       error: null,
     }),
     rpc: () => ({ data: null, error: null }),
@@ -131,6 +154,7 @@ before(async () => {
     readFileSync(new URL("_shared/attendance-validation.ts", root), "utf8"),
   );
   for (const name of [
+    "attendance-employee-account",
     "attendance-enroll-user",
     "attendance-command-retry",
     "attendance-device-event",
@@ -267,18 +291,54 @@ test("enrollment can publish directly from the Edge Function without using the H
     "published",
   );
 });
-test("manager endpoints reject missing/invalid JWTs and nonmanager identities", async () => {
+test("attendance endpoints reject missing/invalid JWTs and unapproved accounts", async () => {
   assert.equal((await request("attendance-enroll-user")).status, 401);
   assert.equal(
     (await request("attendance-photo-access", {}, { authorization: "Bearer invalid" })).status,
     401,
   );
-  state.table = () => ({ data: null, error: null });
+  state.email = "other-manager@example.com";
   assert.equal(
     (await request("attendance-enroll-user", {}, { authorization: "Bearer valid-manager" })).status,
     403,
   );
   assert.equal(state.calls.length, 0);
+});
+
+test("photo and enrollment access requires one of the three verified email accounts", async () => {
+  for (const email of [
+    "admin@limelightit.com",
+    "other@example.com",
+    "patidarnit21@gmail.com",
+    "admin@limelightit.io.attacker.test",
+    "patidarnit21+other@gmail.com",
+  ]) {
+    state.email = email;
+    for (const endpoint of ["attendance-photo-access", "attendance-enroll-user"])
+      assert.equal(
+        (await request(endpoint, {}, { authorization: "Bearer valid-manager" })).status,
+        403,
+      );
+  }
+  state.email = "admin@limelightit.io";
+  state.confirmedAt = null;
+  assert.equal(
+    (await request("attendance-photo-access", {}, { authorization: "Bearer valid-manager" }))
+      .status,
+    403,
+  );
+  assert.equal(state.signed.length, 0);
+  assert.equal(state.calls.length, 0);
+  state.confirmedAt = "2026-10-01T00:00:00Z";
+  for (const email of ["nitsanghani1@gmail.com", "ADMIN@LIMELIGHTIT.IO", "tarun@limelightit.io"]) {
+    state.email = email;
+    // Authentication passes, then the missing event ID is rejected by input validation.
+    assert.equal(
+      (await request("attendance-photo-access", {}, { authorization: "Bearer valid-manager" }))
+        .status,
+      400,
+    );
+  }
 });
 test("device ingestion fails closed for bad credentials, device, or topic", async () => {
   assert.equal((await request("attendance-device-event")).status, 401);
@@ -576,3 +636,68 @@ test("email gateway signatures and freshness are verified before leave writes", 
   assert.equal(state.calls[0].name, "attendance_email_leave");
 });
 
+const officeInput = { action: 'create', name: 'Office Employee', department: 'software', enroll_id: '9901', email: 'office@example.test', password: 'test-password-only', employment_start: '2026-10-01', email_verified: true };
+test('office account endpoint rejects unauthorized requests and invalid credentials before Auth writes', async () => {
+  assert.equal((await request('attendance-employee-account',officeInput)).status,401);
+  for(const changes of [{email:''},{password:''},{password:'short'},{employment_start:'2030-01-01'},{department:'hardware'}]){
+    assert.equal((await request('attendance-employee-account',{...officeInput,...changes},{authorization:'Bearer valid-manager'})).status,400);
+  }
+  assert.equal(state.authOps.length,0);
+});
+test('office account creation links server-owned metadata and never stores password in employee RPC', async () => {
+  const response=await request('attendance-employee-account',officeInput,{authorization:'Bearer valid-manager'});
+  assert.equal(response.status,200);
+  const saved=state.calls.find(c=>c.name==='attendance_save_employee_account');
+  assert.equal(saved.args._auth_user,'office-auth');
+  assert.equal(state.authOps[0].input.app_metadata.office_employee,true);
+  assert.equal(state.authOps[0].input.app_metadata.attendance_employee_id,saved.args._employee);
+  assert.equal(JSON.stringify(state.calls).includes(officeInput.password),false);
+  assert.equal(JSON.stringify(await response.json()).includes(officeInput.password),false);
+});
+test('failed employee save cleans up only the newly created office login', async () => {
+  state.rpc=()=>({data:null,error:{message:'Duplicate enrollment ID'}});
+  assert.equal((await request('attendance-employee-account',officeInput,{authorization:'Bearer valid-manager'})).status,400);
+  assert.deepEqual(state.authOps.map(o=>o.action),['create','delete']);
+});
+test('duplicate Auth email does not reset an existing account or write employee records', async () => {
+  state.createAccount=()=>({data:{user:null},error:{message:'Email exists'}});
+  assert.equal((await request('attendance-employee-account',officeInput,{authorization:'Bearer valid-manager'})).status,409);
+  assert.equal(state.calls.length,0);
+  assert.deepEqual(state.authOps.map(o=>o.action),['create']);
+});
+test('editing linked office login keeps blank password and does not send enrollment commands', async () => {
+  const employeeId='00000000-0000-4000-8000-000000000010';
+  state.table=()=>({data:{auth_user_id:'office-auth',enroll_id:'9901',deleted_at:null},error:null});
+  state.getAccount=()=>({data:{user:{app_metadata:{office_employee:true,attendance_employee_id:employeeId}}},error:null});
+  assert.equal((await request('attendance-employee-account',{...officeInput,action:'update',employee_id:employeeId,password:''},{authorization:'Bearer valid-manager'})).status,200);
+  assert.equal('password' in state.authOps[0].input,false);
+  assert.deepEqual(state.calls.map(c=>c.name),['attendance_save_employee_account']);
+});
+test('office editing refuses to modify a linked field associate login', async () => {
+  state.table=()=>({data:{auth_user_id:'field-auth',enroll_id:'9901',deleted_at:null},error:null});
+  state.getAccount=()=>({data:{user:{app_metadata:{}}},error:null});
+  assert.equal((await request('attendance-employee-account',{...officeInput,action:'update',employee_id:'00000000-0000-4000-8000-000000000010'},{authorization:'Bearer valid-manager'})).status,409);
+  assert.equal(state.authOps.length,0); assert.equal(state.calls.length,0);
+});
+test('linking an existing manager preserves its password and all existing roles', async () => {
+  const employeeId='00000000-0000-4000-8000-000000000030';
+  const accountId='00000000-0000-4000-8000-000000000031';
+  state.table=(table,op)=>({
+    data:table==='profiles'?[{id:accountId,email:'info@limelightit.io',is_active:true}]
+      :table==='attendance_employees'?{auth_user_id:null,department:'manager',deleted_at:null}
+      :table==='user_roles'?[{role:'supervisor'}]:op==='select'?null:[],error:null,
+  });
+  state.getAccount=()=>({data:{user:{id:accountId,email:'info@limelightit.io',email_confirmed_at:'2026-10-01T00:00:00Z',app_metadata:{role:'manager'}}},error:null});
+  state.updateAccount=(_id,input)=>({data:{user:{id:accountId,app_metadata:input.app_metadata}},error:null});
+  const response=await request('attendance-employee-account',{
+    action:'link_manager',employee_id:employeeId,email:'info@limelightit.io',
+  },{authorization:'Bearer valid-manager'});
+  assert.equal(response.status,200);
+  assert.deepEqual(state.calls.map(c=>c.name),['attendance_link_manager_login']);
+  assert.equal(state.calls[0].args._auth_user,accountId);
+  assert.equal(state.authOps.length,1);
+  assert.deepEqual(Object.keys(state.authOps[0].input),['app_metadata']);
+  assert.equal(state.authOps[0].input.app_metadata.role,'manager');
+  assert.equal(state.authOps[0].input.app_metadata.attendance_employee_id,employeeId);
+  assert.equal(state.writes.some(w=>w.table==='user_roles'),false);
+});

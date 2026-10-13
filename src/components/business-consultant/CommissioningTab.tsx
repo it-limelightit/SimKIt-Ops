@@ -117,7 +117,7 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit, o
   const [certificateDate, setCertificateDate] = useState(() => new Date().toISOString().slice(0, 10));
   // Approval can only be requested after the commissioning Word certificate has been downloaded.
   const [certificateWordDownloaded, setCertificateWordDownloaded] = useState(false);
-  const canReview = ["patidarnit21@gmail.com", "info@limelightit.io"].includes((viewerEmail || "").toLowerCase());
+  const canReview = ["nitsanghani1@gmail.com", "info@limelightit.io"].includes((viewerEmail || "").toLowerCase());
 
   useEffect(() => {
     setCertificateWordDownloaded(false);

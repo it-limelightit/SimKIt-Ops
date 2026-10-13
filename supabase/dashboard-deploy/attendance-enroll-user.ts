@@ -354,8 +354,9 @@ async function manager(req) {
   const admin = adminClient();
   const { data, error } = await admin.auth.getUser(token);
   if (error || !data.user) throw new HttpError(401, "Invalid session");
-  const role = await admin.from("user_roles").select("role").eq("user_id", data.user.id).eq("role", "supervisor").maybeSingle();
-  if (role.error || !role.data) throw new HttpError(403, "Manager access required");
+  const allowedEmails = ["nitsanghani1@gmail.com", "admin@limelightit.io", "tarun@limelightit.io"];
+  if (!data.user.email_confirmed_at || !allowedEmails.includes(data.user.email?.toLowerCase() || ""))
+    throw new HttpError(403, "Attendance access required");
   const user = createClient(env("SUPABASE_URL"), env("SUPABASE_ANON_KEY"), {
     global: { headers: { Authorization: `Bearer ${token}` } },
     auth: { persistSession: false, autoRefreshToken: false }

@@ -1,6 +1,7 @@
-import { createFileRoute, Outlet, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { useAuth } from "@/lib/auth-store";
+import { canManageAttendance, canReviewLeave } from "@/lib/attendance-access";
 import { StaffShell } from "@/components/staff/StaffShell";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -14,14 +15,24 @@ export const Route = createFileRoute("/manager")({
 
 function ManagerLayout() {
   const navigate = useNavigate();
-  const { ready, userId, role } = useAuth();
+  const { ready, userId, role, email } = useAuth();
+  const path = useRouterState({ select: (state) => state.location.pathname });
+  const attendanceRoute = path === "/manager/attendance" || path.startsWith("/manager/attendance/");
+  const attendanceAllowed = canManageAttendance(email);
+  const leaveRoute = path === "/manager/leave";
+  const leaveAllowed = role === "supervisor" || canReviewLeave(email);
   const knownFactorySubmissionKeys = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
     if (!ready) return;
     if (!userId) navigate({ to: "/auth" });
-    else if (role && role !== "supervisor") navigate({ to: "/business-consultant" });
-  }, [ready, userId, role, navigate]);
+    else if (attendanceRoute && !attendanceAllowed)
+      navigate({ to: role === "supervisor" ? "/manager" : role === "employee" ? "/employee" : "/business-consultant" });
+    else if (leaveRoute && !leaveAllowed)
+      navigate({ to: role === "employee" ? "/employee" : role === "supervisor" ? "/manager" : "/business-consultant" });
+    else if (role && role !== "supervisor" && !(attendanceRoute && attendanceAllowed) && !(leaveRoute && leaveAllowed))
+      navigate({ to: role === "employee" ? "/employee" : "/business-consultant" });
+  }, [ready, userId, role, navigate, attendanceRoute, attendanceAllowed, leaveRoute, leaveAllowed]);
 
   useEffect(() => {
     if (!ready || !userId || role !== "supervisor") return;
@@ -47,7 +58,10 @@ function ManagerLayout() {
       });
     };
 
-    const showFactoryFormNotification = (companyName: string, assessmentData: Record<string, any>) => {
+    const showFactoryFormNotification = (
+      companyName: string,
+      assessmentData: Record<string, any>,
+    ) => {
       const state = getFactoryFormState(assessmentData);
       const title = state.title;
       const body = state.completed
@@ -94,10 +108,7 @@ function ManagerLayout() {
       knownFactorySubmissionKeys.current = new Map(
         (data ?? [])
           .filter((row: any) => row.site_id && getFactoryFormState(row.data).completed)
-          .map((row: any) => [
-            row.site_id,
-            getFactoryFormState(row.data).submissionKey,
-          ]),
+          .map((row: any) => [row.site_id, getFactoryFormState(row.data).submissionKey]),
       );
     };
 
@@ -114,7 +125,9 @@ function ManagerLayout() {
           const siteId = next?.site_id;
           const state = getFactoryFormState(next?.data);
           const submissionKey = state.submissionKey;
-          const previousSubmissionKey = siteId ? knownFactorySubmissionKeys.current.get(siteId) : undefined;
+          const previousSubmissionKey = siteId
+            ? knownFactorySubmissionKeys.current.get(siteId)
+            : undefined;
 
           if (!siteId) return;
           if (!state.completed) {
@@ -135,7 +148,14 @@ function ManagerLayout() {
     };
   }, [ready, userId, role, navigate]);
 
-  if (!ready || !userId || role !== "supervisor") return null;
+  if (
+    !ready ||
+    !userId ||
+    (attendanceRoute && !attendanceAllowed) ||
+    (leaveRoute && !leaveAllowed) ||
+    (role !== "supervisor" && !(attendanceRoute && attendanceAllowed) && !(leaveRoute && leaveAllowed))
+  )
+    return null;
   return (
     <StaffShell role="supervisor">
       <Outlet />

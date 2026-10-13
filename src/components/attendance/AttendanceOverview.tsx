@@ -84,6 +84,14 @@ export function AttendanceOverview({
       filter: "on_leave",
       tone: "text-violet bg-violet/10",
     },
+    {
+      label: "Work from home",
+      value: summary.workFromHome,
+      detail: "Approved remote-work day",
+      icon: CalendarDays,
+      filter: "work_from_home",
+      tone: "text-indigo-700 bg-indigo-500/10",
+    },
   ];
   const segments = [
     {

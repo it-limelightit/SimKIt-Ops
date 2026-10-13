@@ -730,3 +730,327 @@ test("directory deletion preserves evidence and rejected requests expire after 2
     /Employee not found/,
   );
 });
+
+test("attendance allowlist grants only verified named accounts and protects direct table reads", async () => {
+  await db.exec(
+    "CREATE TABLE auth.users(id uuid PRIMARY KEY,email text,email_confirmed_at timestamptz)",
+  );
+  await db.query(
+    "INSERT INTO auth.users VALUES ($1,'other-manager@example.com',now()),($2,'patidarnit21@gmail.com',now()),('00000000-0000-4000-8000-000000000003','admin@limelightit.io',now()),('00000000-0000-4000-8000-000000000004','tarun@limelightit.io',now())",
+    [manager, worker],
+  );
+  await db.exec(
+    readFileSync(
+      new URL("../supabase/migrations/20261012120000_attendance_email_access.sql", import.meta.url),
+      "utf8",
+    ),
+  );
+  await asUser(manager);
+  assert.equal(await scalar("SELECT attendance_can_manage()"), false);
+  await assert.rejects(
+    db.query("SELECT attendance_board($1::date)", [today]),
+    /Attendance access required/,
+  );
+  await assert.rejects(
+    db.query("SELECT attendance_delete_employee($1)", [employee]),
+    /Attendance access required/,
+  );
+  await db.exec("SET ROLE authenticated");
+  assert.equal(await scalar("SELECT count(*)::int FROM attendance_employees"), 0);
+  assert.equal(await scalar("SELECT count(*)::int FROM attendance_leave_requests"), 0);
+  await db.exec("RESET ROLE");
+  for (const id of [
+    worker,
+    "00000000-0000-4000-8000-000000000003",
+    "00000000-0000-4000-8000-000000000004",
+  ]) {
+    await asUser(id);
+    await db.exec("SET ROLE authenticated");
+    assert.equal(await scalar("SELECT attendance_can_manage()"), true);
+    assert.ok((await scalar("SELECT attendance_board($1::date)", [today])).employees.length > 0);
+    assert.ok((await scalar("SELECT count(*)::int FROM attendance_employees")) > 0);
+    await db.exec("RESET ROLE");
+  }
+  assert.equal(await scalar("SELECT has_role($1,'supervisor')", [worker]), false);
+  await db.query("UPDATE auth.users SET email_confirmed_at=NULL WHERE id=$1", [worker]);
+  await asUser(worker);
+  assert.equal(await scalar("SELECT attendance_can_manage()"), false);
+  await db.query(
+    "UPDATE auth.users SET email='patidarnit21@gmail.com.attacker.test',email_confirmed_at=now() WHERE id=$1",
+    [worker],
+  );
+  assert.equal(await scalar("SELECT attendance_can_manage()"), false);
+  await db.query("SELECT set_config('request.jwt.claim.email','admin@limelightit.io',false)");
+  assert.equal(await scalar("SELECT attendance_can_manage()"), false);
+  await asUser(null);
+  assert.equal(await scalar("SELECT attendance_can_manage()"), false);
+});
+
+test("admin email correction replaces the old address on already migrated projects", async () => {
+  await db.exec(`CREATE OR REPLACE FUNCTION public.attendance_can_manage() RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
+    SELECT EXISTS(SELECT 1 FROM auth.users WHERE id=auth.uid() AND email_confirmed_at IS NOT NULL
+    AND lower(email) IN ('patidarnit21@gmail.com','admin@limelightit.com','tarun@limelightit.io')) $$`);
+  const adminId = "00000000-0000-4000-8000-000000000003";
+  await asUser(adminId);
+  assert.equal(await scalar("SELECT attendance_can_manage()"), false);
+  await db.exec(
+    readFileSync(
+      new URL(
+        "../supabase/migrations/20261012130000_attendance_admin_email_correction.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  assert.equal(await scalar("SELECT attendance_can_manage()"), true);
+  await db.query("UPDATE auth.users SET email='admin@limelightit.com' WHERE id=$1", [adminId]);
+  assert.equal(await scalar("SELECT attendance_can_manage()"), false);
+  await assert.rejects(
+    db.query("SELECT attendance_board($1::date)", [today]),
+    /Attendance access required/,
+  );
+});
+
+test('office account migrations isolate new roles, preserve field signups and scope attendance to the caller', async () => {
+  const office='00000000-0000-4000-8000-000000000020';
+  const officeEmployee='00000000-0000-4000-8000-000000000021';
+  const field='00000000-0000-4000-8000-000000000022';
+  await db.exec("ALTER TABLE auth.users ADD COLUMN raw_app_meta_data jsonb DEFAULT '{}', ADD COLUMN raw_user_meta_data jsonb DEFAULT '{}'; CREATE TABLE profiles(id uuid PRIMARY KEY,name text,email text,is_active boolean);");
+  await db.exec(readFileSync(new URL('../supabase/migrations/20261012140000_office_employee_role.sql',import.meta.url),'utf8'));
+  await db.exec(readFileSync(new URL('../supabase/migrations/20261012141000_attendance_employee_accounts.sql',import.meta.url),'utf8'));
+  await db.exec(readFileSync(new URL('../supabase/migrations/20261012143000_attendance_employee_profile_activation.sql',import.meta.url),'utf8'));
+  await db.exec(readFileSync(new URL('../supabase/migrations/20261012144000_attendance_link_existing_managers.sql',import.meta.url),'utf8'));
+  await db.exec("CREATE FUNCTION test_signup() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN INSERT INTO profiles(id,name,email,is_active) VALUES(NEW.id,'User',NEW.email,false); INSERT INTO user_roles VALUES(NEW.id,'worker'); RETURN NEW; END $$; CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION test_signup();");
+  await db.query("INSERT INTO auth.users(id,email,raw_app_meta_data) VALUES($1,'office@example.test',$2)",[office,JSON.stringify({office_employee:true,attendance_employee_id:officeEmployee})]);
+  assert.equal(await scalar("SELECT has_role($1,'employee')",[office]),true);
+  assert.equal(await scalar("SELECT has_role($1,'worker')",[office]),false);
+  assert.equal(await scalar('SELECT is_active FROM profiles WHERE id=$1',[office]),true);
+  await db.query("INSERT INTO auth.users(id,email,raw_user_meta_data) VALUES($1,'field@example.test',$2)",[field,JSON.stringify({office_employee:true})]);
+  assert.equal(await scalar("SELECT has_role($1,'worker')",[field]),true);
+  assert.equal(await scalar("SELECT has_role($1,'employee')",[field]),false);
+  await asUser('00000000-0000-4000-8000-000000000004');
+  await db.query("SELECT attendance_save_employee_account($1,$2,'Office','software','9901','office@example.test',true,$3::date,true)",[officeEmployee,office,today]);
+  await asUser(office);
+  assert.equal((await scalar('SELECT attendance_my_account()')).id,officeEmployee);
+  assert.deepEqual(await scalar('SELECT attendance_my_history()'),[]);
+  await assert.rejects(db.query("SELECT attendance_save_employee_account($1,$2,'Unauthorized','software','9901','office@example.test',true,$3::date,false)",[officeEmployee,office,today]),/Attendance access required/);
+  await asUser(field);
+  await assert.rejects(db.query('SELECT attendance_my_history()'),/Office employee access required/);
+  await asUser('00000000-0000-4000-8000-000000000004');
+  await assert.rejects(db.query("SELECT attendance_save_employee_account($1,$2,'Field','software','9902','field@example.test',true,$3::date,true)",['00000000-0000-4000-8000-000000000023',field,today]),/Invalid office login account/);
+
+  const managerAccount='00000000-0000-4000-8000-000000000030';
+  const managerEmployee='00000000-0000-4000-8000-000000000031';
+  await db.query("INSERT INTO auth.users(id,email,email_confirmed_at) VALUES($1,'manager@example.test',now())",[managerAccount]);
+  await db.query("DELETE FROM user_roles WHERE user_id=$1",[managerAccount]);
+  await db.query("INSERT INTO user_roles(user_id,role) VALUES($1,'supervisor')",[managerAccount]);
+  await db.query("UPDATE profiles SET is_active=true WHERE id=$1",[managerAccount]);
+  await asUser('00000000-0000-4000-8000-000000000004');
+  await db.query("SELECT attendance_save_employee('Manager Office','manager','9903',NULL,false,$1::date)",[today]);
+  const createdManagerEmployee=await scalar("SELECT id FROM attendance_employees WHERE enroll_id='9903'");
+  await db.query("UPDATE auth.users SET raw_app_meta_data=$2 WHERE id=$1",[managerAccount,JSON.stringify({office_employee:true,attendance_employee_id:createdManagerEmployee})]);
+  await db.query('SELECT attendance_link_manager_login($1,$2,$3)',[createdManagerEmployee,managerAccount,'manager@example.test']);
+  assert.equal(await scalar("SELECT role::text FROM user_roles WHERE user_id=$1",[managerAccount]),'supervisor');
+  await db.exec("CREATE FUNCTION public.is_staff(_id uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT EXISTS(SELECT 1 FROM user_roles WHERE user_id=_id AND role IN ('supervisor','owner')) $$; CREATE FUNCTION public.field_ops_associate(_id uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT EXISTS(SELECT 1 FROM profiles WHERE id=_id AND is_active) AND has_role(_id,'worker') AND NOT is_staff(_id) $$;");
+  await db.exec(readFileSync(new URL('../supabase/migrations/20261012160000_employee_leave_portal.sql',import.meta.url),'utf8'));
+  await db.exec(readFileSync(new URL('../supabase/migrations/20261012170000_leave_day_decisions.sql',import.meta.url),'utf8'));
+  await db.exec(readFileSync(new URL('../supabase/migrations/20261012180000_attendance_work_from_home.sql',import.meta.url),'utf8'));
+  await asUser(managerAccount);
+  assert.equal((await scalar('SELECT attendance_my_account()')).id,createdManagerEmployee);
+  assert.deepEqual(await scalar('SELECT attendance_my_history()'),[]);
+  await db.query("SELECT attendance_submit_my_leave($1::date,$1::date,'Other','Personal request')",[today]);
+  assert.equal((await scalar('SELECT attendance_my_leave_requests()')).length,1);
+  await assert.rejects(db.query("SELECT attendance_decide_employee_leave_days((attendance_my_leave_requests()->0->>'id')::uuid,$1::jsonb)",[JSON.stringify([{date:today,decision:'approved'}])]),/routed to a different approver/);
+  await asUser(office);
+  await db.query("SELECT attendance_submit_my_leave($1::date,$1::date,'Family medical','Family appointment')",[today]);
+  assert.equal((await scalar('SELECT attendance_my_leave_requests()')).length,1);
+  assert.deepEqual(await scalar("SELECT approver_emails FROM attendance_leave_requests WHERE employee_id=$1 AND status='pending'",[officeEmployee]),['tarun@limelightit.io']);
+  const tarunAccount='00000000-0000-4000-8000-000000000040';
+  await db.query("INSERT INTO auth.users(id,email,email_confirmed_at) VALUES($1,'tarun@limelightit.io',now())",[tarunAccount]);
+  await db.query("INSERT INTO user_roles(user_id,role) VALUES($1,'supervisor')",[tarunAccount]);
+  const tarunAlias='00000000-0000-4000-8000-000000000041';
+  await db.query("INSERT INTO auth.users(id,email,email_confirmed_at) VALUES($1,'tarun@limelight.io',now())",[tarunAlias]);
+  await db.query("INSERT INTO user_roles(user_id,role) VALUES($1,'supervisor')",[tarunAlias]);
+  await asUser(tarunAlias);
+  assert.deepEqual(await scalar('SELECT attendance_my_leave_requests()'),[]);
+  assert.ok((await scalar('SELECT attendance_leave_review_queue()')).some((request)=>request.employee_id===officeEmployee));
+  await assert.rejects(db.query("SELECT attendance_submit_my_leave($1::date,$1::date,'Other','Tarun alias request')",[today]),/Tarun reviewer accounts can review requests but cannot submit leave/);
+  await asUser(tarunAccount);
+  assert.deepEqual(await scalar('SELECT attendance_my_leave_requests()'),[]);
+  await assert.rejects(db.query("SELECT attendance_submit_my_leave($1::date,$1::date,'Other','Tarun request')",[today]),/Tarun reviewer accounts can review requests but cannot submit leave/);
+  const reviewQueue=await scalar('SELECT attendance_leave_review_queue()');
+  const officeRequest=reviewQueue.find((request)=>request.employee_id===officeEmployee);
+  assert.ok(officeRequest);
+  await asUser(managerAccount);
+  await assert.rejects(db.query("SELECT attendance_decide_employee_leave($1::uuid,'approved')",[officeRequest.id]),/routed to a different approver/);
+  await asUser(tarunAccount);
+  await db.query("SELECT attendance_decide_employee_leave_days($1::uuid,$2::jsonb,'Approved')",[officeRequest.id,JSON.stringify([{date:today,decision:'approved'}])]);
+  await asUser(office);
+  assert.equal((await scalar('SELECT attendance_my_leave_requests()'))[0].status,'approved');
+  await db.query('UPDATE profiles SET is_active=true WHERE id=$1',[field]);
+  await asUser(field);
+  await db.query("SELECT attendance_submit_my_leave($1::date,$1::date,'Other','Field associate request')",[today]);
+  assert.equal((await scalar('SELECT attendance_my_leave_requests()'))[0].status,'pending');
+  assert.deepEqual((await scalar('SELECT attendance_my_leave_requests()'))[0].approver_emails,['associatelimelight@gmail.com','info@limelightit.io','tarun@limelightit.io']);
+  await asUser(tarunAccount);
+  const fieldQueue=await scalar('SELECT attendance_leave_review_queue()');
+  const fieldRequest=fieldQueue.find((request)=>request.field_associate_id===field);
+  assert.ok(fieldRequest);
+  await db.query("SELECT attendance_decide_employee_leave_days($1::uuid,$2::jsonb)",[fieldRequest.id,JSON.stringify([{date:today,decision:'approved'}])]);
+  await asUser(field);
+  assert.equal((await scalar('SELECT attendance_my_leave_requests()'))[0].status,'approved');
+
+  const splitStart = new Date(Date.parse(`${today}T00:00:00Z`) + 86400000).toISOString().slice(0,10);
+  const splitEnd = new Date(Date.parse(`${today}T00:00:00Z`) + 3*86400000).toISOString().slice(0,10);
+  await asUser(office);
+  const splitRequest = await scalar("SELECT attendance_submit_my_leave($1::date,$2::date,'Other','Three day request')",[splitStart,splitEnd]);
+  await asUser(tarunAccount);
+  const splitQueue = await scalar('SELECT attendance_leave_review_queue()');
+  assert.deepEqual(splitQueue.find((request)=>request.id===splitRequest).days.map((day)=>day.status),['pending','pending','pending']);
+  await db.query("SELECT attendance_decide_employee_leave_days($1::uuid,$2::jsonb,'Two days approved')",[splitRequest,JSON.stringify([
+    {date:splitStart,decision:'approved'},
+    {date:new Date(Date.parse(`${today}T00:00:00Z`)+2*86400000).toISOString().slice(0,10),decision:'rejected'},
+    {date:splitEnd,decision:'approved'},
+  ])]);
+  await asUser(office);
+  const splitHistory = (await scalar('SELECT attendance_my_leave_requests()')).find((request)=>request.id===splitRequest);
+  assert.equal(splitHistory.status,'partial');
+  assert.deepEqual(splitHistory.days.map((day)=>day.status),['approved','rejected','approved']);
+  await asUser(tarunAccount);
+  const approvedDayBoard = await scalar('SELECT attendance_board($1::date)',[splitStart]);
+  const rejectedDate = new Date(Date.parse(`${today}T00:00:00Z`)+2*86400000).toISOString().slice(0,10);
+  const rejectedDayBoard = await scalar('SELECT attendance_board($1::date)',[rejectedDate]);
+  assert.equal(approvedDayBoard.rows.find((row)=>row.employee_id===officeEmployee).status,'on_leave');
+  assert.notEqual(rejectedDayBoard.rows.find((row)=>row.employee_id===officeEmployee).status,'on_leave');
+  await asUser(office);
+  await assert.rejects(db.query("SELECT attendance_submit_my_leave($1::date,$1::date,'Other','Overlap approved day')",[splitStart]),/pending or approved request already covers/);
+  const retryRejectedDay = await scalar("SELECT attendance_submit_my_leave($1::date,$1::date,'Other','Retry rejected day')",[rejectedDate]);
+  assert.equal((await scalar("SELECT status FROM attendance_leave_requests WHERE id=$1",[retryRejectedDay])),'pending');
+  await assert.rejects(db.query("SELECT attendance_set_wfh_eligibility($1,true)",[officeEmployee]),/Only Tarun can change work-from-home eligibility/);
+  await asUser(tarunAccount);
+  await db.query("SELECT attendance_set_wfh_eligibility($1,true)",[officeEmployee]);
+  await asUser(office);
+  assert.equal(await scalar('SELECT attendance_my_wfh_eligibility()'),true);
+  const wfhDate = new Date(Date.parse(`${today}T00:00:00Z`)+5*86400000).toISOString().slice(0,10);
+  const wfhRequest = await scalar("SELECT attendance_submit_my_wfh($1::date,$1::date,'Remote day')",[wfhDate]);
+  await asUser(tarunAccount);
+  assert.ok((await scalar('SELECT attendance_leave_review_queue()')).some((request)=>request.id===wfhRequest && request.request_type==='wfh'));
+  await db.query("SELECT attendance_decide_employee_leave_days($1::uuid,$2::jsonb)",[wfhRequest,JSON.stringify([{date:wfhDate,decision:'approved'}])]);
+  const wfhBoard = await scalar('SELECT attendance_board($1::date)',[wfhDate]);
+  assert.equal(wfhBoard.rows.find((row)=>row.employee_id===officeEmployee).status,'work_from_home');
+  await db.query('UPDATE attendance_employees SET active=false WHERE id=$1',[officeEmployee]);
+  await asUser(office);
+  await assert.rejects(db.query('SELECT attendance_my_history()'),/inactive or not linked/);
+});
+
+test("linked software supervisors apply for their own leave and WFH without changing roles",async()=>{
+  const account='00000000-0000-4000-8000-000000000050';
+  const staff='00000000-0000-4000-8000-000000000051';
+  const unlinked='00000000-0000-4000-8000-000000000052';
+  await db.query("INSERT INTO auth.users(id,email,email_confirmed_at) VALUES($1,'nit@example.test',now()),($2,'unlinked@example.test',now())",[account,unlinked]);
+  await db.query("INSERT INTO user_roles(user_id,role) VALUES($1,'supervisor'),($2,'supervisor')",[account,unlinked]);
+  const originalRoles=(await db.query('SELECT role FROM user_roles WHERE user_id=$1 ORDER BY role',[account])).rows.map(r=>r.role);
+  await db.query("INSERT INTO attendance_employees(id,name,department,enroll_id,email,auth_user_id,employment_start,work_from_home_enabled,created_by) VALUES($1,'Nit','software','nit-link-test','nit@example.test',$2,$3::date,true,$2)",[staff,account,today]);
+  await asUser(account);
+  await assert.rejects(db.query("SELECT attendance_submit_my_leave($1::date,$1::date,'Other','Office leave test')",[today]),/Active office account is not linked/);
+  await db.exec(readFileSync(new URL('../supabase/migrations/20261013100000_linked_office_supervisor_requests.sql',import.meta.url),'utf8'));
+  assert.equal((await scalar('SELECT attendance_my_account()')).id,staff);
+  assert.deepEqual(await scalar('SELECT attendance_my_history()'),[]);
+  const request=await scalar("SELECT attendance_submit_my_leave($1::date,$1::date,'Other','Office leave test')",[today]);
+  assert.equal(await scalar('SELECT employee_id FROM attendance_leave_requests WHERE id=$1',[request]),staff);
+  assert.deepEqual(await scalar('SELECT approver_emails FROM attendance_leave_requests WHERE id=$1',[request]),['tarun@limelightit.io']);
+  assert.equal((await scalar('SELECT attendance_my_leave_requests()')).length,1);
+  const wfhDate=new Date(Date.parse(`${today}T00:00:00Z`)+86400000).toISOString().slice(0,10);
+  assert.ok(await scalar("SELECT attendance_submit_my_wfh($1::date,$1::date,'Office remote test')",[wfhDate]));
+  assert.deepEqual((await db.query('SELECT role FROM user_roles WHERE user_id=$1 ORDER BY role',[account])).rows.map(r=>r.role),originalRoles);
+  await asUser(unlinked);
+  await assert.rejects(db.query("SELECT attendance_submit_my_leave($1::date,$1::date,'Other','Unlinked request')",[today]),/Active office account is not linked/);
+  await db.query('UPDATE attendance_employees SET active=false WHERE id=$1',[staff]);
+  await asUser(account);
+  await assert.rejects(db.query("SELECT attendance_submit_my_leave($1::date,$1::date,'Other','Inactive request')",[today]),/Active office account is not linked/);
+  await db.query("UPDATE auth.users SET email='patidarnit21@gmail.com' WHERE id=$1",[account]);
+  assert.equal(await scalar('SELECT attendance_can_manage()'),true);
+  await db.exec(readFileSync(new URL('../supabase/migrations/20261013110000_nit_login_email_access.sql',import.meta.url),'utf8'));
+  assert.equal(await scalar('SELECT attendance_can_manage()'),false);
+  await db.query("UPDATE auth.users SET email='nitsanghani1@gmail.com' WHERE id=$1",[account]);
+  assert.equal(await scalar('SELECT attendance_can_manage()'),true);
+});
+
+test('employee calendar tracks per-day leave, WFH, schedule and evidence-backed absence without exposing other employees',async()=>{
+  await db.exec(readFileSync(new URL('../supabase/migrations/20261013120000_employee_attendance_calendar.sql',import.meta.url),'utf8'));
+  const account='00000000-0000-4000-8000-000000000050';
+  const staff='00000000-0000-4000-8000-000000000051';
+  const tarun='00000000-0000-4000-8000-000000000040';
+  const unlinked='00000000-0000-4000-8000-000000000052';
+  await db.query("UPDATE attendance_employees SET active=true,employment_start='2026-01-01' WHERE id=$1",[staff]);
+  const future=await scalar("SELECT (date_trunc('month',$1::date)+interval '1 month')::date::text",[today]);
+  const monday=await scalar("SELECT d::date::text FROM generate_series($1::date::timestamp,($1::date+6)::timestamp,interval '1 day') d WHERE extract(dow FROM d)=1 LIMIT 1",[future]);
+  const add=(date,n)=>new Date(Date.parse(`${date}T00:00:00Z`)+n*86400000).toISOString().slice(0,10);
+  await db.query("INSERT INTO attendance_settings(effective_from,shift_start,grace_minutes,absence_cutoff,working_days,holidays) VALUES($1::date,'10:00',15,'18:00',ARRAY[1,2,3,4,5],ARRAY[$2::date]) ON CONFLICT(effective_from) DO UPDATE SET working_days=excluded.working_days,holidays=excluded.holidays,absence_cutoff=excluded.absence_cutoff",[future,add(monday,2)]);
+  await asUser(account);
+  const leave=await scalar("SELECT attendance_submit_my_leave($1::date,$2::date,'Other','Calendar test leave')",[monday,add(monday,1)]);
+  const wfh=await scalar("SELECT attendance_submit_my_wfh($1::date,$1::date,'Calendar test WFH')",[add(monday,3)]);
+  await asUser(tarun);
+  await db.query("SELECT attendance_decide_employee_leave_days($1,$2::jsonb)",[leave,JSON.stringify([{date:monday,decision:'approved'},{date:add(monday,1),decision:'rejected'}])]);
+  await db.query("SELECT attendance_decide_employee_leave_days($1,$2::jsonb)",[wfh,JSON.stringify([{date:add(monday,3),decision:'approved'}])]);
+  await asUser(account);
+  const board=await scalar('SELECT attendance_my_calendar($1::date)',[future]);
+  const day=date=>board.days.find(d=>d.date===date);
+  assert.equal(day(monday).status,'on_leave');
+  assert.equal(day(add(monday,1)).status,'scheduled');
+  assert.equal(day(add(monday,1)).request_status,'rejected');
+  assert.equal(day(add(monday,2)).status,'off_day');
+  assert.equal(day(add(monday,2)).working_day,false);
+  assert.equal(day(add(monday,3)).status,'work_from_home');
+  await db.exec(readFileSync(new URL('../supabase/migrations/20261013130000_manager_calendar_request_decisions.sql',import.meta.url),'utf8'));
+  await asUser(tarun);
+  for(const date of [monday,add(monday,1),add(monday,3)]){
+    const managerBoard=await scalar('SELECT attendance_board($1::date)',[date]);
+    const row=managerBoard.rows.find(r=>r.employee_id===staff);
+    assert.equal(row.request_status,day(date).request_status);
+    assert.equal(row.request_type,day(date).request_type);
+  }
+  await asUser(account);
+  assert.equal(day(add(monday,5)).status,'off_day');
+  assert.equal(board.days.length,new Date(`${future}T12:00:00Z`).getUTCMonth()===1?28:new Date(Number(future.slice(0,4)),Number(future.slice(5,7)),0).getDate());
+  await db.exec("INSERT INTO attendance_settings(effective_from,shift_start,grace_minutes,absence_cutoff,working_days,holidays) VALUES('2026-01-01','10:00',15,'18:00',ARRAY[1,2,3,4,5],ARRAY[]::date[]) ON CONFLICT(effective_from) DO UPDATE SET absence_cutoff='18:00',working_days=ARRAY[1,2,3,4,5]");
+  await db.exec("INSERT INTO attendance_device_health VALUES('2026-01-05','2026-01-05T04:00:00Z','2026-01-05T13:00:00Z',false) ON CONFLICT(work_date) DO UPDATE SET gap_detected=false,last_heartbeat_at=excluded.last_heartbeat_at");
+  const january=await scalar("SELECT attendance_my_calendar('2026-01-01')");
+  assert.equal(january.days.find(d=>d.date==='2026-01-05').status,'absent');
+  assert.equal(january.days.find(d=>d.date==='2026-01-06').status,'needs_review');
+  await asUser('00000000-0000-4000-8000-000000000030');
+  const another=await scalar('SELECT attendance_my_calendar($1::date)',[future]);
+  assert.equal(another.days.some(d=>d.reason?.includes('Calendar test')),false);
+  await asUser(unlinked);
+  await assert.rejects(db.query('SELECT attendance_my_calendar($1::date)',[future]),/Active office account is not linked/);
+  await asUser(null);
+  await assert.rejects(db.query('SELECT attendance_my_calendar($1::date)',[future]),/Office employee access required/);
+});
+
+test('field leave calendar preserves individual decisions and isolates associates',async()=>{
+ await db.exec(readFileSync(new URL('../supabase/migrations/20261013140000_field_leave_calendar.sql',import.meta.url),'utf8'));
+ const associate='00000000-0000-4000-8000-000000000060';
+ const other='00000000-0000-4000-8000-000000000061';
+ const tarun='00000000-0000-4000-8000-000000000040';
+ await db.query("INSERT INTO auth.users(id,email,email_confirmed_at) VALUES($1,'field-calendar@example.test',now()),($2,'field-other@example.test',now())",[associate,other]);
+ await db.query('UPDATE profiles SET is_active=true WHERE id=ANY($1::uuid[])',[[associate,other]]);
+ const tomorrow=new Date(Date.parse(`${today}T00:00:00Z`)+86400000).toISOString().slice(0,10);
+ await asUser(associate);
+ const request=await scalar("SELECT attendance_submit_my_leave($1::date,$2::date,'Other','Field calendar test')",[today,tomorrow]);
+ assert.equal((await scalar('SELECT field_ops_leave_calendar($1,$2::date)',[associate,today]))[0].request_status,'pending');
+ await asUser(tarun);
+ await db.query('SELECT attendance_decide_employee_leave_days($1,$2::jsonb)',[request,JSON.stringify([{date:today,decision:'approved'},{date:tomorrow,decision:'rejected'}])]);
+ const manager=await scalar('SELECT field_ops_leave_calendar($1,$2::date)',[associate,today]);
+ await asUser(associate);
+ const own=await scalar('SELECT field_ops_leave_calendar($1,$2::date)',[associate,today]);
+ assert.deepEqual(own,manager);
+ assert.equal(own.find(day=>day.date===today).request_status,'approved');
+ if(tomorrow.slice(0,7)===today.slice(0,7))assert.equal(own.find(day=>day.date===tomorrow).request_status,'rejected');
+ assert.ok((await scalar('SELECT field_ops_leave_calendar($1,$2::date)',[associate,tomorrow])).some(day=>day.date===tomorrow&&day.request_status==='rejected'));
+ await asUser(other);
+ assert.deepEqual(await scalar('SELECT field_ops_leave_calendar($1,$2::date)',[other,today]),[]);
+ await assert.rejects(db.query('SELECT field_ops_leave_calendar($1,$2::date)',[associate,today]),/Access denied/);
+ await asUser(null);
+ await assert.rejects(db.query('SELECT field_ops_leave_calendar($1,$2::date)',[associate,today]),/Access denied/);
+});
