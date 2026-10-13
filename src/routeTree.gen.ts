@@ -14,6 +14,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as BusinessConsultantRouteImport } from './routes/business-consultant'
 import { Route as ClientFormRouteImport } from './routes/client-form'
 import { Route as CompanyTrackerRouteImport } from './routes/company-tracker'
+import { Route as EmployeeRouteImport } from './routes/employee'
 import { Route as ManagerRouteImport } from './routes/manager'
 import { Route as ManagerIndexRouteImport } from './routes/manager.index'
 import { Route as ManagerAttendanceRouteImport } from './routes/manager.attendance'
@@ -23,6 +24,7 @@ import { Route as ManagerDriveLinksRouteImport } from './routes/manager.drive-li
 import { Route as ManagerFactoryDataRouteImport } from './routes/manager.factory-data'
 import { Route as ManagerFieldVisitTrackerRouteImport } from './routes/manager.field-visit-tracker'
 import { Route as ManagerInventoryRouteImport } from './routes/manager.inventory'
+import { Route as ManagerLeaveRouteImport } from './routes/manager.leave'
 import { Route as ManagerLogisticRouteImport } from './routes/manager.logistic'
 import { Route as ManagerPerformanceRouteImport } from './routes/manager.performance'
 import { Route as ManagerReportsRouteImport } from './routes/manager.reports'
@@ -54,6 +56,11 @@ const ClientFormRoute = ClientFormRouteImport.update({
 const CompanyTrackerRoute = CompanyTrackerRouteImport.update({
   id: '/company-tracker',
   path: '/company-tracker',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EmployeeRoute = EmployeeRouteImport.update({
+  id: '/employee',
+  path: '/employee',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ManagerRoute = ManagerRouteImport.update({
@@ -103,6 +110,11 @@ const ManagerInventoryRoute = ManagerInventoryRouteImport.update({
   path: '/inventory',
   getParentRoute: () => ManagerRoute,
 } as any)
+const ManagerLeaveRoute = ManagerLeaveRouteImport.update({
+  id: '/leave',
+  path: '/leave',
+  getParentRoute: () => ManagerRoute,
+} as any)
 const ManagerLogisticRoute = ManagerLogisticRouteImport.update({
   id: '/logistic',
   path: '/logistic',
@@ -146,6 +158,7 @@ export interface FileRoutesByFullPath {
   '/business-consultant': typeof BusinessConsultantRoute
   '/client-form': typeof ClientFormRoute
   '/company-tracker': typeof CompanyTrackerRoute
+  '/employee': typeof EmployeeRoute
   '/manager': typeof ManagerRouteWithChildren
   '/manager/attendance': typeof ManagerAttendanceRouteWithChildren
   '/manager/business-consultants': typeof ManagerBusinessConsultantsRoute
@@ -154,6 +167,7 @@ export interface FileRoutesByFullPath {
   '/manager/factory-data': typeof ManagerFactoryDataRoute
   '/manager/field-visit-tracker': typeof ManagerFieldVisitTrackerRoute
   '/manager/inventory': typeof ManagerInventoryRoute
+  '/manager/leave': typeof ManagerLeaveRoute
   '/manager/logistic': typeof ManagerLogisticRoute
   '/manager/performance': typeof ManagerPerformanceRoute
   '/manager/reports': typeof ManagerReportsRoute
@@ -169,12 +183,14 @@ export interface FileRoutesByTo {
   '/business-consultant': typeof BusinessConsultantRoute
   '/client-form': typeof ClientFormRoute
   '/company-tracker': typeof CompanyTrackerRoute
+  '/employee': typeof EmployeeRoute
   '/manager/business-consultants': typeof ManagerBusinessConsultantsRoute
   '/manager/company-tracker': typeof ManagerCompanyTrackerRoute
   '/manager/drive-links': typeof ManagerDriveLinksRoute
   '/manager/factory-data': typeof ManagerFactoryDataRoute
   '/manager/field-visit-tracker': typeof ManagerFieldVisitTrackerRoute
   '/manager/inventory': typeof ManagerInventoryRoute
+  '/manager/leave': typeof ManagerLeaveRoute
   '/manager/logistic': typeof ManagerLogisticRoute
   '/manager/performance': typeof ManagerPerformanceRoute
   '/manager/reports': typeof ManagerReportsRoute
@@ -191,6 +207,7 @@ export interface FileRoutesById {
   '/business-consultant': typeof BusinessConsultantRoute
   '/client-form': typeof ClientFormRoute
   '/company-tracker': typeof CompanyTrackerRoute
+  '/employee': typeof EmployeeRoute
   '/manager': typeof ManagerRouteWithChildren
   '/manager/attendance': typeof ManagerAttendanceRouteWithChildren
   '/manager/business-consultants': typeof ManagerBusinessConsultantsRoute
@@ -199,6 +216,7 @@ export interface FileRoutesById {
   '/manager/factory-data': typeof ManagerFactoryDataRoute
   '/manager/field-visit-tracker': typeof ManagerFieldVisitTrackerRoute
   '/manager/inventory': typeof ManagerInventoryRoute
+  '/manager/leave': typeof ManagerLeaveRoute
   '/manager/logistic': typeof ManagerLogisticRoute
   '/manager/performance': typeof ManagerPerformanceRoute
   '/manager/reports': typeof ManagerReportsRoute
@@ -216,6 +234,7 @@ export interface FileRouteTypes {
     | '/business-consultant'
     | '/client-form'
     | '/company-tracker'
+    | '/employee'
     | '/manager'
     | '/manager/attendance'
     | '/manager/business-consultants'
@@ -224,6 +243,7 @@ export interface FileRouteTypes {
     | '/manager/factory-data'
     | '/manager/field-visit-tracker'
     | '/manager/inventory'
+    | '/manager/leave'
     | '/manager/logistic'
     | '/manager/performance'
     | '/manager/reports'
@@ -239,12 +259,14 @@ export interface FileRouteTypes {
     | '/business-consultant'
     | '/client-form'
     | '/company-tracker'
+    | '/employee'
     | '/manager/business-consultants'
     | '/manager/company-tracker'
     | '/manager/drive-links'
     | '/manager/factory-data'
     | '/manager/field-visit-tracker'
     | '/manager/inventory'
+    | '/manager/leave'
     | '/manager/logistic'
     | '/manager/performance'
     | '/manager/reports'
@@ -260,6 +282,7 @@ export interface FileRouteTypes {
     | '/business-consultant'
     | '/client-form'
     | '/company-tracker'
+    | '/employee'
     | '/manager'
     | '/manager/attendance'
     | '/manager/business-consultants'
@@ -268,6 +291,7 @@ export interface FileRouteTypes {
     | '/manager/factory-data'
     | '/manager/field-visit-tracker'
     | '/manager/inventory'
+    | '/manager/leave'
     | '/manager/logistic'
     | '/manager/performance'
     | '/manager/reports'
@@ -284,6 +308,7 @@ export interface RootRouteChildren {
   BusinessConsultantRoute: typeof BusinessConsultantRoute
   ClientFormRoute: typeof ClientFormRoute
   CompanyTrackerRoute: typeof CompanyTrackerRoute
+  EmployeeRoute: typeof EmployeeRoute
   ManagerRoute: typeof ManagerRouteWithChildren
 }
 
@@ -322,6 +347,13 @@ declare module '@tanstack/react-router' {
       path: '/company-tracker'
       fullPath: '/company-tracker'
       preLoaderRoute: typeof CompanyTrackerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/employee': {
+      id: '/employee'
+      path: '/employee'
+      fullPath: '/employee'
+      preLoaderRoute: typeof EmployeeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/manager': {
@@ -385,6 +417,13 @@ declare module '@tanstack/react-router' {
       path: '/inventory'
       fullPath: '/manager/inventory'
       preLoaderRoute: typeof ManagerInventoryRouteImport
+      parentRoute: typeof ManagerRoute
+    }
+    '/manager/leave': {
+      id: '/manager/leave'
+      path: '/leave'
+      fullPath: '/manager/leave'
+      preLoaderRoute: typeof ManagerLeaveRouteImport
       parentRoute: typeof ManagerRoute
     }
     '/manager/logistic': {
@@ -461,6 +500,7 @@ interface ManagerRouteChildren {
   ManagerFactoryDataRoute: typeof ManagerFactoryDataRoute
   ManagerFieldVisitTrackerRoute: typeof ManagerFieldVisitTrackerRoute
   ManagerInventoryRoute: typeof ManagerInventoryRoute
+  ManagerLeaveRoute: typeof ManagerLeaveRoute
   ManagerLogisticRoute: typeof ManagerLogisticRoute
   ManagerPerformanceRoute: typeof ManagerPerformanceRoute
   ManagerReportsRoute: typeof ManagerReportsRoute
@@ -477,6 +517,7 @@ const ManagerRouteChildren: ManagerRouteChildren = {
   ManagerFactoryDataRoute: ManagerFactoryDataRoute,
   ManagerFieldVisitTrackerRoute: ManagerFieldVisitTrackerRoute,
   ManagerInventoryRoute: ManagerInventoryRoute,
+  ManagerLeaveRoute: ManagerLeaveRoute,
   ManagerLogisticRoute: ManagerLogisticRoute,
   ManagerPerformanceRoute: ManagerPerformanceRoute,
   ManagerReportsRoute: ManagerReportsRoute,
@@ -494,6 +535,7 @@ const rootRouteChildren: RootRouteChildren = {
   BusinessConsultantRoute: BusinessConsultantRoute,
   ClientFormRoute: ClientFormRoute,
   CompanyTrackerRoute: CompanyTrackerRoute,
+  EmployeeRoute: EmployeeRoute,
   ManagerRoute: ManagerRouteWithChildren,
 }
 export const routeTree = rootRouteImport

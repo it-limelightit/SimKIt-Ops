@@ -146,6 +146,8 @@ export function InventoryPanel({
   const [deviceOverviewMaterials, setDeviceOverviewMaterials] = useState<Material[]>([]);
   const [showDeviceOverviewTable, setShowDeviceOverviewTable] = useState(false);
 
+  const dispatchedMaterials = useMemo(() => materials.filter(isDispatchedMaterial), [materials]);
+
   useEffect(() => {
     setCurrentPage(1);
   }, [query, filterState, tableDateFilter, tableLocationFilter, viewMode]);
@@ -341,7 +343,7 @@ export function InventoryPanel({
         </div>
       ) : (
         <DeviceOverviewKta
-          materials={materials}
+          materials={dispatchedMaterials}
           onFilteredMaterialsChange={setDeviceOverviewMaterials}
           onRevealTable={() => setShowDeviceOverviewTable(true)}
         />
@@ -747,10 +749,16 @@ function boolLabel(value: string | null | undefined) {
 }
 
 function normalizeLogisticsStatus(status: string) {
-  if (status === "In transit" || status === "Transit" || status === "Shipped") return "Transit";
-  if (status === "Packing") return "Packing";
-  if (status === "Delivered" || status === "delivered") return "Delivered";
+  const normalized = status.trim().toLowerCase();
+  if (["in transit", "transit", "shipped", "dispatched"].includes(normalized)) return "Transit";
+  if (normalized === "packing") return "Packing";
+  if (normalized === "delivered") return "Delivered";
   return "Pending";
+}
+
+function isDispatchedMaterial(material: Material) {
+  const status = normalizeLogisticsStatus(parseCourierNotes(material).logistics_status || "Pending");
+  return status === "Transit" || status === "Delivered";
 }
 
 

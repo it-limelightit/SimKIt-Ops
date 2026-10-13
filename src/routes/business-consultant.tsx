@@ -3,6 +3,9 @@ import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { persistPhaseChanges } from "@/lib/phase-draft";
 import { useAuth } from "@/lib/auth-store";
+import { canManageAttendance } from "@/lib/attendance-access";
+import { canReviewLeave } from "@/lib/attendance-access";
+import { LeaveWorkspace } from "@/components/attendance/LeaveWorkspace";
 import {
   Badge,
   Button,
@@ -38,6 +41,7 @@ import {
   BarChart3,
   Activity,
   TrendingUp,
+  CalendarCheck,
   KanbanSquare,
   ClipboardList,
   Menu,
@@ -92,7 +96,7 @@ function BusinessConsultantPage() {
   const navigate = useNavigate();
   const { ready, userId, email, role, profile, signOut } = useAuth();
 
-  const [view, setView] = useState<"dashboard" | "submission" | "inventory" | "tracker" | "schedule" | "earnings">("dashboard");
+  const [view, setView] = useState<"dashboard" | "submission" | "inventory" | "tracker" | "schedule" | "earnings" | "leave">("dashboard");
   const [sitesList, setSitesList] = useState<Site[]>([]);
   const [sitesWithProgress, setSitesWithProgress] = useState<
     Array<
@@ -630,6 +634,15 @@ function BusinessConsultantPage() {
     );
   }
 
+  if (view === "leave") {
+    return <Shell onSignOut={signOut} profileName={profile?.name ?? undefined}
+      onGoToDashboard={() => setView("dashboard")} onGoToInventory={() => setView("inventory")}
+      onGoToTracker={() => setView("tracker")} onGoToSchedule={() => setView("schedule")}
+      onGoToEarnings={() => setView("earnings")} onGoToLeave={() => setView("leave")} leaveActive>
+      <LeaveWorkspace />
+    </Shell>;
+  }
+
   if (view === "dashboard") {
     return (
       <Shell
@@ -640,6 +653,7 @@ function BusinessConsultantPage() {
         onGoToTracker={() => setView("tracker")}
         onGoToSchedule={() => setView("schedule")}
         onGoToEarnings={() => setView("earnings")}
+        onGoToLeave={() => setView("leave")}
         assignmentsActive
       >
         <div className="mt-8">
@@ -659,6 +673,7 @@ function BusinessConsultantPage() {
         onGoToTracker={() => setView("tracker")}
         onGoToSchedule={() => setView("schedule")}
         onGoToEarnings={() => setView("earnings")}
+        onGoToLeave={() => setView("leave")}
         inventoryActive
       >
         <div className="py-9">
@@ -678,6 +693,7 @@ function BusinessConsultantPage() {
         onGoToTracker={() => setView("tracker")}
         onGoToSchedule={() => setView("schedule")}
         onGoToEarnings={() => setView("earnings")}
+        onGoToLeave={() => setView("leave")}
         trackerActive
       >
         <div className="py-9"><CompanyTracker /></div>
@@ -695,6 +711,7 @@ function BusinessConsultantPage() {
         onGoToTracker={() => setView("tracker")}
         onGoToSchedule={() => setView("schedule")}
         onGoToEarnings={() => setView("earnings")}
+        onGoToLeave={() => setView("leave")}
         scheduleActive
       >
         <div className="py-9"><AssociateSchedule /></div>
@@ -703,7 +720,7 @@ function BusinessConsultantPage() {
   }
 
   if (view === "earnings") {
-    return <Shell onSignOut={signOut} profileName={profile?.name ?? undefined} onGoToDashboard={() => setView("dashboard")} onGoToInventory={() => setView("inventory")} onGoToTracker={() => setView("tracker")} onGoToSchedule={() => setView("schedule")} onGoToEarnings={() => setView("earnings")} earningsActive><div className="py-9"><AssociateEarnings /></div></Shell>;
+    return <Shell onSignOut={signOut} profileName={profile?.name ?? undefined} onGoToDashboard={() => setView("dashboard")} onGoToInventory={() => setView("inventory")} onGoToTracker={() => setView("tracker")} onGoToSchedule={() => setView("schedule")} onGoToEarnings={() => setView("earnings")} onGoToLeave={() => setView("leave")} earningsActive><div className="py-9"><AssociateEarnings /></div></Shell>;
   }
 
   if (!site) {
@@ -712,6 +729,7 @@ function BusinessConsultantPage() {
         onSignOut={signOut}
         showDashboardBtn={true}
         onGoToDashboard={() => setView("dashboard")}
+        onGoToLeave={() => setView("leave")}
       >
         <div className="card-surface mt-12 text-center">
           <h2 className="text-2xl font-bold text-lime uppercase tracking-wider font-syne">
@@ -749,6 +767,7 @@ function BusinessConsultantPage() {
       onGoToTracker={() => setView("tracker")}
       onGoToSchedule={() => setView("schedule")}
       onGoToEarnings={() => setView("earnings")}
+      onGoToLeave={() => setView("leave")}
     >
       <div className="mt-8 space-y-6">
         {/* Factory Details Box matching Mockup */}
@@ -1610,6 +1629,8 @@ function Shell({
   scheduleActive,
   onGoToEarnings,
   earningsActive,
+  onGoToLeave,
+  leaveActive,
   assignmentsActive,
 }: {
   children: React.ReactNode;
@@ -1625,6 +1646,8 @@ function Shell({
   scheduleActive?: boolean;
   onGoToEarnings?: () => void;
   earningsActive?: boolean;
+  onGoToLeave?: () => void;
+  leaveActive?: boolean;
   assignmentsActive?: boolean;
 }) {
   const [themeMode, setThemeMode] = useState<"light" | "dark">("light");
@@ -1656,6 +1679,8 @@ function Shell({
   };
 
   const [navigationOpen, setNavigationOpen] = useState(false);
+  const attendanceEmail = useAuth((state) => state.email);
+  const attendanceNavigate = useNavigate();
   const navigation = [
     {
       label: "Assignments",
@@ -1666,6 +1691,11 @@ function Shell({
     { label: "Company Tracker", icon: KanbanSquare, action: onGoToTracker, active: trackerActive },
     { label: "My Schedule", icon: Calendar, action: onGoToSchedule, active: scheduleActive },
     { label: "My Earnings", icon: TrendingUp, action: onGoToEarnings, active: earningsActive },
+    { label: "Leave", icon: CalendarCheck, action: onGoToLeave, active: leaveActive },
+    ...(canManageAttendance(attendanceEmail) ? [{
+      label: "Attendance", icon: Clock, active: false,
+      action: () => void attendanceNavigate({ to: "/manager/attendance", search: { date: undefined } }),
+    }] : []),
   ].filter((item) => item.action);
   const activeTitle = navigation.find((item) => item.active)?.label || "Field workspace";
   return (

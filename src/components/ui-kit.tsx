@@ -25,8 +25,8 @@ export function SectionTitle({ children, num }: { children: React.ReactNode; num
   );
 }
 
-export const Label = ({ children, className }: { children: React.ReactNode; className?: string }) => (
-  <label className={cn("mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-text-secondary", className)}>
+export const Label = ({ children, className, htmlFor }: { children: React.ReactNode; className?: string; htmlFor?: string }) => (
+  <label htmlFor={htmlFor} className={cn("mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-text-secondary", className)}>
     {children}
   </label>
 );

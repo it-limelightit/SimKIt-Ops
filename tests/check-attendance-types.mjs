@@ -11,7 +11,14 @@ const files = [
   "src/components/attendance/AttendancePanel.tsx",
   "src/hooks/use-device-attendance.ts",
   "src/lib/device-attendance.ts",
+  "src/components/field-operations/FieldAttendanceCalendar.tsx",
+  "src/components/field-operations/FieldOperations.tsx",
+  "src/routes/employee.tsx",
   "src/lib/attendance-analytics.ts",
+  "src/lib/attendance-excel.ts",
+  "src/lib/attendance-pdf.ts",
+  "src/lib/attendance-report-logo.ts",
+  "src/lib/attendance-access.ts",
   "src/routes/manager.attendance.tsx",
   "tests/attendance-deno.d.ts",
   ...edgeFiles,
@@ -31,10 +38,10 @@ host.resolveModuleNames = (names, containing) =>
 const program = ts.createProgram(files, options, host);
 const diagnostics = ts.getPreEmitDiagnostics(program);
 const isAttendance = (path) =>
-  /[/\\](attendance|attendance-[^/\\]+)[/\\]|device-attendance|attendance-analytics|manager\.attendance|attendance-deno|[/\\]attendance(?:\.ts|-validation)/.test(
+  /FieldAttendanceCalendar|FieldOperations\.tsx|[/\\](attendance|attendance-[^/\\]+)[/\\]|device-attendance|attendance-analytics|attendance-excel|attendance-pdf|attendance-report-logo|attendance-access|manager\.attendance|attendance-deno|[/\\]attendance(?:\.ts|-validation)/.test(
     path,
   );
-const relevant = diagnostics.filter((d) => !d.file || isAttendance(d.file.fileName));
+const relevant = diagnostics.filter((d) => !d.file || isAttendance(d.file.fileName) || /[/\\]routes[/\\]employee\.tsx$/.test(d.file.fileName));
 if (relevant.length) {
   console.error(
     ts.formatDiagnosticsWithColorAndContext(relevant, {

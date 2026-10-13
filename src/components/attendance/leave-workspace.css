@@ -1,0 +1,50 @@
+@layer base {
+  .leave-workspace {
+    font-size: 14px;
+    font-weight: 400;
+  }
+  .leave-workspace p {
+    color: inherit;
+    font-size: inherit;
+    font-weight: inherit;
+    line-height: 1.5;
+  }
+  .leave-workspace h1 {
+    font-size: 22px;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+  .leave-workspace h2 {
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+  .leave-workspace h3 {
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+}
+.leave-workspace .field-underline {
+  font-size: 13px;
+  font-weight: 400;
+  padding: 8px 12px;
+  border-width: 1px;
+  border-radius: 8px;
+}
+.leave-workspace button {
+  border-radius: 8px;
+}
+.leave-workspace .card-surface {
+  border-width: 1px;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 3%);
+}
+.leave-workspace .leave-history-table {
+  table-layout: fixed;
+}
+.leave-workspace details summary::-webkit-details-marker {
+  display: none;
+}
+.leave-workspace details[open] summary > svg {
+  transform: rotate(180deg);
+}

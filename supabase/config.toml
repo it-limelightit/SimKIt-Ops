@@ -1,4 +1,6 @@
 project_id = "jhhiwyvrhfhvvougkqmm"
+[functions.attendance-employee-account]
+verify_jwt = false
 
 # Attendance authenticates user JWTs or dedicated webhook credentials in code.
 [functions.attendance-enroll-user]

@@ -11,10 +11,12 @@ export type Employee = {
   department: Department;
   enroll_id: string;
   email: string | null;
+  auth_user_id?: string | null;
   email_verified: boolean;
   active: boolean;
   employment_start: string;
   enrollment_status: "pending" | "enrolled" | "failed";
+  work_from_home_enabled?: boolean;
 };
 export type AttendanceRow = {
   employee_id: string;
@@ -28,6 +30,9 @@ export type AttendanceRow = {
   photo_status: string | null;
   leave_conflict: boolean;
   status: string;
+  request_type?: "leave" | "wfh" | null;
+  request_status?: string | null;
+  request_reason?: string | null;
 };
 export type Leave = {
   id: string;
@@ -38,6 +43,8 @@ export type Leave = {
   end_date: string | null;
   reason: string;
   source: string;
+  request_type?: "leave" | "wfh";
+  approver_emails?: string[];
   status: string;
   comment: string | null;
   reviewed_at?: string | null;
@@ -75,6 +82,7 @@ export const statusLabels: Record<string, string> = {
   present: "Present",
   late: "Late",
   on_leave: "On leave",
+  work_from_home: "Work from home",
   awaiting_scan: "Awaiting scan",
   absent: "Absent",
   off_day: "Off day",
@@ -128,7 +136,7 @@ export async function attendanceRpc<T = unknown>(
   if (error)
     throw new Error(
       error.code === "PGRST202" || error.code === "42883"
-        ? "Attendance is not set up yet. Apply the attendance database migration first."
+        ? `Attendance request ${name} failed (${error.code}): ${error.message}`
         : error.message,
     );
   return data as T;

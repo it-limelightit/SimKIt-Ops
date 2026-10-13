@@ -211,7 +211,7 @@ function AuthPage() {
 
   useEffect(() => {
     if (mounted && ready && userId && role && !isRecovery) {
-      navigate({ to: role === "supervisor" ? "/manager" : "/business-consultant" });
+      navigate({ to: role === "supervisor" ? "/manager" : role === "employee" ? "/employee" : "/business-consultant" });
     }
   }, [mounted, ready, userId, role, navigate, isRecovery]);
 
@@ -283,8 +283,8 @@ function LoginForm({ onDone }: { onDone: () => void }) {
           supabase.from("user_roles").select("role").eq("user_id", uid),
         ]);
         const roleList = (rolesData ?? []).map((r: any) => r.role);
-        const userRole = roleList.includes("supervisor") ? "supervisor" : "worker";
-        if (userRole === "worker" && !prof?.is_active) {
+        const userRole = roleList.includes("supervisor") ? "supervisor" : roleList.includes("employee") ? "employee" : "worker";
+        if (userRole !== "supervisor" && !prof?.is_active) {
           await supabase.auth.signOut();
           throw new Error("Your account is pending manager approval.");
         }

@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth-store";
+import { canManageAttendance } from "@/lib/attendance-access";
 import { attendanceRpc, type AttendanceBoard } from "@/lib/device-attendance";
 
 export function useDeviceAttendance(date: string) {
-  const { userId, role } = useAuth();
+  const { userId, email } = useAuth();
   const [board, setBoard] = useState<AttendanceBoard | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const generation = useRef(0);
   const reload = useCallback(async () => {
-    if (!userId || role !== "supervisor") return;
+    if (!userId || !canManageAttendance(email)) return;
     const ticket = ++generation.current;
     try {
       const next = await attendanceRpc<AttendanceBoard>("attendance_board", { _date: date });
@@ -22,7 +23,7 @@ export function useDeviceAttendance(date: string) {
     } finally {
       if (ticket === generation.current) setLoading(false);
     }
-  }, [date, userId, role]);
+  }, [date, userId, email]);
   useEffect(() => {
     const requests = generation;
     setBoard(null);

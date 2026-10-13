@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
-export type AppRole = "worker" | "supervisor";
+export type AppRole = "worker" | "supervisor" | "employee";
 
 type AuthState = {
   ready: boolean;
@@ -42,7 +42,7 @@ export const useAuth = create<AuthState>((set, get) => ({
     ]);
     // Prioritize supervisor: if user has both worker+supervisor, treat them as supervisor
     const roles = (roleRows ?? []).map((r: any) => r.role as AppRole);
-    const resolvedRole: AppRole = roles.includes("supervisor") ? "supervisor" : (roles[0] ?? "worker");
+    const resolvedRole: AppRole = roles.includes("supervisor") ? "supervisor" : roles.includes("employee") ? "employee" : (roles[0] ?? "worker");
     set({
       ready: true,
       userId: user.id,

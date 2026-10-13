@@ -17,6 +17,8 @@ import {
   WifiOff,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/lib/auth-store";
+import { canManageAttendance, isTarunLeaveReviewer } from "@/lib/attendance-access";
 import { Button, Card, Input, Select, Textarea } from "@/components/ui-kit";
 import {
   Dialog,
@@ -40,10 +42,11 @@ import {
   type Settings,
 } from "@/lib/device-attendance";
 import { AttendanceOverview } from "./AttendanceOverview";
+import { LeaveWorkspace } from "./LeaveWorkspace";
 import { AttendanceEvidenceDialogs, type AttendanceRecordView } from "./AttendanceEvidenceDialogs";
 import "./attendance.css";
 import {
-  attendanceCsv,
+  attendanceSummary,
   formatAttendanceDuration,
   matchesAttendanceStatus,
 } from "@/lib/attendance-analytics";
@@ -65,6 +68,8 @@ function Status({ value, lateMinutes }: { value: string; lateMinutes?: number | 
       ? "border-warning/20 bg-warning/10 text-warning"
       : value === "on_leave"
         ? "border-violet/20 bg-violet/10 text-violet"
+        : value === "work_from_home"
+          ? "border-indigo-500/20 bg-indigo-500/10 text-indigo-700"
         : ["failed", "absent", "rejected"].includes(value)
           ? "border-coral/20 bg-coral/10 text-coral"
           : value === "needs_review"
@@ -113,6 +118,8 @@ function enrollmentNotice(result: EnrollResponse) {
 
 export function AttendancePanel() {
   const navigate = useNavigate();
+  const { email } = useAuth();
+  const tarunReviewer = isTarunLeaveReviewer(email);
   const [date, setDate] = useState(() => {
     const requested =
       typeof window === "undefined"
@@ -124,6 +131,7 @@ export function AttendancePanel() {
   });
   const { board, error, loading, reload } = useDeviceAttendance(date);
   const [tab, setTab] = useState<"daily" | "users" | "leave">("daily");
+  const [showOtherLeaveRecords, setShowOtherLeaveRecords] = useState(false);
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("all");
   const [status, setStatus] = useState("all");
@@ -144,6 +152,10 @@ export function AttendancePanel() {
     photo_expires_at: string;
   } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState<"xlsx" | "pdf">("xlsx");
+  const [exportScope, setExportScope] = useState("filtered");
+  const [exporting, setExporting] = useState(false);
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -212,6 +224,7 @@ export function AttendancePanel() {
   );
   const leaves = (board?.leaves || []).filter(
     (l) =>
+      !(l.source === "manual" && (l.approver_emails?.length ?? 0) > 0) &&
       (l.status !== "rejected" ||
         !l.reviewed_at ||
         now < Date.parse(l.reviewed_at) + 24 * 60 * 60 * 1000) &&
@@ -220,7 +233,7 @@ export function AttendancePanel() {
         .toLowerCase()
         .includes(search.toLowerCase()),
   );
-  const pending = (board?.leaves || []).filter((l) =>
+  const pending = (board?.leaves || []).filter((l) => !(l.source === "manual" && (l.approver_emails?.length ?? 0) > 0) &&
     ["pending", "needs_review"].includes(l.status),
   ).length;
   const deviceState = board?.device.state || "unknown";
@@ -238,15 +251,61 @@ export function AttendancePanel() {
     const value = indiaDate(next);
     if (value <= indiaDate()) setDate(value);
   }
-  function exportReport() {
-    const blob = new Blob([attendanceCsv(rows, date)], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "attendance-" + date + ".csv";
-    link.click();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-    toast.success("Exported " + rows.length + " employee records.");
+  const exportRows = exportScope === "all" ? board?.rows || [] : rows;
+  const exportSummary = attendanceSummary(exportRows);
+  async function exportReport() {
+    if (exporting || loading || error || !board || !exportRows.length) return;
+    const userId = useAuth.getState().userId;
+    setExporting(true);
+    try {
+      const scope =
+        exportScope === "all"
+          ? "All employees"
+          : `Filtered employees | Department: ${department} | Status: ${status} | Search: ${search.trim() || "none"}`;
+      let buffer: ArrayBuffer | Uint8Array;
+      if (exportFormat === "pdf") {
+        const [{ createOverallAttendancePdf }, { attendanceReportLogo }] = await Promise.all([
+          import("@/lib/attendance-pdf"),
+          import("@/lib/attendance-report-logo"),
+        ]);
+        const pdf = await createOverallAttendancePdf(
+          exportRows,
+          date,
+          scope,
+          new Date(),
+          await attendanceReportLogo(),
+        );
+        buffer = pdf.output("arraybuffer");
+      } else {
+        const { createOverallAttendanceWorkbook } = await import("@/lib/attendance-excel");
+        const workbook = await createOverallAttendanceWorkbook(exportRows, date, scope);
+        buffer = new Uint8Array(await workbook.xlsx.writeBuffer());
+      }
+      const session = useAuth.getState();
+      if (session.userId !== userId || !canManageAttendance(session.email))
+        throw new Error("Session changed. Reopen attendance to download a report.");
+      const url = URL.createObjectURL(
+        new Blob([new Uint8Array(buffer)], {
+          type:
+            exportFormat === "pdf"
+              ? "application/pdf"
+              : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        }),
+      );
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `attendance-${date}-${exportScope}.${exportFormat}`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setExportOpen(false);
+      toast.success(
+        `Downloaded ${exportFormat === "pdf" ? "PDF" : "Excel"} report with ${exportRows.length} employees.`,
+      );
+    } catch (failure) {
+      toast.error(failure instanceof Error ? failure.message : "Could not download the report.");
+    } finally {
+      setExporting(false);
+    }
   }
   const hasFilters =
     !!search ||
@@ -396,6 +455,10 @@ export function AttendancePanel() {
           </button>
         ))}
       </nav>
+      {tab === "leave" && <section>
+        <LeaveWorkspace embedded />
+        <Button variant="ghost" size="sm" className="mt-3" aria-expanded={showOtherLeaveRecords} aria-controls="other-attendance-leave-records" onClick={() => setShowOtherLeaveRecords((visible) => !visible)}>{showOtherLeaveRecords ? "Hide" : "Show"} other attendance leave records <ChevronRight size={14} className={showOtherLeaveRecords ? "rotate-90" : ""} /></Button>
+      </section>}
       {tab === "daily" && (
         <>
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -442,11 +505,14 @@ export function AttendancePanel() {
               <Button
                 size="sm"
                 variant="secondary"
-                disabled={!board || loading || !!error || !rows.length}
-                onClick={exportReport}
+                disabled={!board || loading || !!error || !board.rows.length}
+                onClick={() => {
+                  setExportScope("filtered");
+                  setExportOpen(true);
+                }}
               >
                 <Download size={16} />
-                Export CSV
+                Download report
               </Button>
             </div>
           </div>
@@ -473,10 +539,9 @@ export function AttendancePanel() {
           ) : null}
         </>
       )}
-      {board && tab !== "daily" && (
+      {board && tab === "users" && (
         <div className="grid grid-cols-3 gap-3">
-          {(tab === "users"
-            ? [
+          {[
                 {
                   label: "Active employees",
                   count: board.employees.filter((e) => e.active).length,
@@ -496,21 +561,7 @@ export function AttendancePanel() {
                   ).length,
                   tone: "text-warning",
                 },
-              ]
-            : [
-                { label: "Awaiting decision", count: pending, tone: "text-warning" },
-                {
-                  label: "Approved requests",
-                  count: board.leaves.filter((l) => l.status === "approved").length,
-                  tone: "text-mint",
-                },
-                {
-                  label: "Needs matching / review",
-                  count: board.leaves.filter((l) => l.status === "needs_review").length,
-                  tone: "text-violet",
-                },
-              ]
-          ).map((metric) => (
+              ].map((metric) => (
             <Card
               key={metric.label}
               className="flex flex-col justify-between gap-2 rounded-xl p-3 sm:flex-row sm:items-center sm:px-4"
@@ -521,7 +572,7 @@ export function AttendancePanel() {
           ))}
         </div>
       )}
-      <Card className="overflow-hidden rounded-xl p-0">
+      {(tab !== "leave" || showOtherLeaveRecords) && <Card id={tab === "leave" ? "other-attendance-leave-records" : undefined} className="overflow-hidden rounded-xl p-0">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
           <div>
             <h2 className="text-base font-semibold">
@@ -529,7 +580,7 @@ export function AttendancePanel() {
                 ? "Employee attendance"
                 : tab === "users"
                   ? "Employee directory"
-                  : "Leave requests"}
+                  : "Other attendance leave records"}
             </h2>
             <p className="mt-1 text-xs text-text-secondary">
               {loading
@@ -602,7 +653,7 @@ export function AttendancePanel() {
                   </>
                 )}
                 {(tab !== "leave"
-                  ? ["present", "late", "on_leave", "absent", "off_day"]
+                  ? ["present", "late", "on_leave", "work_from_home", "absent", "off_day"]
                   : ["pending", "needs_review", "approved", "rejected", "cancelled"]
                 ).map((s) => (
                   <option key={s} value={s}>
@@ -648,7 +699,7 @@ export function AttendancePanel() {
               </Field>
             </>
           )}
-          {tab === "leave" && (
+          {tab === "leave" && !tarunReviewer && (
             <Button
               disabled={!board || busy}
               variant="secondary"
@@ -849,6 +900,15 @@ export function AttendancePanel() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
+                          {tarunReviewer && <Button
+                            size="sm"
+                            variant={e.work_from_home_enabled ? "secondary" : "ghost"}
+                            disabled={busy}
+                            onClick={() => void act(async () => {
+                              await attendanceRpc("attendance_set_wfh_eligibility", { _employee: e.id, _enabled: !e.work_from_home_enabled });
+                              toast.success(`${e.name}: work-from-home ${e.work_from_home_enabled ? "disabled" : "enabled"}.`);
+                            })}
+                          >{e.work_from_home_enabled ? "WFH enabled · Revoke" : "Enable WFH"}</Button>}
                           <Button size="sm" variant="ghost" onClick={() => openEmployee(e.id)}>
                             History
                           </Button>
@@ -941,7 +1001,9 @@ export function AttendancePanel() {
                   </p>
                 </div>
                 <div className="flex gap-2">
-                  {["pending", "needs_review"].includes(l.status) ? (
+                  {l.source === "manual" ? (
+                    <span className="max-w-56 text-xs text-text-secondary">Review each date in the pending requests above.</span>
+                  ) : ["pending", "needs_review"].includes(l.status) ? (
                     <>
                       <Button
                         size="sm"
@@ -979,7 +1041,7 @@ export function AttendancePanel() {
             </p>
           </div>
         )}
-      </Card>
+      </Card>}
       {tab === "daily" && board && !loading && (
         <AttendanceOverview
           section="analytics"
@@ -990,6 +1052,88 @@ export function AttendancePanel() {
           onDepartment={setDepartment}
         />
       )}
+      <Dialog
+        open={exportOpen}
+        onOpenChange={(open) => {
+          if (!exporting) setExportOpen(open);
+        }}
+      >
+        <DialogContent className="attendance-dialog sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Download attendance report</DialogTitle>
+            <DialogDescription>
+              {dateLabel(date)} · Attendance summary and department analytics.
+            </DialogDescription>
+          </DialogHeader>
+          <Field label="Report format">
+            <Select
+              className={fieldClass}
+              value={exportFormat}
+              disabled={exporting}
+              onChange={(event) => setExportFormat(event.target.value as "xlsx" | "pdf")}
+            >
+              <option value="xlsx">Excel (.xlsx) - interactive tables and filters</option>
+              <option value="pdf">PDF (.pdf) - branded report for viewing and sharing</option>
+            </Select>
+          </Field>
+          <Field label="Employees to include">
+            <Select
+              className={fieldClass}
+              value={exportScope}
+              disabled={exporting}
+              onChange={(event) => setExportScope(event.target.value)}
+            >
+              <option value="filtered">Current filtered results ({rows.length})</option>
+              <option value="all">All employees for this date ({board?.rows.length || 0})</option>
+            </Select>
+          </Field>
+          <div className="grid grid-cols-3 gap-2 rounded-lg border border-border bg-surface-raised/50 p-3">
+            {[
+              ["Employees", exportRows.length],
+              ["Recorded", exportSummary.recorded],
+              ["Late entries", exportSummary.late],
+            ].map(([label, count]) => (
+              <div key={label} className="space-y-1">
+                <p className="text-xs text-text-secondary">{label}</p>
+                <p className="text-xl font-semibold tabular-nums">{count}</p>
+              </div>
+            ))}
+          </div>
+          <div className="space-y-2 text-sm text-text-secondary">
+            <p>
+              <span className="font-medium text-text-primary">Summary:</span> attendance counts,
+              recorded coverage, punctuality and delay.
+            </p>
+            <p>
+              <span className="font-medium text-text-primary">Department analytics:</span> compare
+              teams using coverage and punctuality percentages.
+            </p>
+            <p>
+              <span className="font-medium text-text-primary">Employee records:</span>{" "}
+              {exportFormat === "pdf"
+                ? "Readable records with repeated table headers and page numbers."
+                : "Sort and filter details with totals that follow your filters."}
+            </p>
+          </div>
+          {!exportRows.length && (
+            <p role="status" className="text-sm text-warning">
+              No employees match this selection. Choose all employees or clear your filters.
+            </p>
+          )}
+          <div className="flex justify-end gap-2 border-t border-border pt-4">
+            <Button variant="secondary" disabled={exporting} onClick={() => setExportOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={exporting || loading || !!error || !exportRows.length}
+              onClick={() => void exportReport()}
+            >
+              <Download size={16} />
+              {exporting ? "Preparing report…" : `Download .${exportFormat}`}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={employeeOpen}
         onOpenChange={(open) => {
@@ -1012,21 +1156,24 @@ export function AttendancePanel() {
             submit={(input) =>
               act(async () => {
                 if (editingEmployee) {
-                  await attendanceRpc("attendance_update_employee", {
-                    _employee: editingEmployee.id,
-                    _name: input.name,
-                    _department: input.department,
-                    _email: input.email || null,
-                    _email_verified: input.email_verified,
-                    _start: input.employment_start,
+                  if (input.link_existing_manager === true) {
+                    await attendanceFunction("attendance-employee-account", {
+                      action: "link_manager", employee_id: editingEmployee.id, email: input.email,
+                    });
+                    setEmployeeOpen(false);
+                    toast.success("Existing SimKit login linked. Password and manager access are unchanged.");
+                    return;
+                  }
+                  await attendanceFunction("attendance-employee-account", {
+                    ...input, action: "update", employee_id: editingEmployee.id,
                   });
                   setEmployeeOpen(false);
-                  toast.success("Employee details updated.");
+                  toast.success("Employee details and login saved.");
                   return;
                 }
                 const result = await attendanceFunction<EnrollResponse>(
-                  "attendance-enroll-user",
-                  input,
+                  "attendance-employee-account",
+                  { ...input, action: "create" },
                 );
                 setEmployeeOpen(false);
                 enrollmentNotice(result);
@@ -1220,29 +1367,46 @@ function EmployeeForm({
   const [department, setDepartment] = useState<string>(current?.department || "software");
   const [enroll, setEnroll] = useState(current?.enroll_id || "");
   const [email, setEmail] = useState(current?.email || "");
+  const [password, setPassword] = useState("");
   const [verified, setVerified] = useState(current?.email_verified || false);
   const [start, setStart] = useState(current?.employment_start || indiaDate());
+  const mayLinkExistingManager = !!current && current.department === "manager" && !current.auth_user_id;
+  const linkedManager = !!current?.auth_user_id && current.department === "manager";
+  const [linkExisting, setLinkExisting] = useState(false);
   return (
     <form
       className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault();
-        void submit({
-          name,
-          department,
-          enroll_id: enroll,
-          email,
-          email_verified: verified,
-          employment_start: start,
-        });
+        void submit(linkExisting
+          ? { link_existing_manager: true, email }
+          : { name, department, enroll_id: enroll, email, password,
+              email_verified: verified, employment_start: start });
       }}
     >
+      {linkExisting ? (
+        <>
+          <Field label="Existing SimKit manager login email">
+            <Input type="email" required maxLength={254} value={email} onChange={(e) => setEmail(e.target.value)} />
+          </Field>
+          <p className="text-sm text-text-secondary">
+            This links the existing manager account to this Attendance record. Its password and manager permissions stay unchanged.
+          </p>
+          <Button type="submit" disabled={busy} className="w-full">
+            {busy ? "Linking…" : "Link existing SimKit login"}
+          </Button>
+          <Button type="button" variant="secondary" disabled={busy} className="w-full" onClick={() => setLinkExisting(false)}>
+            Back to employee details
+          </Button>
+        </>
+      ) : (
+        <>
       <Field label="Name">
         <Input required maxLength={120} value={name} onChange={(e) => setName(e.target.value)} />
       </Field>
       <Field label="Department">
-        <Select value={department} onChange={(e) => setDepartment(e.target.value)}>
-          {departments.map((d) => (
+        <Select value={department} onChange={(e) => setDepartment(e.target.value)} disabled={linkedManager}>
+          {departments.filter((d) => d !== "hardware" || current?.department === "hardware").map((d) => (
             <option key={d} value={d}>
               {d[0].toUpperCase() + d.slice(1)}
             </option>
@@ -1268,18 +1432,29 @@ function EmployeeForm({
           onChange={(e) => setStart(e.target.value)}
         />
       </Field>
-      <Field label="Email (optional; used for leave matching)">
+      <Field label={linkedManager ? "Existing SimKit login email" : "Login email"}>
         <Input
           type="email"
+          required
           maxLength={254}
           value={email}
+          disabled={linkedManager}
           onChange={(e) => {
             setEmail(e.target.value);
             setVerified(false);
           }}
         />
       </Field>
-      {email && (
+      {linkedManager ? (
+        <p className="text-sm text-text-secondary">The existing manager login and password are linked and unchanged.</p>
+      ) : (
+        <Field label={current?.auth_user_id ? "New password (leave blank to keep current password)" : "Login password"}>
+          <Input type="password" autoComplete="new-password" minLength={8} maxLength={128}
+            required={!current?.auth_user_id} value={password}
+            onChange={(e) => setPassword(e.target.value)} placeholder="At least 8 characters" />
+        </Field>
+      )}
+      {email && !linkedManager && (
         <label className="flex gap-2 text-xs text-text-secondary">
           <input
             type="checkbox"
@@ -1292,6 +1467,13 @@ function EmployeeForm({
       <Button type="submit" disabled={busy} className="w-full">
         {busy ? "Saving…" : current ? "Save changes" : "Save & request enrollment"}
       </Button>
+      {mayLinkExistingManager && (
+        <Button type="button" variant="secondary" disabled={busy} className="w-full" onClick={() => setLinkExisting(true)}>
+          Link existing SimKit manager login
+        </Button>
+      )}
+        </>
+      )}
     </form>
   );
 }

@@ -7,6 +7,7 @@ import path from "node:path";
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const output = path.join(root, "supabase/dashboard-deploy");
 export const attendanceFunctions = [
+  "attendance-employee-account",
   "attendance-enroll-user",
   "attendance-device-event",
   "attendance-command-retry",

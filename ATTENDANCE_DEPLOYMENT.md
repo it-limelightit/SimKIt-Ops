@@ -1,5 +1,73 @@
 # Manager device attendance: implementation and setup
 
+Manager account linking update, 12 October 2026: existing confirmed SimKit
+manager logins can be linked from Edit Employee without changing their
+passwords or roles. Migration `20261012144000_attendance_link_existing_managers.sql`
+adds the guarded link RPC and own-history lookup for linked managers. The
+`attendance-employee-account` Edge Function is active at version 4. The local
+frontend build adds **Link existing SimKit manager login** to unlinked manager
+records; the current website still needs its normal frontend deployment to
+show that button. The account link was the prerequisite for the leave portal
+described below.
+
+## Office leave portal update — 12 October 2026
+
+The local frontend now provides a Leave tab for office employees and **My leave**
+in the manager sidebar (`/manager/leave`), plus **Leave** in the field associate
+workspace. Each person can submit a date range with a reason category and
+description, then see status and the names of the assigned reviewers. The database
+stores the approver list on submission and checks it again for every decision.
+
+Routing: software and linked managers go to Tarun; firmware and the three named
+firmware accounts go to Kuldeep and Tarun; Aryan goes to Hitesh and Tarun; field
+associates go to Hitesh, Raghav, and Tarun. A manager cannot decide their own
+request. Other office departments are blocked until their approvers are configured.
+Apply `20261012160000_employee_leave_portal.sql`, then
+`20261012170000_leave_day_decisions.sql`, then
+`20261012180000_attendance_work_from_home.sql`, and deploy the frontend. Reviewers
+choose approve or reject separately for every requested date. Tarun's
+`limelightit.io` and `limelight.io` login spellings are treated as the same
+review-only account with no leave form; his queue is inside Attendance Management
+under **Leave requests**. Tarun can enable or revoke work-from-home access per
+employee in the **Employees** tab. Eligible office employees can submit WFH dates
+for the same routed, per-day approval; approved WFH days are identified in the
+attendance calendar and are not counted as leave or unexplained absence. Showing
+leave inside Field Visit Tracker remains outside this increment.
+
+## Office employee logins — 12 October 2026
+
+Add Employee now requires a login email and password (8–128 characters). Edit
+Employee can create a login for an existing employee or set a new password for
+an already linked account; a blank password preserves the existing password.
+Passwords are sent only to Supabase Auth and are not stored in attendance tables,
+returned by the endpoint, or logged. Existing accounts using the requested email
+are rejected rather than reset or relinked automatically.
+
+The `employee` role and account-link/self-history RPCs were installed using
+`20261012140000_office_employee_role.sql` and
+`20261012141000_attendance_employee_accounts.sql`. The separately deployed
+`attendance-employee-account` Edge Function is ACTIVE, version 1, and returns 401
+to unauthenticated requests. It enforces the existing attendance administrator
+allowlist. New accounts receive server-owned office metadata and the employee
+role; existing field signup behavior is preserved. Failed new employee saves
+delete only the login just created; linked-account update failures explicitly
+report when login credentials changed but directory synchronization needs retry.
+
+The `/employee` route now has separate Leave and Attendance tabs and displays
+only the logged-in employee's own requests and face-scan daily history. Field
+associates get Leave in their existing field workspace; their attendance and
+visit logic remains unchanged. Office employees do not receive field associate
+or manager roles. Account edits do not publish enrollment commands. Hardware is
+removed from new employee options; existing hardware records remain editable.
+
+Verification: production build, focused attendance/employee type checks, 24
+attendance database tests, 22 Edge handler tests (source and generated bundles),
+and 20 field operations tests passed. Before/after deployment checks confirmed
+existing employee/Auth rows, user-role assignments, the original signup trigger,
+and other deployed function versions/statuses were unchanged. No production test
+account or enrollment command was created. Frontend publication remains pending;
+the credentials and employee portal appear on the live site after frontend deploy.
+
 ## Nightly photo cleanup ? 9 October 2026
 
 Deployed the attendance-only photo-retention migration `20261009180000_attendance_photos_nightly_ist.sql`, photo-access/cleanup Edge Functions and the VPS temporary-photo cutoff. Photos expire at 02:00 Asia/Kolkata on the day following their attendance date. Cleanup runs once daily with `30 20 * * *` in the verified GMT cron timezone, removing previous-day and older overdue photos while keeping today?s photos. The first scheduled nightly run is 10 October 2026 at 02:00 IST. No manual photo deletion was run during deployment; all six existing daily attendance records were retained. Only the attendance receiver restarted; all other PM2 apps and 25 original system services retained their PIDs/status. The private environment remained unchanged and fresh device heartbeats continued. The temporary SSH credential was removed.
@@ -316,6 +384,8 @@ Send `x-attendance-timestamp` as Unix seconds and `x-attendance-signature` as th
 Match emails only to an active employee whose email the manager has verified. Unknown sender, unclear dates, or overlap becomes Needs review and can be resolved in the manager approval form. Incoming email does not approve leave. Configure the actual provider and receiving address before claiming live email automation works.
 
 ## 8. Validation and rollout checks
+
+Employee calendar addition (13 October 2026): after the leave/WFH and linked office account migrations, apply `supabase/migrations/20261013120000_employee_attendance_calendar.sql`. It adds the authenticated, employee-scoped `attendance_my_calendar(date)` RPC. The employee portal uses this monthly view for the calendar and charts; each request date retains its own approval decision. Office schedules and holidays are resolved per date, and missing scans only become absences when device health confirms coverage. This migration was applied to project `jhhiwyvrhfhvvougkqmm` and verified for the employee shown in the calendar request. Earlier rollout notes below describe the initial local implementation.
 
 Local checks:
 

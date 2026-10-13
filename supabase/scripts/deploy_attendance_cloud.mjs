@@ -42,6 +42,7 @@ async function api(route, init = {}) {
   return text ? JSON.parse(text) : null;
 }
 const names = [
+  "attendance-employee-account",
   "attendance-enroll-user",
   "attendance-device-event",
   "attendance-command-retry",

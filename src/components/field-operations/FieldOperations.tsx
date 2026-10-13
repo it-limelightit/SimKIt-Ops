@@ -1,3 +1,4 @@
+import { FieldAttendanceCalendar } from "./FieldAttendanceCalendar";
 import { useEffect, useId, useState, type ReactNode } from "react";
 import {
   Activity,
@@ -527,6 +528,7 @@ export function AssociateSchedule() {
   const state = useFieldOperations();
   const [history, setHistory] = useState(false);
   const [date, setDate] = useState("");
+  const [calendarMonth, setCalendarMonth] = useState(indiaDate().slice(0, 7));
   if (state.unavailable) return <FieldVisitScheduler />;
   if (state.loading || state.error || !state.board || !userId) return <LoadMessage {...state} />;
   return (
@@ -535,7 +537,22 @@ export function AssociateSchedule() {
         <h1 className="font-syne text-3xl font-bold">My Schedule</h1>
         <p className="mt-2 text-text-secondary">Plan your visits and review completed work.</p>
       </header>
-      <ScheduleComposer board={state.board} associateId={userId} reload={state.reload} />
+      <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <ScheduleComposer board={state.board} associateId={userId} reload={state.reload} />
+        {state.board.users.find((associate) => associate.id === userId) && (
+          <FieldAttendanceCalendar
+            board={state.board}
+            associate={state.board.users.find((associate) => associate.id === userId)!}
+            month={calendarMonth}
+            date={date || state.board.today}
+            onMonth={(value) => {
+              setCalendarMonth(value);
+              setDate(value + "-01");
+            }}
+            onDate={setDate}
+          />
+        )}
+      </div>
       <div className="flex flex-wrap items-center gap-3">
         <Button variant={history ? "secondary" : "primary"} onClick={() => setHistory(false)}>
           Active visits
@@ -1620,13 +1637,6 @@ function AssociateDetails({
   const [month, setMonth] = useState(board.today.slice(0, 7));
   const [date, setDate] = useState(board.today);
   const [busy, setBusy] = useState(false);
-  const events = board.attendance.filter((a) => a.associate_id === associate.id);
-  const completedWorkDates = new Set(
-    board.earnings
-      .filter((entry) => entry.associate_id === associate.id && (entry.eligible || entry.paid))
-      .map((entry) => entry.earning_date),
-  );
-  const days = monthDays(month);
   const offline = async () => {
     setBusy(true);
     const { error } = await fieldRpc("field_ops_attendance", {
@@ -1718,74 +1728,17 @@ function AssociateDetails({
                 />
               )}
             </div>
-            <aside className="rounded-xl border border-border bg-surface p-3">
-              <Label>Attendance calendar</Label>
-              <Input
-                type="month"
-                required
-                value={month}
-                onChange={(e) => {
-                  if (e.target.value) {
-                    setMonth(e.target.value);
-                    setDate(`${e.target.value}-01`);
-                  }
-                }}
-              />
-              <div className="mt-3 grid grid-cols-7 gap-1 text-center text-xs">
-                {["M", "T", "W", "T", "F", "S", "S"].map((d, i) => (
-                  <span key={i} className="py-1 text-text-secondary">
-                    {d}
-                  </span>
-                ))}
-                {Array.from(
-                  { length: (new Date(`${month}-01T00:00:00Z`).getUTCDay() + 6) % 7 },
-                  (_, i) => (
-                    <span key={`pad${i}`} />
-                  ),
-                )}
-                {days.map((d) => {
-                  const daily = events.filter((a) => a.work_date === d);
-                  const last = daily[0];
-                  const future = d > board.today;
-                  const beforeJoining =
-                    d < indiaDate(new Date(associate.joined)) || d < board.tracking_started;
-                  const completedWork = completedWorkDates.has(d);
-                  const online = Boolean(last?.online || completedWork);
-                  return (
-                    <button
-                      key={d}
-                      onClick={() => setDate(d)}
-                      title={`${d}: ${future || beforeJoining ? "No attendance expected" : completedWork ? "Completed work" : online ? "Marked online" : "Offline"}${last ? ` · Latest: ${last.online ? "online" : "offline"}` : ""}`}
-                      className={`rounded-lg py-2 ${future || beforeJoining ? "text-text-secondary" : online ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"} ${date === d ? "ring-2 ring-lime" : ""}`}
-                    >
-                      {Number(d.slice(-2))}
-                    </button>
-                  );
-                })}
-              </div>
-              <h4 className="mt-3 text-sm font-semibold">Attendance changes · {date}</h4>
-              <div className="mt-2 max-h-28 space-y-2 overflow-y-auto">
-                {events
-                  .filter((a) => a.work_date === date)
-                  .map((a) => (
-                    <p key={a.id} className="text-xs text-text-secondary">
-                      {indiaTime(a.occurred_at)} · {a.online ? "Online" : "Offline"} ·{" "}
-                      {a.actor_name}
-                    </p>
-                  ))}
-              </div>
-              {!compact && (
-                <p className="mt-3 text-xs">
-                  Active days this month:{" "}
-                  {
-                    days.filter(
-                      (d) =>
-                        events.find((a) => a.work_date === d)?.online || completedWorkDates.has(d),
-                    ).length
-                  }
-                </p>
-              )}
-            </aside>
+            <FieldAttendanceCalendar
+              board={board}
+              associate={associate}
+              month={month}
+              date={date}
+              onMonth={(value) => {
+                setMonth(value);
+                setDate(value + "-01");
+              }}
+              onDate={setDate}
+            />
           </div>
         </TabsContent>
         <TabsContent value="history" className="mt-0 space-y-4">
