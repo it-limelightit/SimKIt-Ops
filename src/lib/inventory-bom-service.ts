@@ -1,3 +1,5 @@
+import { inventoryComponentKey, inventoryModelKey } from "./inventory-components";
+
 export type InventoryBomItem = {
   id: string;
   product_name: string;
@@ -35,8 +37,9 @@ function sameComponent(
   rightSensorType: string | null | undefined,
 ) {
   return (
-    leftCategory.trim().toLowerCase() === rightCategory.trim().toLowerCase() &&
-    (leftSensorType || "").trim().toLowerCase() === (rightSensorType || "").trim().toLowerCase()
+    inventoryComponentKey(leftCategory) === inventoryComponentKey(rightCategory) &&
+    inventoryModelKey(leftCategory, leftSensorType) ===
+      inventoryModelKey(rightCategory, rightSensorType)
   );
 }
 
@@ -54,29 +57,37 @@ export function calculateInventoryBom(
 ): InventoryBomCalculation[] {
   const bulkOrderDeviceQuantity = Math.max(0, Number(params.bulkOrderDeviceQuantity) || 0);
 
-  return bomItems.filter((item) => item.active).map((item) => {
-    const currentQuantity = params.currentStock
-      .filter((stockItem) => sameComponent(item.category, item.sensor_type, stockItem.category, stockItem.sensor_type))
-      .reduce((sum, stockItem) => sum + (Number(stockItem.actual_quantity) || 0), 0);
-    const actualUsedQuantity = params.usage
-      .filter((usageItem) => sameComponent(item.category, item.sensor_type, usageItem.category, usageItem.sensorType))
-      .reduce((sum, usageItem) => sum + Math.max(0, Number(usageItem.quantity) || 0), 0);
-    const bulkOrderQuantity = item.required_by_default ? item.quantity_per_kit * bulkOrderDeviceQuantity : 0;
-    const inStockQuantity = currentQuantity - actualUsedQuantity;
-    const shortageQuantity = Math.max(bulkOrderQuantity - inStockQuantity, 0);
+  return bomItems
+    .filter((item) => item.active)
+    .map((item) => {
+      const currentQuantity = params.currentStock
+        .filter((stockItem) =>
+          sameComponent(item.category, item.sensor_type, stockItem.category, stockItem.sensor_type),
+        )
+        .reduce((sum, stockItem) => sum + (Number(stockItem.actual_quantity) || 0), 0);
+      const actualUsedQuantity = params.usage
+        .filter((usageItem) =>
+          sameComponent(item.category, item.sensor_type, usageItem.category, usageItem.sensorType),
+        )
+        .reduce((sum, usageItem) => sum + Math.max(0, Number(usageItem.quantity) || 0), 0);
+      const bulkOrderQuantity = item.required_by_default
+        ? item.quantity_per_kit * bulkOrderDeviceQuantity
+        : 0;
+      const inStockQuantity = currentQuantity - actualUsedQuantity;
+      const shortageQuantity = Math.max(bulkOrderQuantity - inStockQuantity, 0);
 
-    let status: InventoryBomCalculation["status"] = "AVAILABLE";
-    if (inStockQuantity <= 0) status = "OUT OF STOCK";
-    else if (inStockQuantity <= item.min_quantity) status = "LOW STOCK";
+      let status: InventoryBomCalculation["status"] = "AVAILABLE";
+      if (inStockQuantity <= 0) status = "OUT OF STOCK";
+      else if (inStockQuantity <= item.min_quantity) status = "LOW STOCK";
 
-    return {
-      ...item,
-      bulk_order_quantity: bulkOrderQuantity,
-      actual_used_quantity: actualUsedQuantity,
-      current_quantity: currentQuantity,
-      in_stock_quantity: inStockQuantity,
-      shortage_quantity: shortageQuantity,
-      status,
-    };
-  });
+      return {
+        ...item,
+        bulk_order_quantity: bulkOrderQuantity,
+        actual_used_quantity: actualUsedQuantity,
+        current_quantity: currentQuantity,
+        in_stock_quantity: inStockQuantity,
+        shortage_quantity: shortageQuantity,
+        status,
+      };
+    });
 }

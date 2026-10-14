@@ -12,7 +12,7 @@ import {
 import { Button, Card, Input, Label, Select, Textarea } from "@/components/ui-kit";
 import { attendanceRpc, dateLabel, indiaDate } from "@/lib/device-attendance";
 import { useAuth } from "@/lib/auth-store";
-import { canReviewLeave, isTarunLeaveReviewer } from "@/lib/attendance-access";
+import { canAccessLeave, canReviewLeave, isTarunLeaveReviewer } from "@/lib/attendance-access";
 import { LeaveReviewTable } from "./LeaveReviewTable";
 import { MyLeaveRequests } from "./MyLeaveRequests";
 import "./leave-workspace.css";
@@ -43,7 +43,12 @@ function dayCount(from: string, to: string) {
     Math.floor((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1
   );
 }
-export function LeaveWorkspace({
+export function LeaveWorkspace(props: { embedded?: boolean; showHeader?: boolean }) {
+  const email = useAuth((state) => state.email);
+  return canAccessLeave(email) ? <LeaveWorkspaceContent {...props} /> : null;
+}
+
+function LeaveWorkspaceContent({
   embedded = false,
   showHeader = true,
 }: {

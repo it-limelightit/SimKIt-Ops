@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { useAuth } from "@/lib/auth-store";
-import { isTarunLeaveReviewer } from "@/lib/attendance-access";
+import { canAccessLeave, isTarunLeaveReviewer } from "@/lib/attendance-access";
 import { LeaveWorkspace } from "@/components/attendance/LeaveWorkspace";
 
 export const Route = createFileRoute("/manager/leave")({
@@ -13,9 +13,11 @@ export const Route = createFileRoute("/manager/leave")({
 function ManagerLeaveRoute() {
   const navigate = useNavigate();
   const email = useAuth((state) => state.email);
+  const leaveAllowed = canAccessLeave(email);
   const tarunReviewer = isTarunLeaveReviewer(email);
   useEffect(() => {
     if (tarunReviewer) void navigate({ to: "/manager/attendance", search: { date: undefined } });
-  }, [navigate, tarunReviewer]);
-  return tarunReviewer ? null : <LeaveWorkspace />;
+    else if (email && !leaveAllowed) void navigate({ to: "/manager" });
+  }, [navigate, tarunReviewer, email, leaveAllowed]);
+  return tarunReviewer || !leaveAllowed ? null : <LeaveWorkspace />;
 }

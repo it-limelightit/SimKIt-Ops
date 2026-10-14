@@ -9,6 +9,24 @@ const today='2026-10-12';
 const decisionSource=readFileSync(new URL('../src/lib/request-calendar.ts',import.meta.url),'utf8');
 const decisionJs=ts.transpileModule(decisionSource,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText;
 const {requestCalendarStyle}=await import(`data:text/javascript;base64,${Buffer.from(decisionJs).toString('base64')}`);
+const accessSource=readFileSync(new URL('../src/lib/attendance-access.ts',import.meta.url),'utf8');
+const accessJs=ts.transpileModule(accessSource,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText;
+const {canAccessLeave,canReviewLeave,canManageAttendance}=await import(`data:text/javascript;base64,${Buffer.from(accessJs).toString('base64')}`);
+
+test('Hardik has no leave section or review capability while attendance and other accounts stay accessible',()=>{
+  for(const email of ['admin@limelightit.io',' ADMIN@LIMELIGHTIT.IO ']){
+    assert.equal(canAccessLeave(email),false);
+    assert.equal(canReviewLeave(email),false);
+    assert.equal(canManageAttendance(email),true);
+  }
+  for(const email of ['tarun@limelightit.io','tarun@limelight.io','nitsanghani1@gmail.com','associatelimelight@gmail.com','info@limelightit.io','kuldeepshrimali.limelight@gmail.com']){
+    assert.equal(canAccessLeave(email),true);
+    assert.equal(canReviewLeave(email),true);
+  }
+  assert.equal(canAccessLeave('employee@example.test'),true);
+  assert.equal(canReviewLeave('employee@example.test'),false);
+  assert.equal(canAccessLeave(null),false);
+});
 test('calendar decision colors distinguish approved leave/WFH, rejections and pending dates',()=>{
   assert.match(requestCalendarStyle('leave','approved').tone,/violet/);
   assert.match(requestCalendarStyle('wfh','approved').tone,/indigo/);

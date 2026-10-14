@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { persistPhaseChanges } from "@/lib/phase-draft";
 import { useAuth } from "@/lib/auth-store";
 import { canManageAttendance } from "@/lib/attendance-access";
-import { canReviewLeave } from "@/lib/attendance-access";
+import { canAccessLeave, canReviewLeave } from "@/lib/attendance-access";
 import { LeaveWorkspace } from "@/components/attendance/LeaveWorkspace";
 import {
   Badge,
@@ -1691,7 +1691,7 @@ function Shell({
     { label: "Company Tracker", icon: KanbanSquare, action: onGoToTracker, active: trackerActive },
     { label: "My Schedule", icon: Calendar, action: onGoToSchedule, active: scheduleActive },
     { label: "My Earnings", icon: TrendingUp, action: onGoToEarnings, active: earningsActive },
-    { label: "Leave", icon: CalendarCheck, action: onGoToLeave, active: leaveActive },
+    ...(canAccessLeave(attendanceEmail) ? [{ label: "Leave", icon: CalendarCheck, action: onGoToLeave, active: leaveActive }] : []),
     ...(canManageAttendance(attendanceEmail) ? [{
       label: "Attendance", icon: Clock, active: false,
       action: () => void attendanceNavigate({ to: "/manager/attendance", search: { date: undefined } }),

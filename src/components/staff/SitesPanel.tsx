@@ -482,6 +482,7 @@ export function SitesPanel() {
 
   const create = async () => {
     if (!form.name) return toast.error("Name required");
+    if (form.workers.length > 1) return toast.error("Select only one Field Associate.");
 
     const targetName = (form.company_name || form.name).trim();
     const { data: existingName } = await supabase
@@ -1828,44 +1829,60 @@ export function SitesPanel() {
                   </Select>
                 </div>
                 <div>
-                  <Label>Assign Field Associates</Label>
-                  <div className="mt-1 border border-border rounded-[6px] divide-y divide-border max-h-44 overflow-y-auto">
-                    {businessConsultants.length === 0 ? (
-                      <p className="px-3 py-2 text-xs text-text-dim italic">
-                        No active Field Associates available
-                      </p>
-                    ) : (
-                      businessConsultants.map((w) => {
-                        const checked = form.workers.includes(w.id);
-                        return (
-                          <label
-                            key={w.id}
-                            className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-surface-raised transition-colors"
-                          >
-                            <span
-                              className={`flex items-center justify-center h-4 w-4 rounded-[3px] border shrink-0 transition-colors ${checked ? "bg-lime border-lime" : "border-border bg-surface"}`}
+                  <Label>{editingSite ? "Assign Field Associates" : "Assign Field Associate"}</Label>
+                  {!editingSite ? (
+                    <Select
+                      value={form.workers[0] || ""}
+                      onChange={(e) =>
+                        setForm({ ...form, workers: e.target.value ? [e.target.value] : [] })
+                      }
+                    >
+                      <option value="">Unassigned</option>
+                      {businessConsultants.map((w) => (
+                        <option key={w.id} value={w.id}>
+                          {w.name ?? w.mobile}
+                        </option>
+                      ))}
+                    </Select>
+                  ) : (
+                    <div className="mt-1 border border-border rounded-[6px] divide-y divide-border max-h-44 overflow-y-auto">
+                      {businessConsultants.length === 0 ? (
+                        <p className="px-3 py-2 text-xs text-text-dim italic">
+                          No active Field Associates available
+                        </p>
+                      ) : (
+                        businessConsultants.map((w) => {
+                          const checked = form.workers.includes(w.id);
+                          return (
+                            <label
+                              key={w.id}
+                              className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-surface-raised transition-colors"
                             >
-                              {checked && (
-                                <Check size={10} strokeWidth={3} className="text-background" />
-                              )}
-                            </span>
-                            <input
-                              type="checkbox"
-                              className="sr-only"
-                              checked={checked}
-                              onChange={() => {
-                                const next = checked
-                                  ? form.workers.filter((id) => id !== w.id)
-                                  : [...form.workers, w.id];
-                                setForm({ ...form, workers: next });
-                              }}
-                            />
-                            <span className="text-sm text-text-primary">{w.name ?? w.mobile}</span>
-                          </label>
-                        );
-                      })
-                    )}
-                  </div>
+                              <span
+                                className={`flex items-center justify-center h-4 w-4 rounded-[3px] border shrink-0 transition-colors ${checked ? "bg-lime border-lime" : "border-border bg-surface"}`}
+                              >
+                                {checked && (
+                                  <Check size={10} strokeWidth={3} className="text-background" />
+                                )}
+                              </span>
+                              <input
+                                type="checkbox"
+                                className="sr-only"
+                                checked={checked}
+                                onChange={() => {
+                                  const next = checked
+                                    ? form.workers.filter((id) => id !== w.id)
+                                    : [...form.workers, w.id];
+                                  setForm({ ...form, workers: next });
+                                }}
+                              />
+                              <span className="text-sm text-text-primary">{w.name ?? w.mobile}</span>
+                            </label>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
                   {form.workers.length > 0 && (
                     <p className="mt-1 text-[10px] font-mono text-lime/70">
                       {form.workers.length} Field Associate{form.workers.length > 1 ? "s" : ""} selected

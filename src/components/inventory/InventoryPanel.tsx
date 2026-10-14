@@ -35,7 +35,8 @@ import { toast } from "sonner";
 import { parseSiteMetadata } from "@/lib/site-metadata";
 import { useAuth } from "@/lib/auth-store";
 import { actorName, recordActivityLog } from "@/lib/activity-log";
-import { deductStockForOrder, isTruthy } from "@/lib/inventory-service";
+import { isTruthy } from "@/lib/inventory-service";
+import { inventoryOrderIncludesDm } from "@/lib/inventory-components";
 
 
 type Material = {
@@ -1591,28 +1592,6 @@ function OrderCard({
       })
       .eq("id", material.id);
 
-    if (!error && (quickStatus === "Packing" || quickStatus === "Transit" || quickStatus === "Delivered")) {
-      void deductStockForOrder({
-        orderId: material.id,
-        orderCreatedAt: material.created_at,
-        counts: {
-          datameter_box: material.quantity || 1,
-          ct1: isTruthy(material.ct1) ? 1 : 0,
-          ct2: isTruthy(material.ct2) ? 1 : 0,
-          ct3: isTruthy(material.ct3) ? 1 : 0,
-          proxy1: isTruthy(material.proxy1) ? 1 : 0,
-          proxy2: isTruthy(material.proxy2) ? 1 : 0,
-          vibration: isTruthy(material.vibration) ? 1 : 0,
-          encoder: isTruthy(material.encoder) ? 1 : 0,
-          tower_light: isTruthy(material.tower_light) ? 1 : 0,
-          antenna: isTruthy(material.antenna) ? 1 : 0,
-          energy_meter: isTruthy(material.energy_meter) ? 1 : 0,
-          plc: isTruthy(material.plc) ? 1 : 0,
-        },
-      });
-    }
-
-
     setQuickSaving(false);
 
     if (error) {
@@ -1654,6 +1633,7 @@ function OrderCard({
         ct3: ct3 ? "TRUE" : "FALSE",
         proxy1: proxy1 ? "TRUE" : "FALSE",
         proxy2: proxy2 ? "TRUE" : "FALSE",
+        proxy_model: proxy1 || proxy2 ? "Inductive" : null,
         encoder: encoder ? "TRUE" : "FALSE",
         vibration: vibration ? "TRUE" : "FALSE",
         antenna: antenna ? "TRUE" : "FALSE",
@@ -1736,28 +1716,6 @@ function OrderCard({
       })
       .eq("id", material.id);
 
-    if (!error && (state === "Packing" || state === "Transit" || state === "Delivered")) {
-      void deductStockForOrder({
-        orderId: material.id,
-        orderCreatedAt: material.created_at,
-        counts: {
-          datameter_box: material.quantity || 1,
-          ct1: ct1 ? 1 : 0,
-          ct2: ct2 ? 1 : 0,
-          ct3: ct3 ? 1 : 0,
-          proxy1: proxy1 ? 1 : 0,
-          proxy2: proxy2 ? 1 : 0,
-          vibration: vibration ? 1 : 0,
-          encoder: encoder ? 1 : 0,
-          tower_light: towerLight ? 1 : 0,
-          antenna: antenna ? 1 : 0,
-          energy_meter: energyMeter ? 1 : 0,
-          plc: plc ? 1 : 0,
-        },
-      });
-    }
-
-
     setSaving(false);
 
     if (error) {
@@ -1829,9 +1787,9 @@ function OrderCard({
 
   // Dynamically filter which checkboxes to show based on BC selection
   const checklistItems = [];
-  if (material.ct1 === "TRUE") checklistItems.push({ label: "CT 1 Clamp", checked: ct1, onChange: setCt1, id: `pack-ct1-${material.id}` });
-  if (material.ct2 === "TRUE") checklistItems.push({ label: "CT 2 Clamp", checked: ct2, onChange: setCt2, id: `pack-ct2-${material.id}` });
-  if (material.ct3 === "TRUE") checklistItems.push({ label: "CT 3 Clamp", checked: ct3, onChange: setCt3, id: `pack-ct3-${material.id}` });
+  if (isTruthy(material.ct1)) checklistItems.push({ label: "YHDC CT 1", checked: ct1, onChange: setCt1, id: `pack-ct1-${material.id}` });
+  if (isTruthy(material.ct2)) checklistItems.push({ label: "YHDC CT 2", checked: ct2, onChange: setCt2, id: `pack-ct2-${material.id}` });
+  if (isTruthy(material.ct3)) checklistItems.push({ label: "YHDC CT 3", checked: ct3, onChange: setCt3, id: `pack-ct3-${material.id}` });
   if (material.proxy1 === "TRUE") {
     checklistItems.push({
       label: `Proxy 1 ${material.proxy_model ? `(${material.proxy_model})` : ""}`,
@@ -1850,9 +1808,9 @@ function OrderCard({
       id: `pack-vib-${material.id}`
     });
   }
-  if (material.antenna === "TRUE") checklistItems.push({ label: "Antenna", checked: antenna, onChange: setAntenna, id: `pack-ant-${material.id}` });
+  if (material.antenna === "TRUE") checklistItems.push({ label: "Antenna Kit", checked: antenna, onChange: setAntenna, id: `pack-ant-${material.id}` });
   if (material.tower_light === "TRUE") checklistItems.push({ label: "Tower Light", checked: towerLight, onChange: setTowerLight, id: `pack-twr-${material.id}` });
-  if (material.energy_meter === "TRUE") checklistItems.push({ label: "Energy Meter", checked: energyMeter, onChange: setEnergyMeter, id: `pack-en-${material.id}` });
+  if (material.energy_meter === "TRUE") checklistItems.push({ label: "Energy Meter + 3 dedicated CT sensors", checked: energyMeter, onChange: setEnergyMeter, id: `pack-en-${material.id}` });
   if (material.plc === "TRUE") checklistItems.push({ label: "PLC", checked: plc, onChange: setPlc, id: `pack-plc-${material.id}` });
 
   // Quick fill all checkboxes
@@ -1944,6 +1902,7 @@ function OrderCard({
 
           {/* Quick info list */}
           <div className="grid grid-cols-2 gap-2 text-[10.5px] text-text-secondary/90 font-mono bg-surface-raised p-2.5 rounded-lg border border-border/60">
+            <div className="col-span-2">DM: <span className="text-text-primary font-bold">{inventoryOrderIncludesDm(material.notes) ? "Selected" : "Not requested"}</span></div>
             <div>CTs: <span className="text-text-primary font-bold">{[material.ct1, material.ct2, material.ct3].filter(x => x === "TRUE").length} Active</span></div>
             <div>Vib: <span className="text-text-primary font-bold">{material.vibration === "TRUE" ? (material.vibration_model || "Yes") : "No"}</span></div>
             <div>Proxy: <span className="text-text-primary font-bold">{material.proxy_model || "None"}</span></div>
@@ -2123,6 +2082,7 @@ function OrderCard({
                                 <Checkbox
                                   checked={item.checked}
                                   onCheckedChange={item.onChange}
+                                  disabled={item.id.startsWith("pack-ant-")}
                                   id={item.id}
                                 />
                               </div>
@@ -2236,6 +2196,9 @@ function OrderCard({
                 </form>
               ) : (
                 <form onSubmit={handleSaveStep2} className="space-y-4">
+                  <p className="rounded-lg border border-border bg-surface-raised/30 p-3 text-xs text-text-secondary">
+                    Stock is deducted once when this new order enters Transit or Delivered. Insufficient stock prevents the status change.
+                  </p>
                   {editable ? (
                     <>
                       <div className="grid gap-4 sm:grid-cols-2">

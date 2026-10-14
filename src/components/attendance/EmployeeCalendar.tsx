@@ -444,7 +444,7 @@ export function EmployeeCalendar() {
                 )}
                 <p className="mt-2 text-[11px] leading-5 text-text-secondary">
                   Office scans and approved WFH through today. Approved leave is excluded;
-                  unrecorded days are not automatically absences.
+                  completed working days without a valid face scan are marked absent.
                 </p>
               </Card>
             </aside>
