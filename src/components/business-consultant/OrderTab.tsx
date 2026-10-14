@@ -20,10 +20,10 @@ interface OrderTabProps {
 
 export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
   const { userId, email, profile } = useAuth();
+  const [dm, setDm] = useState(true);
   const [ct1, setCt1] = useState(false);
   const [ct2, setCt2] = useState(false);
   const [ct3, setCt3] = useState(false);
-  const [proxyModel, setProxyModel] = useState("");
   const [proxy1, setProxy1] = useState(false);
   const [proxy2, setProxy2] = useState(false);
   const [encoder, setEncoder] = useState(false);
@@ -32,7 +32,6 @@ export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
   const [antenna, setAntenna] = useState(false);
   const [towerLight, setTowerLight] = useState(false);
   const [energyMeter, setEnergyMeter] = useState(false);
-  const [plc, setPlc] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
   const [submittedOrder, setSubmittedOrder] = useState<any | null>(null);
@@ -113,7 +112,7 @@ export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
           ct1: ct1 ? "TRUE" : "FALSE",
           ct2: ct2 ? "TRUE" : "FALSE",
           ct3: ct3 ? "TRUE" : "FALSE",
-          proxy_model: proxyModel || null,
+          proxy_model: proxy1 || proxy2 ? "Inductive" : null,
           proxy1: proxy1 ? "TRUE" : "FALSE",
           proxy2: proxy2 ? "TRUE" : "FALSE",
           encoder: encoder ? "TRUE" : "FALSE",
@@ -122,11 +121,12 @@ export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
           antenna: antenna ? "TRUE" : "FALSE",
           tower_light: towerLight ? "TRUE" : "FALSE",
           energy_meter: energyMeter ? "TRUE" : "FALSE",
-          plc: plc ? "TRUE" : "FALSE",
+          plc: "FALSE",
           created_by: workerId,
           quantity: 1,
           unit: "pcs",
           notes: JSON.stringify({
+            dm_selected: dm,
             courier_partner: "",
             packing_date: "",
             transit_date: "",
@@ -156,10 +156,10 @@ export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
       setSubmittedOrder(inserted);
       onOrderReady?.();
       // Reset form
+      setDm(true);
       setCt1(false);
       setCt2(false);
       setCt3(false);
-      setProxyModel("");
       setProxy1(false);
       setProxy2(false);
       setEncoder(false);
@@ -168,7 +168,6 @@ export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
       setAntenna(false);
       setTowerLight(false);
       setEnergyMeter(false);
-      setPlc(false);
     } catch (err: any) {
       toast.error("Failed to submit device order: " + (err.message || err));
     } finally {
@@ -316,6 +315,10 @@ export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
           </div>
         </div>
 
+        <div className="p-4 border border-border bg-surface-raised/10 rounded-[8px]">
+          <Checkbox checked={dm} onCheckedChange={setDm} label="DM (Data Meter)" id="order-dm" />
+        </div>
+
         {/* B. Sensors Configuration */}
         <div className="space-y-4 pt-2">
           <div className="font-mono text-[11px] font-bold text-lime uppercase tracking-widest border-b border-border pb-1">
@@ -326,28 +329,18 @@ export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
             {/* CT Clamps */}
             <div className="p-4 border border-border bg-surface-raised/10 rounded-[8px] space-y-3 flex flex-col justify-between min-h-[160px]">
               <div>
-                <Label className="text-text-primary font-bold flex items-center gap-1.5"><Cpu size={14} /> CT Clamps</Label>
-                <p className="text-[10px] text-text-secondary mb-3">Check required CT channels.</p>
+                <Label className="text-text-primary font-bold flex items-center gap-1.5"><Cpu size={14} /> YHDC CT Sensors</Label>
+                <p className="text-[10px] text-text-secondary mt-1">Any CT selection includes a complete set of 3 YHDC sensors.</p>
               </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="flex flex-wrap gap-3 sm:gap-4">
                 <Checkbox
                   checked={ct1}
                   onCheckedChange={setCt1}
                   label="CT 1"
                   id="order-ct1"
                 />
-                <Checkbox
-                  checked={ct2}
-                  onCheckedChange={setCt2}
-                  label="CT 2"
-                  id="order-ct2"
-                />
-                <Checkbox
-                  checked={ct3}
-                  onCheckedChange={setCt3}
-                  label="CT 3"
-                  id="order-ct3"
-                />
+                <Checkbox checked={ct2} onCheckedChange={setCt2} label="CT 2" id="order-ct2" />
+                <Checkbox checked={ct3} onCheckedChange={setCt3} label="CT 3" id="order-ct3" />
               </div>
             </div>
 
@@ -358,15 +351,11 @@ export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
                 <div>
                   <Label className="text-[9px] mb-1">Proxy Model</Label>
                   <Select
-                    value={proxyModel}
-                    onChange={(e) => setProxyModel(e.target.value)}
+                    value="Inductive"
+                    disabled
                     className="w-full text-xs"
                   >
-                    <option value="">Select proxy model...</option>
-                    <option value="inductive">Inductive</option>
-                    <option value="capacitive">Capacitive</option>
-                    <option value="photoelectric">Photoelectric</option>
-                    <option value="magnetic">Magnetic</option>
+                    <option value="Inductive">Inductive</option>
                   </Select>
                 </div>
                 <div className="flex flex-wrap gap-4 pt-1">
@@ -395,6 +384,7 @@ export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
                   <Select
                     value={vibrationModel}
                     onChange={(e) => setVibrationModel(e.target.value)}
+                    required={vibration}
                     className="w-full text-xs"
                   >
                     <option value="">Select vibration model...</option>
@@ -418,19 +408,7 @@ export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
           {/* Other Sensors Grid */}
           <div className="p-4 border border-border bg-surface-raised/10 rounded-[8px]">
             <Label className="text-text-primary font-bold mb-3 block">Additional Components</Label>
-            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
-              <Checkbox
-                checked={encoder}
-                onCheckedChange={setEncoder}
-                label="Encoder"
-                id="order-encoder"
-              />
-              <Checkbox
-                checked={antenna}
-                onCheckedChange={setAntenna}
-                label="Antenna"
-                id="order-antenna"
-              />
+            <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-4">
               <Checkbox
                 checked={towerLight}
                 onCheckedChange={setTowerLight}
@@ -438,16 +416,24 @@ export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
                 id="order-towerlight"
               />
               <Checkbox
-                checked={energyMeter}
-                onCheckedChange={setEnergyMeter}
-                label="Energy Meter"
-                id="order-energymeter"
+                checked={antenna}
+                onCheckedChange={setAntenna}
+                label="Antenna Kit"
+                id="order-antenna"
+              />
+            </div>
+            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
+              <Checkbox
+                checked={encoder}
+                onCheckedChange={setEncoder}
+                label="Encoder"
+                id="order-encoder"
               />
               <Checkbox
-                checked={plc}
-                onCheckedChange={setPlc}
-                label="PLC Interface"
-                id="order-plc"
+                checked={energyMeter}
+                onCheckedChange={setEnergyMeter}
+                label="Energy Meter + 3 dedicated CTs"
+                id="order-energymeter"
               />
             </div>
           </div>

@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useAuth } from "@/lib/auth-store";
+import { canAccessManagerPath, isRestrictedManager, managerHomePath } from "@/lib/manager-access";
 import { canManageAttendance } from "@/lib/attendance-access";
-import { canReviewLeave, isTarunLeaveReviewer } from "@/lib/attendance-access";
+import { canAccessLeave, canReviewLeave, isTarunLeaveReviewer } from "@/lib/attendance-access";
 import {
   LayoutDashboard,
   MapPin,
@@ -33,8 +34,9 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
   const [isOpen, setIsOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const base = "/manager";
+  const home = managerHomePath(email);
   const displayRole =
-    currentRole === "supervisor"
+    currentRole === "supervisor" || isRestrictedManager(email)
       ? "manager"
       : canReviewLeave(email)
         ? "leave reviewer"
@@ -78,7 +80,7 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
     { to: `${base}/company-tracker`, label: "Company Tracker", icon: KanbanSquare },
     { to: `${base}/field-visit-tracker`, label: "Field Visit Tracker", icon: CalendarDays },
     { to: `${base}/attendance`, label: "Attendance", icon: Clock3 },
-    ...(isTarunLeaveReviewer(email)
+    ...(!canAccessLeave(email) || isTarunLeaveReviewer(email)
       ? []
       : [{ to: `${base}/leave`, label: "My leave", icon: CalendarCheck }]),
     { to: `${base}/logistic`, label: "Logistic", icon: Boxes },
@@ -86,11 +88,11 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
     { to: `${base}/reports`, label: "Report and Logs", icon: BarChart3 },
   ];
   const items: typeof allItems =
-    currentRole === "supervisor"
-      ? allItems.filter((item) => item.to !== `${base}/attendance` || canManageAttendance(email))
+    currentRole === "supervisor" || isRestrictedManager(email)
+      ? allItems.filter((item) => canAccessManagerPath(email, item.to) && (item.to !== `${base}/attendance` || canManageAttendance(email)))
       : [
           { to: "/business-consultant", label: "Field workspace", icon: LayoutDashboard },
-          ...(canReviewLeave(email) && !isTarunLeaveReviewer(email)
+          ...(canAccessLeave(email) && canReviewLeave(email) && !isTarunLeaveReviewer(email)
             ? [{ to: `${base}/leave`, label: "My leave", icon: CalendarCheck }]
             : []),
           ...allItems.filter(
@@ -103,7 +105,7 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
       {/* Mobile Header */}
       <header className="flex h-16 items-center justify-between border-b border-border bg-surface px-6 md:hidden">
         <Link
-          to={base as "/manager"}
+          to={home}
           className="flex items-center gap-2 font-syne font-bold uppercase tracking-wider text-lime"
         >
           <span className="flex h-5 w-5 items-center justify-center rounded-[4px] bg-lime text-bg text-[10px] font-extrabold font-mono">
@@ -138,7 +140,7 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
         <div className="fixed inset-0 z-50 flex flex-col bg-background text-text-primary animate-in slide-in-from-top duration-200 md:hidden">
           <div className="flex h-16 items-center justify-between border-b border-border px-6 bg-surface">
             <Link
-              to={base as "/manager"}
+              to={home}
               className="flex items-center gap-2 font-syne font-bold uppercase tracking-wider text-lime"
               onClick={() => setIsOpen(false)}
             >
@@ -211,7 +213,7 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
         >
           {!collapsed && (
             <Link
-              to={base as "/manager"}
+              to={home}
               className="flex items-center gap-2 font-syne font-bold uppercase tracking-wider text-lime"
             >
               <span className="flex h-5 w-5 items-center justify-center rounded-[4px] bg-lime text-bg text-[10px] font-extrabold font-mono shrink-0">

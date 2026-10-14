@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth, type AppRole } from "@/lib/auth-store";
+import { isRestrictedManager, managerHomePath } from "@/lib/manager-access";
 import { Button, Card, Input, Label } from "@/components/ui-kit";
 import { HardHat, Shield } from "lucide-react";
 import { createServerFn } from "@tanstack/react-start";
@@ -190,7 +191,7 @@ export const Route = createFileRoute("/auth")({
 
 function AuthPage() {
   const navigate = useNavigate();
-  const { ready, userId, role, refresh } = useAuth();
+  const { ready, userId, role, email, refresh } = useAuth();
   const [mounted, setMounted] = useState(false);
   const [tab, setTab] = useState<"login" | "signup">("login");
   const [isRecovery, setIsRecovery] = useState(false);
@@ -211,9 +212,9 @@ function AuthPage() {
 
   useEffect(() => {
     if (mounted && ready && userId && role && !isRecovery) {
-      navigate({ to: role === "supervisor" ? "/manager" : role === "employee" ? "/employee" : "/business-consultant" });
+      navigate({ to: role === "supervisor" || isRestrictedManager(email) ? managerHomePath(email) : role === "employee" ? "/employee" : "/business-consultant" });
     }
-  }, [mounted, ready, userId, role, navigate, isRecovery]);
+  }, [mounted, ready, userId, role, email, navigate, isRecovery]);
 
   if (!mounted) return null;
 

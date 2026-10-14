@@ -1,5 +1,19 @@
 # Manager device attendance: implementation and setup
 
+Full working day absence update, 14 October 2026 (local implementation): apply
+`supabase/migrations/20261014100000_attendance_full_working_day_absence.sql` before
+publishing the updated frontend. Office settings no longer ask for an absence
+cutoff. A configured working date remains Awaiting scan until the next midnight
+in Asia/Kolkata, then becomes Absent if no valid face scan exists. Heartbeat
+coverage no longer controls absence. Approved leave, WFH, holidays and off days
+retain their existing handling, as do scan history and late minutes measured
+after office start plus grace. This also changes historical missing-scan dates
+with a configured schedule to Absent. Needs review still identifies a scan on
+approved leave, missing lateness policy, or missing dated office settings; invalid
+face/device events remain in the separate review queue. The nullable cutoff column
+and five-argument settings RPC remain for compatibility; supplied cutoff values
+are ignored. Earlier cutoff/heartbeat policy notes below describe the old behavior.
+
 Manager account linking update, 12 October 2026: existing confirmed SimKit
 manager logins can be linked from Edit Employee without changing their
 passwords or roles. Migration `20261012144000_attendance_link_existing_managers.sql`
@@ -384,6 +398,10 @@ Send `x-attendance-timestamp` as Unix seconds and `x-attendance-signature` as th
 Match emails only to an active employee whose email the manager has verified. Unknown sender, unclear dates, or overlap becomes Needs review and can be resolved in the manager approval form. Incoming email does not approve leave. Configure the actual provider and receiving address before claiming live email automation works.
 
 ## 8. Validation and rollout checks
+
+Hardik leave access change (13 October 2026): apply `supabase/migrations/20261013150000_remove_hardik_leave_access.sql` to deny leave review to Hardik Bhai's `admin@limelightit.io` account, including the per-day and legacy approval endpoints. Publish the updated frontend to hide My leave and the Attendance Leave requests tab and block direct access to `/manager/leave` for that account. His supervisor role and other attendance permissions remain intact.
+
+The Hardik restriction was applied to project `jhhiwyvrhfhvvougkqmm`. Live verification confirmed that his review queue, per-day approval/rejection, old whole-request decisions, and legacy review calls are denied; his supervisor role and existing attendance guard still pass, and Tarun retains review access. The updated frontend must be published for the menu changes to appear on the hosted site.
 
 Employee calendar addition (13 October 2026): after the leave/WFH and linked office account migrations, apply `supabase/migrations/20261013120000_employee_attendance_calendar.sql`. It adds the authenticated, employee-scoped `attendance_my_calendar(date)` RPC. The employee portal uses this monthly view for the calendar and charts; each request date retains its own approval decision. Office schedules and holidays are resolved per date, and missing scans only become absences when device health confirms coverage. This migration was applied to project `jhhiwyvrhfhvvougkqmm` and verified for the employee shown in the calendar request. Earlier rollout notes below describe the initial local implementation.
 

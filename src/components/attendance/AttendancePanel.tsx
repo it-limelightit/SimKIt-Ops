@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-store";
-import { canManageAttendance, isTarunLeaveReviewer } from "@/lib/attendance-access";
+import { canAccessLeave, canManageAttendance, isTarunLeaveReviewer } from "@/lib/attendance-access";
 import { Button, Card, Input, Select, Textarea } from "@/components/ui-kit";
 import {
   Dialog,
@@ -81,7 +81,7 @@ function Status({ value, lateMinutes }: { value: string; lateMinutes?: number | 
     >
       <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
       {value === "late" && lateMinutes != null && lateMinutes > 0
-        ? `${formatAttendanceDuration(lateMinutes)} late`
+        ? `${lateMinutes} min late`
         : statusLabels[value] || value}
     </span>
   );
@@ -120,6 +120,7 @@ export function AttendancePanel() {
   const navigate = useNavigate();
   const { email } = useAuth();
   const tarunReviewer = isTarunLeaveReviewer(email);
+  const leaveAllowed = canAccessLeave(email);
   const [date, setDate] = useState(() => {
     const requested =
       typeof window === "undefined"
@@ -157,6 +158,13 @@ export function AttendancePanel() {
   const [exportScope, setExportScope] = useState("filtered");
   const [exporting, setExporting] = useState(false);
   const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!leaveAllowed) {
+      if (tab === "leave") setTab("daily");
+      setLeaveOpen(false);
+      setReview(null);
+    }
+  }, [leaveAllowed, tab]);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
@@ -238,6 +246,7 @@ export function AttendancePanel() {
   ).length;
   const deviceState = board?.device.state || "unknown";
   function chooseTab(value: typeof tab) {
+    if (value === "leave" && !leaveAllowed) return;
     setTab(value);
     setStatus("all");
     setSearch("");
@@ -416,10 +425,9 @@ export function AttendancePanel() {
           {board && <p className="mt-1">Showing the last loaded data; refresh to retry.</p>}
         </div>
       )}
-      {board && !board.settings?.absence_cutoff && (
+      {board && !board.settings && (
         <div className="rounded-lg border border-amber-500/25 bg-warning/5 p-4 text-sm text-warning">
-          Complete working days and absence cutoff in Office settings. Missing scans require review
-          until attendance coverage is confirmed.
+          Complete office timing and working days in Office settings to classify attendance.
         </div>
       )}
       <nav
@@ -432,7 +440,7 @@ export function AttendancePanel() {
             ["users", "Employees", Users],
             ["leave", "Leave requests", Clock3],
           ] as const
-        ).map(([key, label, Icon]) => (
+        ).filter(([key]) => key !== "leave" || leaveAllowed).map(([key, label, Icon]) => (
           <button
             key={key}
             type="button"
@@ -455,7 +463,7 @@ export function AttendancePanel() {
           </button>
         ))}
       </nav>
-      {tab === "leave" && <section>
+      {tab === "leave" && leaveAllowed && <section>
         <LeaveWorkspace embedded />
         <Button variant="ghost" size="sm" className="mt-3" aria-expanded={showOtherLeaveRecords} aria-controls="other-attendance-leave-records" onClick={() => setShowOtherLeaveRecords((visible) => !visible)}>{showOtherLeaveRecords ? "Hide" : "Show"} other attendance leave records <ChevronRight size={14} className={showOtherLeaveRecords ? "rotate-90" : ""} /></Button>
       </section>}
@@ -764,7 +772,7 @@ export function AttendancePanel() {
                         {timeLabel(row.entry_at)}
                       </td>
                       <td className="px-3 py-3 sm:px-4">
-                        <Status value={row.status} />
+                        <Status value={row.status} lateMinutes={row.late_minutes} />
                         {row.leave_conflict && <p className="mt-1 text-xs">Scanned during leave</p>}
                       </td>
                       <td
@@ -1488,10 +1496,7 @@ function SettingsForm({
 }) {
   const [start, setStart] = useState(current?.shift_start.slice(0, 5) || "10:00");
   const [grace, setGrace] = useState(current?.grace_minutes ?? 15);
-  const [cutoff, setCutoff] = useState(current?.absence_cutoff?.slice(0, 5) || "");
-  const [days, setDays] = useState(
-    current?.absence_cutoff ? current.working_days : [1, 2, 3, 4, 5],
-  );
+  const [days, setDays] = useState(current?.working_days ?? [1, 2, 3, 4, 5]);
   const [holidays, setHolidays] = useState(current?.holidays.join(", ") || "");
   function save(e: FormEvent) {
     e.preventDefault();
@@ -1507,7 +1512,7 @@ function SettingsForm({
       toast.error("Select at least one working day.");
       return;
     }
-    void submit({ _start: start, _grace: grace, _cutoff: cutoff, _days: days, _holidays: dates });
+    void submit({ _start: start, _grace: grace, _cutoff: null, _days: days, _holidays: dates });
   }
   return (
     <form onSubmit={save} className="space-y-4">
@@ -1526,9 +1531,6 @@ function SettingsForm({
           />
         </Field>
       </div>
-      <Field label="Absence cutoff (IST)">
-        <Input type="time" required value={cutoff} onChange={(e) => setCutoff(e.target.value)} />
-      </Field>
       <fieldset>
         <legend className="mb-2 text-sm text-text-secondary">Confirm working days</legend>
         <div className="flex flex-wrap gap-3">
@@ -1554,8 +1556,11 @@ function SettingsForm({
         />
       </Field>
       <p className="text-xs text-text-secondary">
-        Automatic absence requires uninterrupted device heartbeats through the cutoff. Otherwise
-        missing scans stay in review.
+        A working day stays awaiting scan until midnight IST. If no valid face scan is recorded
+        during that day, it is marked absent. Approved leave, WFH, holidays and off days are exempt.
+        Late minutes are measured after office start plus the grace period. Needs review means a
+        scan conflicts with approved leave, its lateness cannot be calculated, or office settings
+        are unavailable for that date.
       </p>
       <Button type="submit" disabled={busy} className="w-full">
         Save settings

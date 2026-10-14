@@ -11,9 +11,13 @@ export const leaveReviewEmails = [
   "associatelimelight@gmail.com",
   "info@limelightit.io",
   "kuldeepshrimali.limelight@gmail.com",
-  "admin@limelightit.io",
   "nitsanghani1@gmail.com",
 ] as const;
+
+export function canAccessLeave(email: string | null | undefined) {
+  const normalized = email?.trim().toLowerCase();
+  return Boolean(normalized) && normalized !== "admin@limelightit.io";
+}
 
 export function isTarunLeaveReviewer(email: string | null | undefined) {
   const normalized = email?.trim().toLowerCase();
@@ -25,5 +29,8 @@ export function canManageAttendance(email: string | null | undefined) {
 }
 
 export function canReviewLeave(email: string | null | undefined) {
-  return leaveReviewEmails.some((allowed) => allowed === email?.trim().toLowerCase());
+  return (
+    canAccessLeave(email) &&
+    leaveReviewEmails.some((allowed) => allowed === email?.trim().toLowerCase())
+  );
 }

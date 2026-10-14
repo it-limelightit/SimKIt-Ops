@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { CalendarCheck, Check, Clock3, House, LogOut } from "lucide-react";
 import { useAuth } from "@/lib/auth-store";
+import { isRestrictedManager, managerHomePath } from "@/lib/manager-access";
 import { attendanceRpc, dateLabel, indiaDate, timeLabel } from "@/lib/device-attendance";
 import { Button } from "@/components/ui-kit";
 import { EmployeeCalendar } from "@/components/attendance/EmployeeCalendar";
@@ -31,7 +32,7 @@ function EntryStatus({ entry }: { entry: Entry }) {
 }
 
 function EmployeePortal() {
-  const { ready, userId, role, profile, signOut } = useAuth();
+  const { ready, userId, role, email, profile, signOut } = useAuth();
   const navigate = useNavigate();
   const [account, setAccount] = useState<Account | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -43,6 +44,10 @@ function EmployeePortal() {
     if (!ready) return;
     if (!userId) {
       void navigate({ to: "/auth" });
+      return;
+    }
+    if (isRestrictedManager(email)) {
+      void navigate({ to: managerHomePath(email) });
       return;
     }
     if (role !== "employee") {
@@ -78,7 +83,7 @@ function EmployeePortal() {
     return () => {
       cancelled = true;
     };
-  }, [ready, userId, role, navigate]);
+  }, [ready, userId, role, email, navigate]);
 
   const todayEntry = entries.find((entry) => entry.work_date === indiaDate());
   const name = account?.name || profile?.name || "Employee";
@@ -90,7 +95,7 @@ function EmployeePortal() {
     .join("")
     .toUpperCase();
 
-  if (!ready || !userId || role !== "employee") return null;
+  if (!ready || !userId || role !== "employee" || isRestrictedManager(email)) return null;
   return (
     <div className="employee-portal min-h-screen">
       <header className="border-b border-border bg-surface">

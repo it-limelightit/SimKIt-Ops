@@ -1,7 +1,8 @@
 import { createFileRoute, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { useAuth } from "@/lib/auth-store";
-import { canManageAttendance, canReviewLeave } from "@/lib/attendance-access";
+import { canAccessManagerPath, isRestrictedManager, managerHomePath } from "@/lib/manager-access";
+import { canAccessLeave, canManageAttendance, canReviewLeave } from "@/lib/attendance-access";
 import { StaffShell } from "@/components/staff/StaffShell";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -17,25 +18,29 @@ function ManagerLayout() {
   const navigate = useNavigate();
   const { ready, userId, role, email } = useAuth();
   const path = useRouterState({ select: (state) => state.location.pathname });
+  const moduleAllowed = canAccessManagerPath(email, path);
+  const scopedAccess = isRestrictedManager(email) && moduleAllowed;
+  const factoryDataAllowed = canAccessManagerPath(email, "/manager/factory-data");
   const attendanceRoute = path === "/manager/attendance" || path.startsWith("/manager/attendance/");
   const attendanceAllowed = canManageAttendance(email);
-  const leaveRoute = path === "/manager/leave";
-  const leaveAllowed = role === "supervisor" || canReviewLeave(email);
+  const leaveRoute = path === "/manager/leave" || path.startsWith("/manager/leave/");
+  const leaveAllowed = canAccessLeave(email) && (scopedAccess || role === "supervisor" || canReviewLeave(email));
   const knownFactorySubmissionKeys = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
     if (!ready) return;
     if (!userId) navigate({ to: "/auth" });
+    else if (!moduleAllowed) navigate({ to: managerHomePath(email) });
     else if (attendanceRoute && !attendanceAllowed)
       navigate({ to: role === "supervisor" ? "/manager" : role === "employee" ? "/employee" : "/business-consultant" });
     else if (leaveRoute && !leaveAllowed)
       navigate({ to: role === "employee" ? "/employee" : role === "supervisor" ? "/manager" : "/business-consultant" });
-    else if (role && role !== "supervisor" && !(attendanceRoute && attendanceAllowed) && !(leaveRoute && leaveAllowed))
+    else if (role && role !== "supervisor" && !scopedAccess && !(attendanceRoute && attendanceAllowed) && !(leaveRoute && leaveAllowed))
       navigate({ to: role === "employee" ? "/employee" : "/business-consultant" });
-  }, [ready, userId, role, navigate, attendanceRoute, attendanceAllowed, leaveRoute, leaveAllowed]);
+  }, [ready, userId, role, email, navigate, moduleAllowed, scopedAccess, attendanceRoute, attendanceAllowed, leaveRoute, leaveAllowed]);
 
   useEffect(() => {
-    if (!ready || !userId || role !== "supervisor") return;
+    if (!ready || !userId || role !== "supervisor" || !factoryDataAllowed) return;
     if (typeof window === "undefined") return;
 
     const requestBrowserNotificationPermission = async () => {
@@ -146,14 +151,15 @@ function ManagerLayout() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [ready, userId, role, navigate]);
+  }, [ready, userId, role, navigate, factoryDataAllowed]);
 
   if (
     !ready ||
     !userId ||
+    !moduleAllowed ||
     (attendanceRoute && !attendanceAllowed) ||
     (leaveRoute && !leaveAllowed) ||
-    (role !== "supervisor" && !(attendanceRoute && attendanceAllowed) && !(leaveRoute && leaveAllowed))
+    (role !== "supervisor" && !scopedAccess && !(attendanceRoute && attendanceAllowed) && !(leaveRoute && leaveAllowed))
   )
     return null;
   return (

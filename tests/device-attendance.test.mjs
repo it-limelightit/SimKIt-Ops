@@ -1054,3 +1054,147 @@ test('field leave calendar preserves individual decisions and isolates associate
  await asUser(null);
  await assert.rejects(db.query('SELECT field_ops_leave_calendar($1,$2::date)',[associate,today]),/Access denied/);
 });
+
+test('Hardik cannot review leave through routed or legacy APIs and retains attendance access', async () => {
+  await db.exec(readFileSync(new URL('../supabase/migrations/20261013150000_remove_hardik_leave_access.sql', import.meta.url), 'utf8'));
+  const hardik = '00000000-0000-4000-8000-000000000003';
+  const tarun = '00000000-0000-4000-8000-000000000004';
+  await db.query("UPDATE auth.users SET email='admin@limelightit.io',email_confirmed_at=now() WHERE id=$1", [hardik]);
+  await db.query("INSERT INTO user_roles(user_id,role) SELECT $1,'supervisor' WHERE NOT EXISTS(SELECT 1 FROM user_roles WHERE user_id=$1 AND role='supervisor')", [hardik]);
+  const date = await scalar("SELECT ($1::date + 1000)::text", [today]);
+  const routed = await scalar(`INSERT INTO attendance_leave_requests(employee_id,start_date,end_date,reason,source,approver_emails)
+    VALUES($1,$2::date,$2::date,'Hardik permission regression','manual',ARRAY['admin@limelightit.io','tarun@limelightit.io']) RETURNING id`, [employee, date]);
+  await db.query('INSERT INTO attendance_leave_request_days(request_id,leave_date) VALUES($1,$2::date)', [routed, date]);
+  const legacy = await scalar(`INSERT INTO attendance_leave_requests(employee_id,start_date,end_date,reason,source)
+    VALUES($1,$2::date,$2::date,'Legacy permission regression','manual') RETURNING id`, [employee, date]);
+
+  await asUser(hardik);
+  assert.equal(await scalar("SELECT has_role(auth.uid(),'supervisor')"), true);
+  assert.equal(await scalar('SELECT attendance_can_manage()'), true);
+  assert.equal(await scalar('SELECT attendance_can_review_leave()'), false);
+  await assert.rejects(db.query('SELECT attendance_leave_review_queue()'), /Manager access required/);
+  for (const decision of ['approved', 'rejected']) {
+    await assert.rejects(db.query('SELECT attendance_decide_employee_leave_days($1,$2::jsonb)', [routed, JSON.stringify([{date, decision}])]), /Manager access required/);
+    await assert.rejects(db.query('SELECT attendance_decide_employee_leave($1,$2)', [routed, decision]), /Manager access required/);
+    await assert.rejects(db.query('SELECT attendance_review_leave($1,$2)', [legacy, decision]), /Leave review access required/);
+  }
+  assert.equal(await scalar('SELECT status FROM attendance_leave_requests WHERE id=$1', [routed]), 'pending');
+  assert.equal(await scalar('SELECT status FROM attendance_leave_request_days WHERE request_id=$1', [routed]), 'pending');
+  assert.equal(await scalar('SELECT status FROM attendance_leave_requests WHERE id=$1', [legacy]), 'pending');
+
+  await asUser(tarun);
+  assert.equal(await scalar('SELECT attendance_can_review_leave()'), true);
+  assert.ok((await scalar('SELECT attendance_leave_review_queue()')).some(request => request.id === routed));
+  await db.query('SELECT attendance_decide_employee_leave_days($1,$2::jsonb)', [routed, JSON.stringify([{date, decision:'approved'}])]);
+  await db.query("SELECT attendance_review_leave($1,'rejected')", [legacy]);
+  assert.equal(await scalar('SELECT status FROM attendance_leave_requests WHERE id=$1', [routed]), 'approved');
+  assert.equal(await scalar('SELECT status FROM attendance_leave_requests WHERE id=$1', [legacy]), 'rejected');
+  await asUser(null);
+  assert.equal(await scalar('SELECT attendance_can_review_leave()'), false);
+});
+
+test("full-day absence agrees across manager and employee calendars and preserves scan, leave and access rules", async () => {
+  const migration = readFileSync(new URL(
+    "../supabase/migrations/20261014100000_attendance_full_working_day_absence.sql", import.meta.url,
+  ), "utf8");
+  await db.exec(migration);
+  await db.exec(migration); // Reapplying the policy must preserve records and permissions.
+  await db.exec("BEGIN");
+  try {
+    const account = "00000000-0000-4000-8000-000000000070";
+    const staff = "00000000-0000-4000-8000-000000000071";
+    const tarun = "00000000-0000-4000-8000-000000000040";
+    const yesterday = await scalar("SELECT ($1::date-1)::text", [today]);
+    const tomorrow = await scalar("SELECT ($1::date+1)::text", [today]);
+    await db.query("INSERT INTO auth.users(id,email,email_confirmed_at) VALUES($1,'full-day@example.test',now())", [account]);
+    await db.query("INSERT INTO user_roles(user_id,role) VALUES($1,'employee')", [account]);
+    await db.query(`INSERT INTO attendance_employees(id,name,department,enroll_id,auth_user_id,employment_start,created_by)
+      VALUES($1,'Full day','software','full-day',$2,$3::date-2,$2)`, [staff, account, today]);
+    await db.exec("DELETE FROM attendance_settings");
+    await db.exec(`INSERT INTO attendance_settings(effective_from,shift_start,grace_minutes,absence_cutoff,working_days)
+      VALUES('2000-01-01','10:00',15,'18:00',ARRAY[0,1,2,3,4,5,6])`);
+
+    const managerRow = async (date) => {
+      await asUser(tarun);
+      return (await scalar("SELECT attendance_board($1::date)", [date])).rows.find(r => r.employee_id === staff);
+    };
+    const employeeDay = async (date) => {
+      await asUser(account);
+      return (await scalar("SELECT attendance_my_calendar($1::date)", [date])).days.find(d => d.date === date);
+    };
+    const checkStatus = async (date, expected) => {
+      assert.equal((await managerRow(date)).status, expected);
+      assert.equal((await employeeDay(date)).status, expected);
+    };
+
+    // Entire current IST day stays open, even with an old cutoff and no heartbeats.
+    await checkStatus(today, "awaiting_scan");
+    assert.equal((await managerRow(tomorrow)).status, "awaiting_scan");
+    assert.equal((await employeeDay(tomorrow)).status, "scheduled");
+    await db.query("DELETE FROM attendance_device_health WHERE work_date=$1::date", [yesterday]);
+    await checkStatus(yesterday, "absent");
+    await db.query(`INSERT INTO attendance_device_health VALUES($1::date,$1::date::timestamptz,$1::date::timestamptz,true)`, [yesterday]);
+    await checkStatus(yesterday, "absent");
+
+    // A failed face match is evidence for review, but does not establish attendance.
+    await scalar("SELECT attendance_ingest_scan('full-day-failed','full-day',$1::timestamptz,false)", [`${yesterday}T10:30:00+05:30`]);
+    await checkStatus(yesterday, "absent");
+    await asUser(tarun);
+    assert.ok((await scalar("SELECT attendance_board($1::date)", [yesterday])).review_events.some(e => e.event_id === "full-day-failed"));
+
+    // A valid scan at the very end of the date is still late, never absent.
+    await scalar("SELECT attendance_ingest_scan('full-day-late','full-day',$1::timestamptz,true)", [`${yesterday}T23:59:00+05:30`]);
+    await checkStatus(yesterday, "late");
+    assert.equal((await managerRow(yesterday)).late_minutes, 824);
+    assert.equal((await employeeDay(yesterday)).late_minutes, 824);
+    await scalar("SELECT attendance_ingest_scan('full-day-earlier','full-day',$1::timestamptz,true)", [`${yesterday}T10:30:00+05:30`]);
+    await checkStatus(yesterday, "late");
+    assert.equal((await managerRow(yesterday)).late_minutes, 15);
+
+    // Scan-on-leave conflicts still need review; approved WFH preserves a real scan.
+    const request = await scalar(`INSERT INTO attendance_leave_requests(employee_id,start_date,end_date,reason,source,status,request_type)
+      VALUES($1,$2::date,$2::date,'Full-day regression','manual','approved','leave') RETURNING id`, [staff, yesterday]);
+    await checkStatus(yesterday, "needs_review");
+    await db.query("UPDATE attendance_leave_requests SET request_type='wfh' WHERE id=$1", [request]);
+    await checkStatus(yesterday, "late");
+    await db.query("UPDATE attendance_daily_records SET late_minutes=NULL WHERE employee_id=$1", [staff]);
+    await checkStatus(yesterday, "needs_review");
+    await db.query("DELETE FROM attendance_daily_records WHERE employee_id=$1", [staff]);
+    await checkStatus(yesterday, "work_from_home");
+    await db.query("UPDATE attendance_leave_requests SET request_type='leave' WHERE id=$1", [request]);
+    await checkStatus(yesterday, "on_leave");
+    await db.query("DELETE FROM attendance_leave_requests WHERE id=$1", [request]);
+
+    await db.query("UPDATE attendance_settings SET holidays=ARRAY[$1::date]", [yesterday]);
+    await checkStatus(yesterday, "off_day");
+    await db.query("UPDATE attendance_settings SET holidays='{}',working_days=ARRAY[(extract(dow FROM $1::date)::integer+1)%7]", [yesterday]);
+    await checkStatus(yesterday, "off_day");
+    await db.exec("UPDATE attendance_settings SET working_days=ARRAY[0,1,2,3,4,5,6]");
+
+    await asUser(tarun);
+    await db.query("SELECT attendance_save_settings('10:00',15,NULL,ARRAY[1,2,3,4,5],'{}')");
+    const saved = await scalar("SELECT attendance_board($1::date)", [today]);
+    assert.equal(saved.settings.absence_cutoff, null);
+    assert.deepEqual(saved.settings.working_days, [1,2,3,4,5]);
+    await db.query("SELECT attendance_save_settings('10:00',15,'09:00',ARRAY[0,1,2,3,4,5,6],'{}')");
+    assert.equal((await scalar("SELECT attendance_board($1::date)", [today])).settings.absence_cutoff, null);
+    await checkStatus(today, "awaiting_scan");
+    await db.exec("SAVEPOINT denied_settings");
+    await assert.rejects(db.query("SELECT attendance_save_settings('10:00',15,NULL,ARRAY[1],'{}')"), /Attendance access required/);
+    await db.exec("ROLLBACK TO SAVEPOINT denied_settings");
+    await db.exec("SAVEPOINT denied_board");
+    await assert.rejects(db.query("SELECT attendance_board($1::date)", [today]), /Attendance access required/);
+    await db.exec("ROLLBACK TO SAVEPOINT denied_board");
+
+    await db.exec("DELETE FROM attendance_settings");
+    assert.equal((await managerRow(yesterday)).status, "needs_review");
+    assert.equal((await employeeDay(yesterday)).status, "not_configured");
+    for (const role of ["anon", "authenticated"]) {
+      assert.equal(await scalar("SELECT has_function_privilege($1,'attendance_ingest_scan(text,text,timestamptz,boolean)','EXECUTE')", [role]), false);
+    }
+    assert.equal(await scalar("SELECT has_function_privilege('anon','attendance_board(date)','EXECUTE')"), false);
+    assert.equal(await scalar("SELECT has_function_privilege('anon','attendance_my_calendar(date)','EXECUTE')"), false);
+  } finally {
+    await db.exec("ROLLBACK");
+  }
+});

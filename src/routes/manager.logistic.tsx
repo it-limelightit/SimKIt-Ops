@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { InventoryPanel } from "@/components/inventory/InventoryPanel";
 import { useState } from "react";
+import { useAuth } from "@/lib/auth-store";
+import { isRestrictedManager } from "@/lib/manager-access";
 import { supabase } from "@/integrations/supabase/client";
 import { Button, Card } from "@/components/ui-kit";
 import { toast } from "sonner";
@@ -13,6 +15,7 @@ export const Route = createFileRoute("/manager/logistic")({
 });
 
 function LogisticPageWithSeeder() {
+  const restricted = isRestrictedManager(useAuth((state) => state.email));
   const [seeding, setSeeding] = useState(false);
   const [activeTab, setActiveTab] = useState<"dispatch" | "deviceInfo">("dispatch");
 
@@ -133,7 +136,7 @@ function LogisticPageWithSeeder() {
       </div>
 
           {/* Premium Debug/Data Seeding panel */}
-          {activeTab === "dispatch" && <Card className="border border-border/80 bg-surface-raised/20 p-5 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+          {!restricted && activeTab === "dispatch" && <Card className="border border-border/80 bg-surface-raised/20 p-5 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="space-y-1">
               <h3 className="text-md font-bold text-text-primary flex items-center gap-2">
                 <Database size={16} className="text-violet" />

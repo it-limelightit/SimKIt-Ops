@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import logoUrl from "../../../image copy.png";
+import { inventoryComponentKey, inventoryModelKey, inventoryDispatchHint, inventoryOrderIncludesDm } from "@/lib/inventory-components";
 import {
   InventoryStockItem,
   PREDEFINED_CATEGORIES,
@@ -75,6 +76,7 @@ type DeviceOrderRecord = {
   quantity: number | null;
   submitted: boolean | null;
   created_at: string;
+  notes: string | null;
   ct1: string | null;
   ct2: string | null;
   ct3: string | null;
@@ -267,7 +269,7 @@ export function InventoryStockPanel() {
   const [unitPrice, setUnitPrice] = useState<number | "">("");
   const [unitPriceWithGst, setUnitPriceWithGst] = useState<number | "">("");
   const [priceInputIncludesGst, setPriceInputIncludesGst] = useState(false);
-  const [quantityPerDm, setQuantityPerDm] = useState<number | "">(1);
+  const [quantityPerKit, setQuantityPerKit] = useState<number | "">(1);
   const [entryDate, setEntryDate] = useState(
     new Date().toISOString().split("T")[0]
   );
@@ -355,7 +357,7 @@ export function InventoryStockPanel() {
   const fetchDeviceOrders = useCallback(async () => {
     const { data, error } = await supabase
       .from("inventory_materials" as any)
-      .select("id,material_name,quantity,submitted,created_at,ct1,ct2,ct3,proxy1,proxy2,vibration,encoder,antenna,tower_light,energy_meter,plc")
+      .select("id,material_name,quantity,submitted,created_at,notes,ct1,ct2,ct3,proxy1,proxy2,vibration,encoder,antenna,tower_light,energy_meter,plc")
       .eq("submitted", true)
       .order("created_at", { ascending: false });
     if (error) {
@@ -440,7 +442,7 @@ export function InventoryStockPanel() {
     return deviceOrders.map((order) => {
       const quantity = Math.max(1, Number(order.quantity) || 1);
       const requirements = [
-        { group: "Data Meter" as InventoryGroup, category: "Datameter Box", required: quantity },
+        ...(inventoryOrderIncludesDm(order.notes) ? [{ group: "Data Meter" as InventoryGroup, category: "Datameter Box", required: quantity }] : []),
         ...(enabled(order.ct1) ? [{ group: "Sensors" as InventoryGroup, category: "CT 1", required: quantity }] : []),
         ...(enabled(order.ct2) ? [{ group: "Sensors" as InventoryGroup, category: "CT 2", required: quantity }] : []),
         ...(enabled(order.ct3) ? [{ group: "Sensors" as InventoryGroup, category: "CT 3", required: quantity }] : []),
@@ -536,7 +538,7 @@ export function InventoryStockPanel() {
     setUnitPrice("");
     setUnitPriceWithGst("");
     setPriceInputIncludesGst(false);
-    setQuantityPerDm(1);
+    setQuantityPerKit(1);
     setEntryDate(new Date().toISOString().split("T")[0]);
     setNotes("");
   };
@@ -622,17 +624,18 @@ export function InventoryStockPanel() {
     setInventoryUnit(getInventoryUnit(item.notes));
     setCustomCategory("");
 
-    if (item.sensor_type) {
-      const isProxy = item.category.startsWith("Proxy");
-      const isVib = item.category === "Vibration Sensor";
+    const resolvedModel = item.sensor_type || (inventoryComponentKey(item.category) === "proximitysensor" ? "Inductive" : inventoryModelKey(item.category, null) === "vibeq" ? "Vibe Q" : null);
+    if (resolvedModel) {
+      const isProxy = inventoryComponentKey(item.category) === "proximitysensor";
+      const isVib = inventoryComponentKey(item.category) === "vibrationsensor";
       const modelList = isProxy ? PROXY_MODELS : isVib ? VIBRATION_MODELS : [];
 
-      if (modelList.includes(item.sensor_type)) {
-        setSensorType(item.sensor_type);
+      if (modelList.includes(resolvedModel)) {
+        setSensorType(resolvedModel);
         setCustomSensorType("");
       } else {
         setSensorType(CUSTOM_OPTION_VALUE);
-        setCustomSensorType(item.sensor_type);
+        setCustomSensorType(resolvedModel);
       }
     } else {
       setSensorType("");
@@ -646,9 +649,9 @@ export function InventoryStockPanel() {
     setUnitPriceWithGst(getUnitValueWithGst(unitValue));
     setPriceInputIncludesGst(parseInventoryEntryNotes(item.notes).gst_included === true);
     const existingBom = bomItems.find((bom) =>
-      bom.category.trim().toLowerCase().replace(/[^a-z0-9]/g, "") === item.category.trim().toLowerCase().replace(/[^a-z0-9]/g, ""),
+      inventoryComponentKey(bom.category) === inventoryComponentKey(item.category) && inventoryModelKey(bom.category, bom.sensor_type) === inventoryModelKey(item.category, item.sensor_type),
     );
-    setQuantityPerDm(existingBom?.quantity_per_kit ?? 1);
+    setQuantityPerKit(existingBom?.quantity_per_kit ?? 1);
     setEntryDate(item.entry_date || new Date().toISOString().split("T")[0]);
     setNotes(getStockRemark(item.notes));
     setIsModalOpen(true);
@@ -695,7 +698,9 @@ export function InventoryStockPanel() {
     const finalCategory = category.trim();
     
     let finalSensorType: string | null = null;
-    if (category.startsWith("Proxy") || category === "Vibration Sensor") {
+    if (inventoryComponentKey(category) === "proximitysensor") {
+      finalSensorType = "Inductive";
+    } else if (inventoryComponentKey(category) === "vibrationsensor") {
       finalSensorType = sensorType === CUSTOM_OPTION_VALUE ? customSensorType.trim() : sensorType;
     }
 
@@ -715,9 +720,9 @@ export function InventoryStockPanel() {
       toast.error("Please enter a valid unit price");
       return;
     }
-    const isDataMeterItem = inventoryGroup === "Data Meter";
-    if (isDataMeterItem && (quantityPerDm === "" || Number(quantityPerDm) <= 0)) {
-      toast.error("Please enter the quantity required for one Data Meter");
+    const hasKitQuantity = inventoryGroup === "Data Meter" || inventoryGroup === "Accessories";
+    if (hasKitQuantity && (quantityPerKit === "" || !Number.isFinite(Number(quantityPerKit)) || Number(quantityPerKit) <= 0)) {
+      toast.error("Please enter a valid quantity required for one kit");
       return;
     }
     const unitValue = Number(unitPrice);
@@ -748,27 +753,25 @@ export function InventoryStockPanel() {
           .update(payload)
           .eq("id", editingId);
         if (error) throw error;
-        toast.success("Stock item updated successfully");
       } else {
         const { error } = await supabase
           .from("inventory_stock" as any)
           .insert(payload);
         if (error) throw error;
-        toast.success("New stock item added successfully");
       }
 
-      if (isDataMeterItem) {
+      if (hasKitQuantity) {
         const existingBom = bomItems.find((bom) =>
-          bom.category.trim().toLowerCase().replace(/[^a-z0-9]/g, "") === finalCategory.toLowerCase().replace(/[^a-z0-9]/g, ""),
+          inventoryComponentKey(bom.category) === inventoryComponentKey(finalCategory) && inventoryModelKey(bom.category, bom.sensor_type) === inventoryModelKey(finalCategory, finalSensorType),
         );
         const bomPayload = {
           product_name: "Data Meter",
           category: finalCategory,
           sensor_type: null,
-          quantity_per_kit: Number(quantityPerDm),
-          unit: "Nos",
-          required_by_default: true,
-          min_quantity: 0,
+          quantity_per_kit: Number(quantityPerKit),
+          unit: inventoryUnit,
+          required_by_default: existingBom?.required_by_default ?? true,
+          min_quantity: existingBom?.min_quantity ?? 0,
           active: true,
           updated_at: new Date().toISOString(),
         };
@@ -776,8 +779,18 @@ export function InventoryStockPanel() {
           ? await supabase.from("inventory_bom_items" as any).update(bomPayload).eq("id", existingBom.id)
           : await supabase.from("inventory_bom_items" as any).insert(bomPayload);
         if (bomError) throw bomError;
+      } else if (editingId) {
+        const previousStock = stock.find((item) => item.id === editingId);
+        const existingBom = bomItems.find((bom) => inventoryComponentKey(bom.category) === inventoryComponentKey(previousStock?.category || finalCategory)
+          && inventoryModelKey(bom.category, bom.sensor_type) === inventoryModelKey(previousStock?.category || finalCategory, previousStock?.sensor_type));
+        if (existingBom) {
+          const { error: bomError } = await supabase.from("inventory_bom_items" as any)
+            .update({ category: finalCategory, sensor_type: finalSensorType, unit: inventoryUnit, updated_at: new Date().toISOString() }).eq("id", existingBom.id);
+          if (bomError) throw bomError;
+        }
       }
 
+      toast.success(editingId ? "Stock item updated successfully" : "New stock item added successfully");
       setIsModalOpen(false);
       resetForm();
       void fetchStock();
@@ -898,8 +911,8 @@ export function InventoryStockPanel() {
     const rows: Array<{ bom: (typeof bomCalculations)[number] | null; stock: InventoryStockItem | null }> = [];
     const matchedStockIds = new Set<string>();
     const matches = (bom: (typeof bomCalculations)[number], item: InventoryStockItem) =>
-      bom.category.trim().toLowerCase() === item.category.trim().toLowerCase() &&
-      (bom.sensor_type || "").trim().toLowerCase() === (item.sensor_type || "").trim().toLowerCase();
+      inventoryComponentKey(bom.category) === inventoryComponentKey(item.category) &&
+      inventoryModelKey(bom.category, bom.sensor_type) === inventoryModelKey(item.category, item.sensor_type);
 
     bomCalculations.forEach((bom) => {
       const matchingStock = displayStock.find((item) => !isBulkOrderItem(item) && matches(bom, item));
@@ -2229,7 +2242,7 @@ export function InventoryStockPanel() {
       {/* Bulk Order Modal Dialog */}
       {false && isBulkOrderModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <Card className="w-full max-w-xl border border-border/80 bg-surface shadow-2xl rounded-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+          <Card className="w-full max-w-xl max-h-[calc(100dvh-2rem)] border border-border/80 bg-surface shadow-2xl rounded-2xl overflow-y-auto animate-in fade-in zoom-in duration-200">
             <div className="p-5 border-b border-border/70 bg-surface-raised/40 flex items-center justify-between">
               <h3 className="text-md font-bold text-text-primary flex items-center gap-2">
                 <AlertCircle size={18} className="text-rose-400" />
@@ -2555,44 +2568,45 @@ export function InventoryStockPanel() {
                 </div>
               </div>
 
-              {inventoryGroup === "Data Meter" && (
+              {(inventoryGroup === "Data Meter" || inventoryGroup === "Accessories") && (
                 <div className="space-y-1 rounded-lg border border-violet/25 bg-violet/5 p-3">
-                  <Label className="text-text-secondary font-semibold">
-                    Qty Required for 1 Data Meter <span className="text-rose-400">*</span>
+                  <Label htmlFor="inventory-quantity-per-kit" className="text-text-secondary font-semibold">
+                    {inventoryGroup === "Accessories" ? "Qty / Kit" : "Qty Required for 1 Data Meter"} ({inventoryUnit}) <span className="text-rose-400">*</span>
                   </Label>
                   <Input
+                    id="inventory-quantity-per-kit"
                     type="number"
                     min="0.01"
                     step="0.01"
-                    value={quantityPerDm}
-                    onChange={(e) => setQuantityPerDm(e.target.value === "" ? "" : Number(e.target.value))}
+                    value={quantityPerKit}
+                    onChange={(e) => setQuantityPerKit(e.target.value === "" ? "" : Number(e.target.value))}
+                    aria-describedby="inventory-kit-quantity-help"
                     className="bg-surface-raised/50 h-9"
                     required
                   />
-                  <p className="text-[10px] text-text-muted">This can be updated later. DM capacity uses stock quantity divided by this value.</p>
+                  <p id="inventory-kit-quantity-help" className="text-[10px] text-text-muted">
+                    {inventoryGroup === "Accessories"
+                      ? "Enter the accessory quantity needed for one kit. Bulk-order requirements use this value."
+                      : "This can be updated later. DM capacity uses stock quantity divided by this value."}
+                  </p>
                 </div>
               )}
 
               {/* Model Dropdown (Proxy or Vibration) */}
-              {(category.startsWith("Proxy") || category === "Vibration Sensor") && (
+              {inventoryDispatchHint(category) && <p className="rounded-lg border border-border bg-surface-raised/30 p-3 text-xs text-text-secondary">{inventoryDispatchHint(category)}</p>}
+              {["proximitysensor", "vibrationsensor"].includes(inventoryComponentKey(category)) && (
                 <div className="grid grid-cols-1 gap-4">
-                  {category.startsWith("Proxy") && (
+                  {inventoryComponentKey(category) === "proximitysensor" && (
                     <div className="space-y-1">
                       <Label className="text-text-secondary font-semibold">
                         Proxy Model
                       </Label>
                       <Select
-                        value={sensorType}
-                        onChange={(e) => setSensorType(e.target.value)}
+                        value="Inductive"
+                        disabled
                         className="bg-surface-raised/50 h-9"
                       >
-                        <option value="">Select proxy model...</option>
-                        {PROXY_MODELS.map((pm) => (
-                          <option key={pm} value={pm}>
-                            {pm}
-                          </option>
-                        ))}
-                        <option value={CUSTOM_OPTION_VALUE}>+ Add Custom Model</option>
+                        <option value="Inductive">Inductive</option>
                       </Select>
 
                       {sensorType === CUSTOM_OPTION_VALUE && (
@@ -2606,7 +2620,7 @@ export function InventoryStockPanel() {
                     </div>
                   )}
 
-                  {category === "Vibration Sensor" && (
+                  {inventoryComponentKey(category) === "vibrationsensor" && (
                     <div className="space-y-1">
                       <Label className="text-text-secondary font-semibold">
                         Vibration Model
@@ -2647,6 +2661,7 @@ export function InventoryStockPanel() {
                   <Input
                     type="number"
                     min="0"
+                    step="0.01"
                     value={actualQuantity}
                     onChange={(e) =>
                       setActualQuantity(e.target.value === "" ? "" : Number(e.target.value))
