@@ -1542,21 +1542,12 @@ export function SitesPanel() {
     const siteToDelete = sites.find((site: any) => site.id === siteId);
     if (
       !window.confirm(
-        "Are you sure you want to delete this site? All associated forms, appointments, and progress data will be permanently removed.",
+        "Delete this site? Its forms, Company Tracker record, and Upscale logistics orders will be removed. Stock already deducted for shipped devices will stay deducted.",
       )
     )
       return;
     try {
-      await Promise.all([
-        supabase.from("assessment").delete().eq("site_id", siteId),
-        supabase.from("commissioning").delete().eq("site_id", siteId),
-        supabase.from("contacts").delete().eq("site_id", siteId),
-        supabase.from("installation").delete().eq("site_id", siteId),
-        supabase.from("machines").delete().eq("site_id", siteId),
-        supabase.from("media").delete().eq("site_id", siteId),
-      ]);
-
-      const { error } = await supabase.from("sites").delete().eq("id", siteId);
+      const { error } = await supabase.rpc("site_delete_with_upscale", { _site_id: siteId });
       if (error) throw error;
 
       await recordActivityLog({

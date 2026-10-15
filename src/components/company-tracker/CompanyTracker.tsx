@@ -26,6 +26,7 @@ import {
   Textarea,
 } from "@/components/ui-kit";
 import { toast } from "sonner";
+import { UpscaleConversionDialog, type UpscaleDeviceDraft } from "./UpscaleConversionDialog";
 
 const stages = [
   "Pending Works",
@@ -159,6 +160,7 @@ export function CompanyTracker() {
   const [checks, setChecks] = useState<Record<string, boolean>>({});
   const [issueFor, setIssueFor] = useState<Tracker | null>(null);
   const [issueChecks, setIssueChecks] = useState<Record<string, boolean>>({});
+  const [convertFor, setConvertFor] = useState<Tracker | null>(null);
   const trackerDb = supabase as unknown as TrackerRpc;
   const load = useCallback(async () => {
     if (!userId) return;
@@ -227,15 +229,22 @@ export function CompanyTracker() {
   const deleteTracker = async (item: Tracker) => {
     if (
       !window.confirm(
-        `Delete ${item.company_name} from Company Tracker? This also removes its comments and monitoring history.`,
+        `Delete ${item.company_name} from Company Tracker? This removes its comments and monitoring history.${item.stage === "Converted" ? " Its Upscale device orders will also disappear from Logistics. Stock already deducted for shipped devices will stay deducted." : ""}`,
       )
     )
       return;
     setBusy(true);
     const { error } = await trackerDb.rpc("company_tracker_delete", { _tracker_id: item.id });
     setBusy(false);
-    if (error) return toast.error(error.message);
-    toast.success("Company removed from the tracker.");
+    if (error) {
+      toast.error(
+        error.message.includes("foreign key constraint")
+          ? "This company has linked Upscale orders. The database delete update must be applied before it can be removed."
+          : error.message,
+      );
+      return;
+    }
+    toast.success(item.stage === "Converted" ? "Company and Upscale orders removed." : "Company removed from the tracker.");
     setMonitorDetails(null);
     await load();
   };
@@ -254,6 +263,10 @@ export function CompanyTracker() {
     void load();
   };
   const move = async (item: Tracker) => {
+    if (item.stage === "Quotation Sent") {
+      setConvertFor(item);
+      return;
+    }
     const existingComment = item.comments.find((entry) => entry.stage === item.stage)?.body;
     const text =
       existingComment ??
@@ -268,6 +281,24 @@ export function CompanyTracker() {
     setBusy(false);
     if (error) return toast.error(error.message);
     toast.success("Stage updated.");
+    setMonitorDetails(null);
+    await load();
+  };
+  const convertUpscale = async (comment: string, devices: UpscaleDeviceDraft[]) => {
+    if (!convertFor) return;
+    setBusy(true);
+    const { error } = await trackerDb.rpc("company_tracker_convert_upscale", {
+      _tracker_id: convertFor.id,
+      _comment: comment,
+      _devices: devices,
+    });
+    setBusy(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(`${devices.length} Upscale device orders created. Company converted.`);
+    setConvertFor(null);
     setMonitorDetails(null);
     await load();
   };
@@ -453,6 +484,15 @@ export function CompanyTracker() {
           }
         />
       )}
+      {convertFor && (
+        <UpscaleConversionDialog
+          companyName={convertFor.company_name}
+          initialComment={convertFor.comments.find((entry) => entry.stage === "Quotation Sent")?.body ?? ""}
+          busy={busy}
+          onClose={() => setConvertFor(null)}
+          onSubmit={convertUpscale}
+        />
+      )}
       {assignOpen && (
         <Modal title="Assign Company" onClose={() => setAssignOpen(false)}>
           <Label>Company</Label>
@@ -523,7 +563,7 @@ export function CompanyTracker() {
           </Select>
           <Label className="mt-4">Stage</Label>
           <Select value={assignmentStage} onChange={(e) => setAssignmentStage(e.target.value as Stage)}>
-            {stages.map((stage) => (
+            {stages.filter((stage) => stage !== "Converted").map((stage) => (
               <option key={stage} value={stage}>
                 {stage}
               </option>

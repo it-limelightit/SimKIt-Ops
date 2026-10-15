@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth-store";
 import { useFieldOperations } from "@/hooks/use-field-operations";
+import { isJenilThakar } from "@/lib/field-associate-visibility";
 import { commissioningDateChanged } from "@/hooks/use-commissioning-work-dates";
 import {
   earningsTotal,
@@ -1804,14 +1805,15 @@ export function ManagerAttendanceBox() {
       </div>
     );
   if (state.error || !state.board) return <LoadMessage {...state} />;
-  const associate = state.board.users.find((u) => u.id === selected);
+  const visibleUsers = state.board.users.filter((u) => !isJenilThakar(u.name));
+  const associate = visibleUsers.find((u) => u.id === selected);
   return (
     <section className={panel}>
       <h2 className="mb-4 flex items-center gap-2 font-semibold">
         <Activity size={18} /> Field associates · Today
       </h2>
       <div className="flex flex-wrap gap-3">
-        {state.board.users
+        {visibleUsers
           .filter((u) => u.active !== false)
           .map((u) => (
             <button
@@ -1823,7 +1825,7 @@ export function ManagerAttendanceBox() {
             </button>
           ))}
       </div>
-      {!state.board.users.some((u) => u.active !== false) && (
+      {!visibleUsers.some((u) => u.active !== false) && (
         <p className="text-sm text-text-secondary">No active field associates.</p>
       )}
       <Dialog open={!!associate} onOpenChange={(open) => !open && setSelected(null)}>
@@ -1853,6 +1855,9 @@ export function ManagerFieldOperations() {
   if (state.unavailable) return <FieldVisitScheduler />;
   if (state.loading || state.error || !state.board) return <LoadMessage {...state} />;
   const board = state.board;
+  const visibleUsers = board.users.filter((u) => !isJenilThakar(u.name));
+  const visibleUserIds = new Set(visibleUsers.map((u) => u.id));
+  const visibleVisits = board.visits.filter((visit) => visibleUserIds.has(visit.assignee_id));
   return (
     <div className="space-y-3">
       <header className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-border bg-gradient-to-br from-surface to-lime/5 p-4 sm:p-4">
@@ -1873,13 +1878,13 @@ export function ManagerFieldOperations() {
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Metric
           label="Field associates"
-          value={String(board.users.filter((u) => u.active !== false).length)}
+          value={String(visibleUsers.filter((u) => u.active !== false).length)}
         />
-        <Metric label="Online today" value={String(board.users.filter((u) => u.online).length)} />
+        <Metric label="Online today" value={String(visibleUsers.filter((u) => u.online).length)} />
         <Metric
           label="Today's active visits"
           value={String(
-            board.visits.filter((v) => v.scheduled_for === board.today && v.status !== "completed")
+            visibleVisits.filter((v) => v.scheduled_for === board.today && v.status !== "completed")
               .length,
           )}
         />
@@ -1894,7 +1899,7 @@ export function ManagerFieldOperations() {
           Select an associate to view visits, history, earnings or work prices.
         </p>
       </div>
-      {board.users.map((u) => (
+      {visibleUsers.map((u) => (
         <section
           key={u.id}
           className={`rounded-xl border border-border bg-surface p-4 transition-shadow ${selected === u.id ? "shadow-sm ring-1 ring-lime/20" : "hover:shadow-sm"}`}

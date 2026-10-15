@@ -67,3 +67,46 @@ test("latest saved logistics status takes priority over legacy inventory state",
   assert.equal(isDispatchedMaterial(material("In transit", "Pending")), false);
   assert.equal(isDispatchedMaterial(material("Pending", "Dispatched")), true);
 });
+
+test("saving courier status preserves the Without Cavli order selection", async () => {
+  let handler;
+  function findHandler(node) {
+    if (ts.isVariableDeclaration(node) && node.name.getText(parsed) === "handleSaveStep2") {
+      handler = node.initializer.getText(parsed);
+    }
+    ts.forEachChild(node, findHandler);
+  }
+  findHandler(parsed);
+  assert.ok(handler);
+  const handlerKeys = [
+    "editable", "deviceName", "packingDate", "transitDate", "arrivedDate", "state",
+    "courierPartner", "courierId", "material", "initialNotes", "userId", "currentActorName",
+    "setSaving", "setPackingDate", "setTransitDate", "setArrivedDate", "setExpanded", "onReload",
+    "toast", "recordActivityLog", "supabase",
+  ];
+  const compiledHandler = ts.transpileModule(
+    `export function createHandler(context) { const { ${handlerKeys.join(", ")} } = context; return ${handler}; }`,
+    { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } },
+  ).outputText;
+  const { createHandler } = await import(
+    `data:text/javascript;base64,${Buffer.from(compiledHandler).toString("base64")}`
+  );
+  let saved;
+  const noop = () => {};
+  const initialNotes = { dm_selected: true, without_cavli: true, logistics_status: "Packing" };
+  const submit = createHandler({
+    editable: true, deviceName: "DM-TEST", packingDate: "2026-10-15", transitDate: "", arrivedDate: "",
+    state: "Transit", courierPartner: "Courier", courierId: "TRACK", material: { id: "order", material_name: "Test", state: "Available" },
+    initialNotes, userId: "user", currentActorName: "User", setSaving: noop, setPackingDate: noop,
+    setTransitDate: noop, setArrivedDate: noop, setExpanded: noop, onReload: noop,
+    toast: { error: noop, success: noop }, recordActivityLog: async () => {},
+    supabase: { from: () => ({ update: (payload) => { saved = payload; return { eq: async () => ({ error: null }) }; } }) },
+  });
+  await submit({ preventDefault: noop });
+  assert.equal(saved.state, "In transit");
+  assert.deepEqual(JSON.parse(saved.notes), {
+    dm_selected: true, without_cavli: true, logistics_status: "Transit",
+    courier_partner: "Courier", packing_date: "2026-10-15", transit_date: "2026-10-15",
+    arrived_date: "", courier_id: "TRACK",
+  });
+});

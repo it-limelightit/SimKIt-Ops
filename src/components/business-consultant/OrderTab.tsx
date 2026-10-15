@@ -21,6 +21,7 @@ interface OrderTabProps {
 export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
   const { userId, email, profile } = useAuth();
   const [dm, setDm] = useState(true);
+  const [withoutCavli, setWithoutCavli] = useState(false);
   const [ct1, setCt1] = useState(false);
   const [ct2, setCt2] = useState(false);
   const [ct3, setCt3] = useState(false);
@@ -50,11 +51,11 @@ export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
           .from("inventory_materials")
           .select("*")
           .eq("submitted", true)
-          .eq("material_name", companyName)
-          .maybeSingle();
+          .eq("material_name", companyName);
+        const existingSimkitOrder = data?.find((order) => order.order_source !== "upscale");
 
-        if (!error && data) {
-          setExistingOrder(data);
+        if (!error && existingSimkitOrder) {
+          setExistingOrder(existingSimkitOrder);
           onOrderReady?.();
         } else if (!error) {
           setExistingOrder(null);
@@ -87,12 +88,13 @@ export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
     setSubmitting(true);
     try {
       // 1. Prevent duplicate submission by querying DB first
-      const { data: check, error: checkError } = await supabase
+      const { data: matchingOrders, error: checkError } = await supabase
         .from("inventory_materials")
         .select("*")
         .eq("submitted", true)
-        .eq("material_name", companyName)
-        .maybeSingle();
+        .eq("material_name", companyName);
+      if (checkError) throw checkError;
+      const check = matchingOrders?.find((order) => order.order_source !== "upscale");
 
       if (check) {
         toast.error("Already ordered: An order has already been placed for this company.");
@@ -127,6 +129,7 @@ export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
           unit: "pcs",
           notes: JSON.stringify({
             dm_selected: dm,
+            without_cavli: dm && withoutCavli,
             courier_partner: "",
             packing_date: "",
             transit_date: "",
@@ -157,6 +160,7 @@ export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
       onOrderReady?.();
       // Reset form
       setDm(true);
+      setWithoutCavli(false);
       setCt1(false);
       setCt2(false);
       setCt3(false);
@@ -315,8 +319,24 @@ export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
           </div>
         </div>
 
-        <div className="p-4 border border-border bg-surface-raised/10 rounded-[8px]">
-          <Checkbox checked={dm} onCheckedChange={setDm} label="DM (Data Meter)" id="order-dm" />
+        <div className="p-4 border border-border bg-surface-raised/10 rounded-[8px] flex flex-wrap items-center gap-4 sm:gap-8">
+          <Checkbox
+            checked={dm}
+            onCheckedChange={(selected) => {
+              setDm(selected);
+              if (!selected) setWithoutCavli(false);
+            }}
+            label="DM (Data Meter)"
+            id="order-dm"
+          />
+          <Checkbox
+            checked={withoutCavli}
+            onCheckedChange={setWithoutCavli}
+            label="Without Cavli"
+            id="order-without-cavli"
+            disabled={!dm}
+          />
+          <Checkbox checked={antenna} onCheckedChange={setAntenna} label="Antenna Kit" id="order-antenna" />
         </div>
 
         {/* B. Sensors Configuration */}
@@ -408,21 +428,13 @@ export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
           {/* Other Sensors Grid */}
           <div className="p-4 border border-border bg-surface-raised/10 rounded-[8px]">
             <Label className="text-text-primary font-bold mb-3 block">Additional Components</Label>
-            <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-4">
+            <div className="grid gap-4 grid-cols-1 md:grid-cols-3">
               <Checkbox
                 checked={towerLight}
                 onCheckedChange={setTowerLight}
                 label="Tower Light"
                 id="order-towerlight"
               />
-              <Checkbox
-                checked={antenna}
-                onCheckedChange={setAntenna}
-                label="Antenna Kit"
-                id="order-antenna"
-              />
-            </div>
-            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
               <Checkbox
                 checked={encoder}
                 onCheckedChange={setEncoder}

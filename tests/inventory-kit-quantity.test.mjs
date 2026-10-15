@@ -253,7 +253,7 @@ function findSubmit(node) {
 }
 findSubmit(orderParsed);
 assert.ok(submitHandler);
-const orderKeys = ["dm", "ct1", "ct2", "ct3", "proxy1", "proxy2", "encoder", "vibration", "vibrationModel", "antenna", "towerLight", "energyMeter", "companyName", "address", "workerId", "userId", "email", "profile", "site", "onOrderReady", "supabase", "toast", "actorName", "recordActivityLog", "setSubmitting", "setExistingOrder", "setSubmittedOrder", "setDm", "setCt1", "setCt2", "setCt3", "setProxy1", "setProxy2", "setEncoder", "setVibration", "setVibrationModel", "setAntenna", "setTowerLight", "setEnergyMeter"];
+const orderKeys = ["dm", "withoutCavli", "ct1", "ct2", "ct3", "proxy1", "proxy2", "encoder", "vibration", "vibrationModel", "antenna", "towerLight", "energyMeter", "companyName", "address", "workerId", "userId", "email", "profile", "site", "onOrderReady", "supabase", "toast", "actorName", "recordActivityLog", "setSubmitting", "setExistingOrder", "setSubmittedOrder", "setDm", "setWithoutCavli", "setCt1", "setCt2", "setCt3", "setProxy1", "setProxy2", "setEncoder", "setVibration", "setVibrationModel", "setAntenna", "setTowerLight", "setEnergyMeter"];
 const orderCompiled = ts.transpileModule(`export function createSubmit(state) { const { ${orderKeys.join(",")} } = state; return ${submitHandler}; }`, {
   compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
 }).outputText;
@@ -263,16 +263,22 @@ function orderForm(overrides = {}, duplicate = false) {
   const payloads = [], errors = [], resets = {};
   const noop = () => {};
   const state = {
-    dm: true, ct1: false, ct2: false, ct3: false, proxy1: false, proxy2: false,
+    dm: true, withoutCavli: false, ct1: false, ct2: false, ct3: false, proxy1: false, proxy2: false,
     encoder: false, vibration: false, vibrationModel: "", antenna: false, towerLight: false, energyMeter: false,
     companyName: "Form test", address: "Office", workerId: "worker", userId: "worker", email: "worker@example.test", profile: null,
     site: { id: "site", name: "Factory" }, onOrderReady: noop,
     actorName: () => "Worker", recordActivityLog: async () => {},
     toast: { error: message => errors.push(message), success: noop },
     setSubmitting: noop, setExistingOrder: noop, setSubmittedOrder: noop,
-    ...Object.fromEntries(orderKeys.filter(key => /^set(Dm|Ct|Proxy|Encoder|Vibration|Antenna|TowerLight|EnergyMeter)/.test(key)).map(key => [key, value => { resets[key] = value; }])),
+    ...Object.fromEntries(orderKeys.filter(key => /^set(Dm|WithoutCavli|Ct|Proxy|Encoder|Vibration|Antenna|TowerLight|EnergyMeter)/.test(key)).map(key => [key, value => { resets[key] = value; }])),
     supabase: { from: () => ({
-      select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: duplicate ? { id: "existing" } : null, error: null }) }) }) }),
+      select: () => {
+        const query = {
+          eq: () => query,
+          then: (resolve) => Promise.resolve({ data: duplicate ? [{ id: "existing" }] : [], error: null }).then(resolve),
+        };
+        return query;
+      },
       insert: payload => { payloads.push(payload); return { select: () => ({ single: async () => ({ data: { id: "new", ...payload }, error: null }) }) }; },
     }) },
     ...overrides,
@@ -287,9 +293,21 @@ test("device order submission stores DM-only defaults and resets optional compon
   assert.equal(form.payloads.length, 1);
   const payload = form.payloads[0];
   assert.equal(JSON.parse(payload.notes).dm_selected, true);
+  assert.equal(JSON.parse(payload.notes).without_cavli, false);
   for (const flag of ["antenna", "tower_light", "ct1", "ct2", "ct3", "proxy1", "proxy2", "encoder", "vibration", "energy_meter"]) assert.equal(payload[flag], "FALSE", flag);
   assert.equal(form.resets.setDm, true);
+  assert.equal(form.resets.setWithoutCavli, false);
   assert.equal(form.resets.setAntenna, false);
+});
+
+test("device order submission records Without Cavli only for a selected DM", async () => {
+  const withoutCavli = orderForm({ withoutCavli: true });
+  await withoutCavli.submit();
+  assert.equal(JSON.parse(withoutCavli.payloads[0].notes).without_cavli, true);
+
+  const noDm = orderForm({ dm: false, withoutCavli: true });
+  await noDm.submit();
+  assert.equal(JSON.parse(noDm.payloads[0].notes).without_cavli, false);
 });
 
 test("device order submission persists deselected DM, optional antenna and individual CT inputs", async () => {

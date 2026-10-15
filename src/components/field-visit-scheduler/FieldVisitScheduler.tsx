@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarDays, CheckCircle2, Clock3, Plus, TriangleAlert } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-store";
+import { isJenilThakar } from "@/lib/field-associate-visibility";
 import {
   Badge,
   Button,
@@ -85,18 +86,20 @@ export function FieldVisitScheduler() {
       db.rpc("field_visit_schedule_board"),
       db.rpc("field_visit_schedule_options"),
     ]);
+    const data = !options.error
+      ? (options.data ?? { sites: [], users: [] }) as { sites: SiteOption[]; users: UserOption[] }
+      : null;
+    const hiddenIds = new Set(data?.users.filter((user) => isJenilThakar(user.name)).map((user) => user.id));
     if (board.error) toast.error(board.error.message);
-    else setVisits((board.data ?? []) as Visit[]);
-    if (!options.error) {
-      const data = (options.data ?? { sites: [], users: [] }) as {
-        sites: SiteOption[];
-        users: UserOption[];
-      };
+    else setVisits(((board.data ?? []) as Visit[]).filter((visit) =>
+      !manager || (!hiddenIds.has(visit.assignee_id) && !isJenilThakar(visit.assignee_name)),
+    ));
+    if (data) {
       setSites(data.sites);
-      setUsers(data.users);
+      setUsers(manager ? data.users.filter((user) => !isJenilThakar(user.name)) : data.users);
     }
     setLoading(false);
-  }, [db, userId]);
+  }, [db, userId, manager]);
   useEffect(() => {
     if (ready && userId) void load();
   }, [ready, userId, load]);
