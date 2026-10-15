@@ -37,9 +37,10 @@ import { useAuth } from "@/lib/auth-store";
 import { actorName, recordActivityLog } from "@/lib/activity-log";
 import { isTruthy } from "@/lib/inventory-service";
 import { inventoryOrderIncludesDm } from "@/lib/inventory-components";
+import { LogisticsResultsPortal } from "./LogisticsResultsPortal";
 
 
-type Material = {
+export type Material = {
   id: string;
   material_name: string;
   quantity: number;
@@ -77,6 +78,12 @@ type Material = {
   installation_date: string | null;
   iccid: string | null;
   remark: string | null;
+  order_source?: "simkit" | "upscale";
+  client_machine_name?: string | null;
+  upscale_requested_components?: Record<string, boolean> | null;
+  upscale_confirmed_components?: Record<string, boolean> | null;
+  upscale_order_id?: string | null;
+  upscale_device_sequence?: number | null;
 };
 
 type InventoryPanelProps = {
@@ -84,6 +91,10 @@ type InventoryPanelProps = {
   defaultFilterState?: string;
   viewMode?: ViewMode;
   showLogisticsKtas?: boolean;
+  revealOnMetricClick?: boolean;
+  activeOrderSource?: "simkit" | "upscale" | null;
+  onMetricSelect?: () => void;
+  resultsHost?: HTMLElement | null;
 };
 
 type ViewMode = "cards" | "table";
@@ -134,11 +145,23 @@ export function InventoryPanel({
   defaultFilterState = "all",
   viewMode: controlledViewMode,
   showLogisticsKtas = true,
+  revealOnMetricClick = false,
+  activeOrderSource,
+  onMetricSelect,
+  resultsHost,
 }: InventoryPanelProps) {
   const [materials, setMaterials] = useState<Material[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [filterState, setFilterState] = useState<string>(defaultFilterState);
+  const [metricSelected, setMetricSelected] = useState(false);
+  const revealOrders = (!revealOnMetricClick || metricSelected) &&
+    (activeOrderSource === undefined || activeOrderSource === "simkit");
+  const selectMetric = (status: string) => {
+    setFilterState(status);
+    setMetricSelected(true);
+    onMetricSelect?.();
+  };
   const [localViewMode, setLocalViewMode] = useState<ViewMode>("cards");
   const viewMode = controlledViewMode ?? localViewMode;
   const [tableDateFilter, setTableDateFilter] = useState<TableDateFilter>("all");
@@ -165,7 +188,7 @@ export function InventoryPanel({
       toast.error("Could not load logistics data: " + error.message);
       setMaterials([]);
     } else {
-      setMaterials((data ?? []) as Material[]);
+      setMaterials(((data ?? []) as Material[]).filter((material) => material.order_source !== "upscale"));
     }
     setLoading(false);
   }, []);
@@ -270,8 +293,8 @@ export function InventoryPanel({
   const paginatedMaterials = filteredMaterials.slice(startIndex, startIndex + ITEMS_PER_PAGE);
 
   return (
-    <div className="space-y-7 animate-in fade-in duration-200">
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className={`${revealOnMetricClick ? "space-y-4" : "space-y-7"} animate-in fade-in duration-200`}>
+      {!revealOnMetricClick && <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="font-mono text-[10px] uppercase tracking-widest text-lime/80 font-bold">
             {viewMode === "table" ? "Device Information" : "Live Logistics Pipelines"}
@@ -297,7 +320,7 @@ export function InventoryPanel({
               : "Track client device orders, pack hardware packages, configure OTA settings, and log courier shipments."}
           </p>
         </div>
-      </header>
+      </header>}
 
       {showLogisticsKtas ? (
         <div className="grid gap-3 grid-cols-2 sm:grid-cols-5">
@@ -306,40 +329,40 @@ export function InventoryPanel({
             label="Total Orders"
             value={metrics.total}
             tone="info"
-            active={filterState === "all"}
-            onClick={() => setFilterState("all")}
+            active={revealOrders && filterState === "all"}
+            onClick={() => selectMetric("all")}
           />
           <MetricCard
             icon={AlertCircle}
             label="Pending Packing"
             value={metrics.pending}
             tone="danger"
-            active={filterState === "Pending"}
-            onClick={() => setFilterState("Pending")}
+            active={revealOrders && filterState === "Pending"}
+            onClick={() => selectMetric("Pending")}
           />
           <MetricCard
             icon={Package}
             label="In Packing"
             value={metrics.packing}
             tone="warning"
-            active={filterState === "Packing"}
-            onClick={() => setFilterState("Packing")}
+            active={revealOrders && filterState === "Packing"}
+            onClick={() => selectMetric("Packing")}
           />
           <MetricCard
             icon={Truck}
             label="Shipped / Transit"
             value={metrics.transit}
             tone="info"
-            active={filterState === "Transit"}
-            onClick={() => setFilterState("Transit")}
+            active={revealOrders && filterState === "Transit"}
+            onClick={() => selectMetric("Transit")}
           />
           <MetricCard
             icon={PackageCheck}
             label="Delivered"
             value={metrics.delivered}
             tone="success"
-            active={filterState === "Delivered"}
-            onClick={() => setFilterState("Delivered")}
+            active={revealOrders && filterState === "Delivered"}
+            onClick={() => selectMetric("Delivered")}
           />
         </div>
       ) : (
@@ -350,7 +373,9 @@ export function InventoryPanel({
         />
       )}
 
-      {showLogisticsKtas && <div className="flex flex-col gap-3 border-t border-border pt-4">
+      {revealOrders && <LogisticsResultsPortal host={resultsHost}>
+      <div className={resultsHost ? "space-y-4" : "space-y-7"}>
+      {showLogisticsKtas && revealOrders && <div className="flex flex-col gap-3 border-t border-border pt-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <Select
@@ -406,7 +431,7 @@ export function InventoryPanel({
         </div>
       </div>}
 
-      {loading ? (
+      {revealOrders && (loading ? (
         <div className="grid gap-4 md:grid-cols-2">
           {[1, 2, 3, 4].map((x) => (
             <div key={x} className="h-44 animate-pulse rounded-[10px] bg-surface" />
@@ -500,12 +525,14 @@ export function InventoryPanel({
         )
       ) : (
         <EmptyState icon={Boxes} text="No logistics orders found." />
-      )}
+      ))}
+      </div>
+      </LogisticsResultsPortal>}
     </div>
   );
 }
 
-function MetricCard({
+export function MetricCard({
   icon: Icon,
   label,
   value,
@@ -533,7 +560,8 @@ function MetricCard({
     <button
       type="button"
       onClick={onClick}
-      className={`flex items-center gap-3 rounded-[9px] border bg-surface px-4 py-3 text-left transition-all hover:border-lime/60 hover:bg-surface-hover ${active ? "border-lime ring-2 ring-lime/15" : "border-border"
+      aria-pressed={active}
+      className={`flex items-center gap-3 rounded-[9px] border bg-surface px-4 py-3 text-left transition-all hover:border-lime/60 hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet ${active ? "border-lime ring-2 ring-lime/15" : "border-border"
         }`}
     >
       <div className={`rounded-[6px] p-2 ${bgClass}`}>
@@ -749,7 +777,7 @@ function boolLabel(value: string | null | undefined) {
   return value || "-";
 }
 
-function normalizeLogisticsStatus(status: string) {
+export function normalizeLogisticsStatus(status: string): "Pending" | "Packing" | "Transit" | "Delivered" {
   const normalized = status.trim().toLowerCase();
   if (["in transit", "transit", "shipped", "dispatched"].includes(normalized)) return "Transit";
   if (normalized === "packing") return "Packing";
@@ -787,17 +815,21 @@ function matchesTableDateFilter(value: string | null | undefined, filter: TableD
   return monthKey === filter;
 }
 
-function LogisticsTableView({
+export function LogisticsTableView({
   materials,
+  showMachineColumn = false,
+  title = "Logistics Analysis Table",
 }: {
   materials: Material[];
+  showMachineColumn?: boolean;
+  title?: string;
 }) {
   return (
     <div>
       <Card className="rounded-[10px] border border-border bg-surface p-0">
         <div className="flex flex-col gap-2 border-b border-border px-4 py-4 sm:px-5">
           <div>
-            <h2 className="text-base font-extrabold text-text-primary">Logistics Analysis Table</h2>
+            <h2 className="text-base font-extrabold text-text-primary">{title}</h2>
             <p className="mt-1 text-xs text-text-secondary">
               Live device data grouped for date, delivery, location, courier, and hardware analysis.
             </p>
@@ -806,10 +838,11 @@ function LogisticsTableView({
 
         {materials.length ? (
           <div className="overflow-x-auto">
-            <table className="min-w-[4040px] w-full table-fixed border-separate border-spacing-0 text-left text-xs">
+            <table className={`${showMachineColumn ? "min-w-[4260px]" : "min-w-[4040px]"} w-full table-fixed border-separate border-spacing-0 text-left text-xs`}>
               <colgroup>
                 <col className="w-32" />
                 <col className="w-72" />
+                {showMachineColumn && <col className="w-56" />}
                 <col className="w-40" />
                 <col className="w-40" />
                 <col className="w-32" />
@@ -833,6 +866,7 @@ function LogisticsTableView({
                   {[
                     "Date",
                     "Company",
+                    ...(showMachineColumn ? ["Client machine"] : []),
                     "Location",
                     "Device ID",
                     "Status",
@@ -864,7 +898,7 @@ function LogisticsTableView({
                     <th
                       key={heading}
                       className={`whitespace-nowrap border-b border-border px-3 py-3 font-bold ${index === 0 ? "sticky left-0 z-30 w-32 min-w-32 border-r border-border bg-surface-raised" : ""
-                        } ${index === 1 ? "sticky left-32 z-30 w-72 min-w-72 border-r border-border bg-surface-raised" : ""}`}
+                      } ${index === 1 ? "sticky left-32 z-30 w-72 min-w-72 border-r border-border bg-surface-raised" : ""} ${showMachineColumn && index === 2 ? "sticky left-[26rem] z-30 w-56 min-w-56 border-r border-border bg-surface-raised" : ""}`}
                     >
                       {heading}
                     </th>
@@ -884,6 +918,7 @@ function LogisticsTableView({
                       <TableCellValue sticky="company" strong>
                         {material.material_name}
                       </TableCellValue>
+                      {showMachineColumn && <TableCellValue sticky="machine" strong>{material.client_machine_name || "-"}</TableCellValue>}
                       <TableCellValue>{material.location || "Address not available"}</TableCellValue>
                       <TableCellValue mono>{material.device_id || "-"}</TableCellValue>
                       <td className="overflow-hidden border-b border-border/70 px-3 py-3 align-top text-text-secondary">
@@ -951,7 +986,7 @@ function TableCellValue({
   children: ReactNode;
   strong?: boolean;
   mono?: boolean;
-  sticky?: "left" | "company";
+  sticky?: "left" | "company" | "machine";
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -962,6 +997,8 @@ function TableCellValue({
           ? "sticky left-0 z-20 w-32 min-w-32 max-w-32 border-r border-border/80 bg-surface whitespace-nowrap"
           : sticky === "company"
             ? "sticky left-32 z-20 w-72 min-w-72 max-w-72 border-r border-border/80 bg-surface"
+            : sticky === "machine"
+              ? "sticky left-[26rem] z-20 w-56 min-w-56 max-w-56 border-r border-border/80 bg-surface"
             : ""
         }`}
     >
@@ -1102,14 +1139,18 @@ function DropdownWithCustomOption({
   );
 }
 
-function OrderCard({
+export function OrderCard({
   material,
   editable,
   onReload,
+  allowDelete = true,
+  triggerMode = "card",
 }: {
   material: Material;
   editable: boolean;
   onReload: () => void;
+  allowDelete?: boolean;
+  triggerMode?: "card" | "actions";
 }) {
   const [expanded, setExpanded] = useState(false);
   const [step, setStep] = useState<1 | 2>(1);
@@ -1697,6 +1738,7 @@ function OrderCard({
     }
 
     const updatedNotes: CourierNotes = {
+      ...initialNotes,
       courier_partner: courierPartner,
       packing_date: currentPackingDate,
       transit_date: currentTransitDate,
@@ -1842,6 +1884,16 @@ function OrderCard({
   return (
     <>
       {/* 1. Interactive Card */}
+      {triggerMode === "actions" ? (
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" onClick={() => setExpanded(true)}>
+            Edit configuration & courier
+          </Button>
+          <Button type="button" variant="secondary" onClick={() => void downloadPDF()}>
+            <FileText size={14} /> Download challan
+          </Button>
+        </div>
+      ) : (
       <Card
         onClick={() => setExpanded(true)}
         className={`relative overflow-hidden transition-all duration-300 transform hover:-translate-y-[2px] cursor-pointer flex flex-col justify-between h-full border border-border/60 hover:border-border rounded-xl p-5 ${borderStyle}`}
@@ -1888,7 +1940,7 @@ function OrderCard({
               >
                 {activeStatus}
               </Badge>
-              {editable && (
+              {editable && allowDelete && (
                 <button
                   onClick={handleDelete}
                   className="p-1.5 rounded bg-red-500/10 hover:bg-red-500/20 text-red-500 transition cursor-pointer"
@@ -1913,7 +1965,7 @@ function OrderCard({
             </div>
           </div>
           {/* Quick Courier & Status Editor */}
-          {editable && (
+          {editable && material.order_source !== "upscale" && (
             <div
               onClick={(e) => e.stopPropagation()}
               className="mt-3 p-3 bg-surface-raised border border-border rounded-lg space-y-2"
@@ -1973,6 +2025,7 @@ function OrderCard({
           </span>
         </div>
       </Card>
+      )}
 
       {/* 2. Central Screen Modal Popup Box */}
       {expanded && (
@@ -2008,7 +2061,7 @@ function OrderCard({
                 >
                   <FileText size={14} /> Download Challan PDF
                 </Button>
-                {editable && (
+                {editable && allowDelete && (
                   <button
                     onClick={handleDelete}
                     className="p-1.5 rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-600 transition cursor-pointer"
@@ -2055,9 +2108,9 @@ function OrderCard({
                         <div className="flex items-center justify-between">
                           <div>
                             <Label className="text-text-primary font-bold text-xs uppercase tracking-wider">Requested Components Checklist</Label>
-                            <p className="text-[10px] text-text-secondary mt-0.5">Tick components as you pack them to match consultant request.</p>
+                            <p className="text-[10px] text-text-secondary mt-0.5">{material.order_source === "upscale" ? "Confirm requested contents in the Upscale company panel." : "Tick components as you pack them to match consultant request."}</p>
                           </div>
-                          {checklistItems.length > 0 && (
+                          {checklistItems.length > 0 && material.order_source !== "upscale" && (
                             <Button
                               type="button"
                               variant="ghost"
@@ -2082,7 +2135,7 @@ function OrderCard({
                                 <Checkbox
                                   checked={item.checked}
                                   onCheckedChange={item.onChange}
-                                  disabled={item.id.startsWith("pack-ant-")}
+                                  disabled={material.order_source === "upscale" || item.id.startsWith("pack-ant-")}
                                   id={item.id}
                                 />
                               </div>

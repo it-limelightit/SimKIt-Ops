@@ -86,6 +86,8 @@ before(async () => {
   }
   await db.exec(migration("20261013160000_atomic_inventory_dispatch.sql"));
   await db.exec(migration("20261014110000_device_order_component_selection.sql"));
+  await db.exec(migration("20261015100000_device_order_without_cavli.sql"));
+  await db.exec(migration("20261015110000_preserve_device_order_selection_notes.sql"));
   cutoff = await scalar("SELECT activated_at::text FROM inventory_dispatch_settings");
   await asUser(manager);
 });
@@ -398,6 +400,8 @@ test("reapplying the migration preserves its activation cutoff and existing dedu
   const repeat=migration('20261013160000_atomic_inventory_dispatch.sql').replace(/^BEGIN;\s*/,'').replace(/COMMIT;\s*$/,'');
   await db.exec(repeat);
   await db.exec(migration('20261014110000_device_order_component_selection.sql').replace(/^BEGIN;\s*/m,'').replace(/COMMIT;\s*$/,''));
+  await db.exec(migration('20261015100000_device_order_without_cavli.sql').replace(/^BEGIN;\s*/m,'').replace(/COMMIT;\s*$/,''));
+  await db.exec(migration('20261015110000_preserve_device_order_selection_notes.sql').replace(/^BEGIN;\s*/m,'').replace(/COMMIT;\s*$/,''));
   assert.equal(await scalar('SELECT activated_at::text FROM inventory_dispatch_settings'),originalCutoff);
   assert.deepEqual(await scalar('SELECT to_jsonb(d) FROM inventory_dispatch_deductions d WHERE order_id=$1',[id]),receipt);
   await dispatch(id,'Delivered');
@@ -444,6 +448,32 @@ test("DM-only selections preserve legacy DM defaults but do not deduct unchecked
   assert.equal(await quantity("MAGNETIC MOUNT ANTEENA"), 100);
   assert.equal(await quantity("RF CABLE (ANTEENA)"), 100);
   assert.equal(await quantity("TOWER LIGHT"), 100);
+});
+
+test("Without Cavli deducts other DM parts and selected antenna parts, but leaves Cavli stock unchanged", async () => {
+  const id = await order({ notes: JSON.stringify({ dm_selected: true, without_cavli: true }), antenna: "TRUE" });
+  await dispatch(id);
+  for (const [category, qty] of core) {
+    assert.equal(await quantity(category), category === "CAVLI PCB" ? 100 : 100 - qty, category);
+  }
+  assert.equal(await quantity("BOX"), 99);
+  await dispatch(id, "Delivered");
+  assert.equal(await quantity("CAVLI PCB"), 100);
+  assert.equal(await quantity("SIM CARD"), 99);
+});
+
+test("courier notes replacement preserves Without Cavli before dispatch deductions", async () => {
+  const id = await order({ notes: JSON.stringify({ dm_selected: true, without_cavli: true }) });
+  await db.query(
+    "UPDATE inventory_materials SET notes=$2,state='In transit' WHERE id=$1",
+    [id, JSON.stringify({ logistics_status: "Transit", courier_id: "TRACK" })],
+  );
+  const savedNotes = JSON.parse(await scalar("SELECT notes FROM inventory_materials WHERE id=$1", [id]));
+  assert.equal(savedNotes.dm_selected, true);
+  assert.equal(savedNotes.without_cavli, true);
+  assert.equal(savedNotes.logistics_status, "Transit");
+  assert.equal(await quantity("CAVLI PCB"), 100);
+  assert.equal(await quantity("SIM CARD"), 99);
 });
 
 test("any YHDC input selection deducts exactly 3 sensors and preserves the fixed wiring rule", async () => {
