@@ -46,6 +46,13 @@ test("unfiltered manager overview includes all companies without personal assign
 
 test("associate, city, search, personal tasks, and dates intersect", () => {
   assert.equal(matches({ city: "Surat", search: " acme ", myTasksUserId: "b" }), true);
+  assert.equal(matches({ city: "surat" }, { city: "SURAT" }), true);
+  assert.equal(matches({ city: "New City" }, { city: "  NEW   CITY  " }), true);
+  assert.equal(matches({ city: "Rajkot" }, { city: "RAJKOT, GUJARAT" }), true);
+  assert.equal(matches({ city: "Surat" }, { city: "DIST. SURAT" }), false);
+  assert.equal(matches({ city: "Surat" }, { city: "RING ROAD, SURAT" }), false);
+  assert.equal(matches({ city: "Lodhika (Rajkot)" }, { city: "TAL-LODHIKA" }), true);
+  assert.equal(matches({ city: "Kotda Sangani (Rajkot)" }, { city: "Kotda Sangani" }), true);
   assert.equal(matches({ associateId: "other" }), false);
   assert.equal(matches({ city: "Other" }), false);
   assert.equal(matches({ search: "Missing" }), false);

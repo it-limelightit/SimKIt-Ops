@@ -60,6 +60,7 @@ type Tracker = {
   id: string;
   site_id: string;
   stage: Stage;
+  upscale_order_pending?: boolean;
   stage_changed_at: string;
   company_name: string;
   city: string | null;
@@ -218,7 +219,7 @@ export function CompanyTracker() {
     });
     setBusy(false);
     if (error) return toast.error(error.message);
-    toast.success(`Company assigned to ${assignmentStage}.`);
+    toast.success(assignmentStage === "Converted" ? "Company converted. Upscale device order pending." : `Company assigned to ${assignmentStage}.`);
     setAssignOpen(false);
     setSiteId("");
     setAssignmentSearch("");
@@ -297,7 +298,7 @@ export function CompanyTracker() {
       toast.error(error.message);
       return;
     }
-    toast.success(`${devices.length} Upscale device orders created. Company converted.`);
+    toast.success(convertFor.stage === "Converted" ? `${devices.length} Upscale device orders created.` : `${devices.length} Upscale device orders created. Company converted.`);
     setConvertFor(null);
     setMonitorDetails(null);
     await load();
@@ -487,7 +488,8 @@ export function CompanyTracker() {
       {convertFor && (
         <UpscaleConversionDialog
           companyName={convertFor.company_name}
-          initialComment={convertFor.comments.find((entry) => entry.stage === "Quotation Sent")?.body ?? ""}
+          initialComment={convertFor.stage === "Quotation Sent" ? convertFor.comments.find((entry) => entry.stage === "Quotation Sent")?.body ?? "" : ""}
+          alreadyConverted={convertFor.stage === "Converted"}
           busy={busy}
           onClose={() => setConvertFor(null)}
           onSubmit={convertUpscale}
@@ -563,18 +565,23 @@ export function CompanyTracker() {
           </Select>
           <Label className="mt-4">Stage</Label>
           <Select value={assignmentStage} onChange={(e) => setAssignmentStage(e.target.value as Stage)}>
-            {stages.filter((stage) => stage !== "Converted").map((stage) => (
+            {stages.map((stage) => (
               <option key={stage} value={stage}>
                 {stage}
               </option>
             ))}
           </Select>
+          {assignmentStage === "Converted" && (
+            <p className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-300">
+              The company will appear in Converted with Device order pending until its Upscale order is submitted.
+            </p>
+          )}
           <div className="mt-6 flex justify-end gap-2">
             <Button variant="ghost" onClick={() => setAssignOpen(false)}>
               Cancel
             </Button>
             <Button disabled={busy} onClick={assign}>
-              Save Assignment
+              {assignmentStage === "Converted" ? "Assign as Converted" : "Save Assignment"}
             </Button>
           </div>
         </Modal>
@@ -630,7 +637,7 @@ export function CompanyTracker() {
       )}
       {monitorDetails && (
         <Modal
-          title={`Monitoring · ${monitorDetails.company_name}`}
+          title={`${monitorDetails.stage} · ${monitorDetails.company_name}`}
           onClose={() => setMonitorDetails(null)}
         >
           <TrackerCard
@@ -648,6 +655,11 @@ export function CompanyTracker() {
             onMonitor={(n) => openMonitoring(monitorDetails, n)}
             onIssueResolution={() => openIssueResolution(monitorDetails)}
             onDelete={() => deleteTracker(monitorDetails)}
+            onCreateUpscaleOrder={() => {
+              setConvertFor(monitorDetails);
+              setMonitorDetails(null);
+            }}
+            canCreateUpscaleOrder={isManager}
             canDelete={isManager}
             canMovePrevious={isManager}
           />
@@ -753,11 +765,16 @@ function MonitoringSummaryCard({ item, onOpen }: { item: Tracker; onOpen: () => 
     <button
       type="button"
       onClick={onOpen}
-      className="w-full rounded-xl border border-border bg-surface p-3.5 text-left shadow-sm transition-all hover:border-violet/40 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-violet/30"
+      className={`w-full rounded-xl border bg-surface p-3.5 text-left shadow-sm transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-violet/30 ${item.upscale_order_pending ? "border-amber-500/60 hover:border-amber-400" : "border-border hover:border-violet/40"}`}
     >
       <h3 className="break-words text-sm font-bold leading-5 text-text-primary">
         {item.company_name}
       </h3>
+      {item.upscale_order_pending && (
+        <p className="mt-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-2 text-xs font-bold text-amber-300">
+          Device order pending
+        </p>
+      )}
       <p className="mt-1 break-words text-[11px] text-text-secondary">
         {item.city || "No city"} · {item.assignee_name || "Unassigned"}
       </p>
@@ -811,6 +828,8 @@ function TrackerCard({
   onMonitor,
   onIssueResolution,
   onDelete,
+  onCreateUpscaleOrder,
+  canCreateUpscaleOrder,
   canDelete,
   canMovePrevious,
 }: {
@@ -822,6 +841,8 @@ function TrackerCard({
   onMonitor: (n: number) => void;
   onIssueResolution: () => void;
   onDelete: () => void;
+  onCreateUpscaleOrder: () => void;
+  canCreateUpscaleOrder: boolean;
   canDelete: boolean;
   canMovePrevious: boolean;
 }) {
@@ -859,6 +880,15 @@ function TrackerCard({
           {new Date(item.stage_changed_at).toLocaleDateString()}
         </span>
       </p>
+      {item.upscale_order_pending && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3">
+          <p className="text-sm font-bold text-amber-300">Device order pending</p>
+          <p className="mt-1 text-xs text-text-secondary">Create the Upscale device order for this converted company.</p>
+          {canCreateUpscaleOrder && (
+            <Button className="mt-3" onClick={onCreateUpscaleOrder}>Create Upscale device order</Button>
+          )}
+        </div>
+      )}
       {item.stage === "Pending Works" && (
         <div className="rounded-xl border border-border bg-surface-raised/40 p-3">
           <div className="flex items-center justify-between gap-2">

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useCommissioningWorkDates } from "@/hooks/use-commissioning-work-dates";
 import { commissioningWorkTimestamp } from "@/utils/commissioning-work-date";
 import { matchesOverviewFilters, toLocalDateKey } from "@/utils/overview-filters";
+import { formatSiteCityName, siteCityKey } from "@/utils/site-location";
 import { useNavigate } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { persistPhaseChanges } from "@/lib/phase-draft";
@@ -70,6 +71,7 @@ type SiteRow = {
   name: string;
   company_name: string | null;
   city: string | null;
+  district_id: string | null;
   address: string | null;
   assigned_worker_id: string | null;
   assigned_at: string | null;
@@ -203,6 +205,8 @@ export function Overview() {
   // Filter States
   const [selectedKpi, setSelectedKpi] = useState<string>("assigned");
   const [cityFilter, setCityFilter] = useState("");
+  const [districtFilter, setDistrictFilter] = useState("");
+  const [districts, setDistricts] = useState<Array<{ id: string; name: string }>>([]);
   const [executiveFilter, setExecutiveFilter] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [updatedDateFilter, setUpdatedDateFilter] = useState<UpdatedDateFilter>("all");
@@ -488,10 +492,10 @@ export function Overview() {
     setLoading(true);
     setLoadError(false);
     try {
-      const [sitesRes, assessmentsRes, installationsRes, commissioningsRes, approvalRequestsRes, profilesRes, materialsRes, rolesRes, activityLogsRes] = await Promise.all([
+      const [sitesRes, assessmentsRes, installationsRes, commissioningsRes, approvalRequestsRes, profilesRes, materialsRes, rolesRes, activityLogsRes, districtRes] = await Promise.all([
         supabase
           .from("sites")
-          .select("id,name,company_name,city,address,assigned_worker_id,assigned_at,appt_date,appt_time,created_at,task_notes,consultant_stage")
+          .select("id,name,company_name,city,district_id,address,assigned_worker_id,assigned_at,appt_date,appt_time,created_at,task_notes,consultant_stage")
           .order("created_at", { ascending: false }),
         supabase.from("assessment").select("data,updated_at,site_id"),
         supabase.from("installation").select("data,updated_at,site_id"),
@@ -510,11 +514,13 @@ export function Overview() {
           .neq("action", "login")
           .order("created_at", { ascending: false })
           .limit(1000),
+        supabase.from("site_districts").select("id,name").order("name"),
       ]);
 
       if (sitesRes.error) throw sitesRes.error;
 
       setRawSites(sitesRes.data ?? []);
+      setDistricts(districtRes.data ?? []);
       setRawAssessments(assessmentsRes.data ?? []);
       setRawInstallations(installationsRes.data ?? []);
       setRawCommissionings(commissioningsRes.data ?? []);
@@ -781,7 +787,17 @@ export function Overview() {
 
   // Process data rows
   const executives = rawProfiles.filter((p) => workerIds.has(p.id));
-  const cities = Array.from(new Set(rawSites.map((s) => s.city).filter(Boolean))) as string[];
+  const cityNames = new Map<string, string>();
+  rawSites
+    .filter((site) => !districtFilter || (districtFilter === "__legacy__" ? !site.district_id : site.district_id === districtFilter))
+    .forEach((site) => {
+      if (!site.city) return;
+      const key = siteCityKey(site.city);
+      if (!cityNames.has(key)) {
+        cityNames.set(key, formatSiteCityName(site.city));
+      }
+    });
+  const cities = [...cityNames.values()].sort((a, b) => a.localeCompare(b));
   const profileNameMap = new Map<string, string>();
   rawProfiles.forEach((p) => {
     profileNameMap.set(p.id, p.name || p.mobile || "—");
@@ -887,6 +903,7 @@ export function Overview() {
       id: site.id,
       name: site.name,
       city: site.city,
+      district_id: site.district_id ?? null,
       address: site.address ?? null,
       assigned_worker_id: site.assigned_worker_id,
       assigned_at: site.assigned_at,
@@ -921,13 +938,15 @@ export function Overview() {
   const updatedDateRange = getUpdatedDateRange(updatedDateFilter, updatedDateStart, updatedDateEnd);
 
   // Counts, table rows, and exports share every active filter.
-  const filteredForCounts = allProcessedRows.filter((row) => matchesOverviewFilters(row, {
-    city: cityFilter,
-    associateId: executiveFilter,
-    dateRange: updatedDateRange,
-    search: searchQuery,
-    myTasksUserId: isDualRole && showMyTasks ? userId : null,
-  }, profileNameMap));
+  const filteredForCounts = allProcessedRows.filter((row) =>
+    (!districtFilter || (districtFilter === "__legacy__" ? !row.district_id : row.district_id === districtFilter)) &&
+    matchesOverviewFilters(row, {
+      city: cityFilter,
+      associateId: executiveFilter,
+      dateRange: updatedDateRange,
+      search: searchQuery,
+      myTasksUserId: isDualRole && showMyTasks ? userId : null,
+    }, profileNameMap));
 
   // Calculate counts based on current filters and canonical status partitioning
   const logisticsStatusKey = (r: SiteRow) => r.logisticsStatus.trim().toLowerCase();
@@ -1083,7 +1102,7 @@ export function Overview() {
   // Reset page number on filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedKpi, cityFilter, executiveFilter, searchQuery, updatedDateFilter, updatedDateStart, updatedDateEnd, sortField, sortOrder, showMyTasks]);
+  }, [selectedKpi, districtFilter, cityFilter, executiveFilter, searchQuery, updatedDateFilter, updatedDateStart, updatedDateEnd, sortField, sortOrder, showMyTasks]);
 
   const handleSort = (field: "name" | "city" | "updated") => {
     if (sortField === field) {
@@ -1108,6 +1127,7 @@ export function Overview() {
   };
 
   const handleResetFilters = () => {
+    setDistrictFilter("");
     setCityFilter("");
     setExecutiveFilter("");
     setSearchQuery("");
@@ -2586,6 +2606,21 @@ export function Overview() {
                   />
                 </div>
 
+                {/* District Filter */}
+                <div className="flex items-center gap-1 bg-surface-raised border border-border rounded-md px-2 py-1">
+                  <MapPin className="h-3.5 w-3.5 text-text-secondary" />
+                  <select
+                    value={districtFilter}
+                    onChange={(e) => { setDistrictFilter(e.target.value); setCityFilter(""); }}
+                    aria-label="Filter by district"
+                    className="bg-transparent text-xs focus:outline-none border-none pr-4 font-semibold text-text-primary cursor-pointer"
+                  >
+                    <option value="">All Districts</option>
+                    {districts.map((district) => <option key={district.id} value={district.id}>{district.name}</option>)}
+                    <option value="__legacy__">Needs district review</option>
+                  </select>
+                </div>
+
                 {/* City Filter */}
                 <div className="flex items-center gap-1 bg-surface-raised border border-border rounded-md px-2 py-1">
                   <MapPin className="h-3.5 w-3.5 text-text-secondary" />
@@ -2594,7 +2629,7 @@ export function Overview() {
                     onChange={(e) => setCityFilter(e.target.value)}
                     className="bg-transparent text-xs focus:outline-none border-none pr-4 font-semibold text-text-primary cursor-pointer"
                   >
-                    <option value="">All Cities</option>
+                    <option value="">All Talukas / Cities</option>
                     {cities.map((city) => (
                       <option key={city} value={city}>
                         {city}
@@ -2672,7 +2707,7 @@ export function Overview() {
                 )}
 
                 {/* Reset Filters */}
-                {(searchQuery || cityFilter || executiveFilter || updatedDateFilter !== "all" || showMyTasks) && (
+                {(searchQuery || districtFilter || cityFilter || executiveFilter || updatedDateFilter !== "all" || showMyTasks) && (
                   <button
                     onClick={handleResetFilters}
                     className="text-xs text-coral hover:text-coral/80 font-bold px-2 py-1.5 transition-colors border border-dashed border-coral/30 rounded cursor-pointer"

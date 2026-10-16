@@ -364,6 +364,24 @@ export type Database = {
         }
         Relationships: []
       }
+      site_districts: {
+        Row: { id: string; name: string }
+        Insert: { id?: string; name: string }
+        Update: { id?: string; name?: string }
+        Relationships: []
+      }
+      site_localities: {
+        Row: { id: string; district_id: string; name: string }
+        Insert: { id?: string; district_id: string; name: string }
+        Update: { id?: string; district_id?: string; name?: string }
+        Relationships: [{
+          foreignKeyName: "site_localities_district_id_fkey"
+          columns: ["district_id"]
+          isOneToOne: false
+          referencedRelation: "site_districts"
+          referencedColumns: ["id"]
+        }]
+      }
       sites: {
         Row: {
           address: string | null
@@ -374,6 +392,9 @@ export type Database = {
           city: string | null
           company_name: string | null
           consultant_stage: string | null
+          district_id: string | null
+          locality_id: string | null
+          location_original_city: string | null
           created_at: string
           created_by: string | null
           id: string
@@ -392,6 +413,9 @@ export type Database = {
           city?: string | null
           company_name?: string | null
           consultant_stage?: string | null
+          district_id?: string | null
+          locality_id?: string | null
+          location_original_city?: string | null
           created_at?: string
           created_by?: string | null
           id?: string
@@ -410,6 +434,9 @@ export type Database = {
           city?: string | null
           company_name?: string | null
           consultant_stage?: string | null
+          district_id?: string | null
+          locality_id?: string | null
+          location_original_city?: string | null
           created_at?: string
           created_by?: string | null
           id?: string
@@ -444,6 +471,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      review_site_locations: { Args: { _site_ids: string[]; _district_id: string; _locality_name: string }; Returns: number }
       can_access_site: { Args: { _site_id: string }; Returns: boolean }
       site_delete_with_upscale: { Args: { _site_id: string }; Returns: undefined }
       review_commissioning_approval_request: { Args: { _request_id: string; _approved: boolean }; Returns: undefined }

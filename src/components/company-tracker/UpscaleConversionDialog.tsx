@@ -30,12 +30,14 @@ function blankDevice(): UpscaleDeviceDraft {
 export function UpscaleConversionDialog({
   companyName,
   initialComment,
+  alreadyConverted = false,
   busy,
   onClose,
   onSubmit,
 }: {
   companyName: string;
   initialComment: string;
+  alreadyConverted?: boolean;
   busy: boolean;
   onClose: () => void;
   onSubmit: (comment: string, devices: UpscaleDeviceDraft[]) => Promise<void>;
@@ -101,7 +103,7 @@ export function UpscaleConversionDialog({
       return;
     }
     if (!comment.trim()) {
-      setError("A conversion comment is required.");
+      setError(alreadyConverted ? "An order comment is required." : "A conversion comment is required.");
       return;
     }
     const seen = new Set<string>();
@@ -146,7 +148,7 @@ export function UpscaleConversionDialog({
       className="fixed inset-0 z-[80] overflow-y-auto bg-bg/95 p-4 sm:p-8"
       role="dialog"
       aria-modal="true"
-      aria-label={`Convert ${companyName} to Upscale`}
+      aria-label={alreadyConverted ? `Create Upscale device order for ${companyName}` : `Convert ${companyName} to Upscale`}
     >
       <form
         onSubmit={(event) => void submit(event)}
@@ -158,11 +160,12 @@ export function UpscaleConversionDialog({
               Company Tracker / Upscale
             </p>
             <h2 className="mt-1 font-syne text-2xl font-bold text-text-primary">
-              Convert {companyName}
+              {alreadyConverted ? `Create Upscale device order for ${companyName}` : `Convert ${companyName}`}
             </h2>
             <p className="mt-2 text-sm text-text-secondary">
-              Complete an order for every client machine before converting this company. The machine
-              name is separate from our DM name.
+              {alreadyConverted
+                ? "Complete an Upscale order for every client machine."
+                : "Complete an order for every client machine before converting this company."} The machine name is separate from our DM name.
             </p>
           </div>
           <button
@@ -190,7 +193,7 @@ export function UpscaleConversionDialog({
             />
           </div>
           <div>
-            <Label htmlFor="upscale-conversion-comment">Conversion comment *</Label>
+            <Label htmlFor="upscale-conversion-comment">{alreadyConverted ? "Order comment *" : "Conversion comment *"}</Label>
             <Input
               id="upscale-conversion-comment"
               required
@@ -309,7 +312,7 @@ export function UpscaleConversionDialog({
           <Button type="submit" disabled={busy}>
             {busy
               ? "Saving device orders..."
-              : `Submit ${devices.length} device orders and convert`}
+              : alreadyConverted ? `Submit ${devices.length} device orders` : `Submit ${devices.length} device orders and convert`}
           </Button>
         </div>
       </form>

@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { getFactoryFormState } from "@/lib/factory-form-state";
+import { siteCityKey, siteCityOptions } from "@/utils/site-location";
 import { phaseChanges, persistPhaseChanges } from "@/lib/phase-draft";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, Button, Input, Select, Badge, Skeleton, Label } from "@/components/ui-kit";
@@ -605,7 +606,7 @@ export function FactoryDataPanel() {
 
       if (!matchSearch) return false;
       if (monthFilter !== "all" && s.submittedMonth !== monthFilter) return false;
-      if (cityFilter !== "all" && (s.city || "Unknown") !== cityFilter) return false;
+      if (cityFilter !== "all" && siteCityKey(s.city || "Unknown") !== siteCityKey(cityFilter)) return false;
       if (statusFilter === "credential_created" && !s.credentialCreated) return false;
       if (statusFilter === "credential_remaining" && s.credentialCreated) return false;
       if (passwordFilter === "password_created" && !s.hasManagerPassword) return false;
@@ -619,13 +620,13 @@ export function FactoryDataPanel() {
   }, [processedSitesList]);
 
   const availableCities = useMemo(() => {
-    return Array.from(new Set(processedSitesList.map(s => s.city || "Unknown"))).sort((a, b) => a.localeCompare(b));
+    return siteCityOptions(processedSitesList.map(s => s.city || "Unknown"));
   }, [processedSitesList]);
 
   const analyticsSites = useMemo(() => {
     return processedSitesList.filter(s => {
       if (monthFilter !== "all" && s.submittedMonth !== monthFilter) return false;
-      if (cityFilter !== "all" && (s.city || "Unknown") !== cityFilter) return false;
+      if (cityFilter !== "all" && siteCityKey(s.city || "Unknown") !== siteCityKey(cityFilter)) return false;
       return true;
     });
   }, [processedSitesList, monthFilter, cityFilter]);
