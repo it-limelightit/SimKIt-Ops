@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import logoUrl from "../../../image copy.png";
 import { useAuth } from "@/lib/auth-store";
 import { actorName, recordActivityLog } from "@/lib/activity-log";
+import { formatLocationName, formatSiteCityName, isDistrictOnly, locationKey, siteCityKey } from "@/utils/site-location";
+import { SiteLocationReview } from "./SiteLocationReview";
 import {
   Plus,
   X,
@@ -35,6 +37,10 @@ import {
 } from "@/utils/status";
 
 export { parseSiteMetadata, serializeSiteMetadata };
+
+type LocationOption = { id: string; name: string };
+type LocalityOption = LocationOption & { district_id: string };
+const locationDb = supabase;
 
 const DEFAULT_SENDER = {
   name: "LimelightIT",
@@ -307,6 +313,7 @@ export function SitesPanel() {
     }
   }, [searchParam]);
   const [filterCity, setFilterCity] = useState("");
+  const [filterDistrict, setFilterDistrict] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterAssessor, setFilterAssessor] = useState("");
   const [filterBC, setFilterBC] = useState("");
@@ -315,12 +322,23 @@ export function SitesPanel() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, filterCity, filterStatus, filterAssessor, filterBC]);
+  }, [search, filterCity, filterDistrict, filterStatus, filterAssessor, filterBC]);
+
+  const [districts, setDistricts] = useState<LocationOption[]>([]);
+  const [localities, setLocalities] = useState<LocalityOption[]>([]);
+  const [addingDistrict, setAddingDistrict] = useState(false);
+  const [addingLocality, setAddingLocality] = useState(false);
+  const [newDistrictName, setNewDistrictName] = useState("");
+  const [newLocalityName, setNewLocalityName] = useState("");
+  const [locationBusy, setLocationBusy] = useState(false);
+  const [showLocationReview, setShowLocationReview] = useState(false);
 
   const [form, setForm] = useState({
     name: "",
     company_name: "",
     city: "",
+    district_id: "",
+    locality_id: "",
     address: "",
     workers: [] as string[],
     c1_name: "",
@@ -349,7 +367,7 @@ export function SitesPanel() {
         toast.error("No matching Add Site fields were found in this email.");
         return;
       }
-      setForm((current) => ({ ...current, ...EMPTY_EML_SITE_VALUES, ...parsed }));
+      setForm((current) => ({ ...current, ...EMPTY_EML_SITE_VALUES, ...parsed, district_id: "", locality_id: "" }));
       toast.success(`${filledCount} Add Site fields filled from the email. You can edit them before saving.`);
     } catch {
       toast.error("Could not read this .eml file.");
@@ -357,11 +375,11 @@ export function SitesPanel() {
   };
 
   const load = async () => {
-    const [s, w, aRes, iRes, cRes, rRes, mRes] = await Promise.all([
+    const [s, w, aRes, iRes, cRes, rRes, mRes, districtRes, localityRes] = await Promise.all([
       supabase
         .from("sites")
         .select(
-          "id,name,company_name,city,address,assigned_worker_id,assigned_at,task_notes,consultant_stage,created_at",
+          "id,name,company_name,city,district_id,locality_id,address,assigned_worker_id,assigned_at,task_notes,consultant_stage,created_at",
         )
         .order("created_at", { ascending: false }),
       supabase.from("profiles").select("id,name,mobile,is_active").order("created_at"),
@@ -370,10 +388,15 @@ export function SitesPanel() {
       supabase.from("commissioning").select("data,updated_at,site_id"),
       supabase.from("user_roles").select("user_id").eq("role", "worker"),
       supabase.from("inventory_materials").select("state,notes,submitted,material_name,created_at"),
+      locationDb.from("site_districts").select("id,name").order("name"),
+      locationDb.from("site_localities").select("id,district_id,name").order("name"),
     ]);
     if (s.error) toast.error("Error loading sites: " + s.error.message);
     if (w.error) toast.error("Error loading profiles: " + w.error.message);
+    if (districtRes.error || localityRes.error) toast.error("Could not load districts and taluka/city options. Please try again or contact your administrator.");
     setSites(s.data ?? []);
+    setDistricts(districtRes.data ?? []);
+    setLocalities(localityRes.data ?? []);
     const workerIds = new Set((rRes.data ?? []).map((r: any) => r.user_id));
     setBusinessConsultants((w.data ?? []).filter((x: any) => x.is_active && workerIds.has(x.id)));
     setAssessments(aRes.data ?? []);
@@ -385,6 +408,96 @@ export function SitesPanel() {
   useEffect(() => {
     void load();
   }, []);
+
+  const selectDistrict = (districtId: string) => {
+    const matchingLocality = localities.find(
+      (locality) => !isDistrictOnly(form.city) && locality.district_id === districtId && locationKey(locality.name) === locationKey(form.city),
+    );
+    setForm((current) => ({
+      ...current,
+      district_id: districtId,
+      locality_id: matchingLocality?.id ?? "",
+      city: matchingLocality?.name ?? current.city,
+    }));
+    setAddingLocality(false);
+    setNewLocalityName("");
+  };
+
+  const addDistrict = async () => {
+    if (locationBusy) return;
+    const name = formatLocationName(newDistrictName);
+    if (!name || name.length > 100) return toast.error("Enter a district name of 1 to 100 characters.");
+    const existing = districts.find((district) => locationKey(district.name) === locationKey(name));
+    if (existing) {
+      selectDistrict(existing.id);
+      setAddingDistrict(false);
+      setNewDistrictName("");
+      return toast.info("That district already exists; it has been selected.");
+    }
+    setLocationBusy(true);
+    const { data, error } = await locationDb.from("site_districts").insert({ name }).select("id,name").single();
+    if (error) {
+      if (error.code !== "23505") toast.error(error.message);
+      else {
+        const refreshed = await locationDb.from("site_districts").select("id,name").order("name");
+        if (!refreshed.error) {
+          setDistricts(refreshed.data ?? []);
+          const match = refreshed.data?.find((district: LocationOption) => locationKey(district.name) === locationKey(name));
+          if (match) selectDistrict(match.id);
+          toast.info("That district already exists; it has been selected.");
+        } else toast.error(refreshed.error.message);
+      }
+    } else {
+      setDistricts((current) => [...current, data].sort((a, b) => a.name.localeCompare(b.name)));
+      selectDistrict(data.id);
+      toast.success("District added.");
+    }
+    setLocationBusy(false);
+    if (!error || error.code === "23505") {
+      setAddingDistrict(false);
+      setNewDistrictName("");
+    }
+  };
+
+  const addLocality = async () => {
+    if (locationBusy) return;
+    if (!form.district_id) return toast.error("Select a district first.");
+    if (isDistrictOnly(newLocalityName)) return toast.error("Enter the taluka/city name and select the district separately.");
+    const name = formatLocationName(newLocalityName);
+    if (!name || name.length > 100) return toast.error("Enter a taluka/city name of 1 to 100 characters.");
+    const existing = localities.find(
+      (locality) => locality.district_id === form.district_id && locationKey(locality.name) === locationKey(name),
+    );
+    if (existing) {
+      setForm((current) => ({ ...current, locality_id: existing.id, city: existing.name }));
+      setAddingLocality(false);
+      setNewLocalityName("");
+      return toast.info("That taluka/city already exists in this district; it has been selected.");
+    }
+    setLocationBusy(true);
+    const { data, error } = await locationDb.from("site_localities").insert({ district_id: form.district_id, name }).select("id,district_id,name").single();
+    if (error) {
+      if (error.code !== "23505") toast.error(error.message);
+      else {
+        const refreshed = await locationDb.from("site_localities").select("id,district_id,name").order("name");
+        if (!refreshed.error) {
+          setLocalities(refreshed.data ?? []);
+          const match = refreshed.data?.find((locality: LocalityOption) => locality.district_id === form.district_id && locationKey(locality.name) === locationKey(name));
+          if (match) setForm((current) => ({ ...current, locality_id: match.id, city: match.name }));
+          toast.info("That taluka/city already exists in this district; it has been selected.");
+        } else toast.error(refreshed.error.message);
+      }
+    } else {
+      setLocalities((current) => [...current, data].sort((a, b) => a.name.localeCompare(b.name)));
+      setForm((current) => ({ ...current, locality_id: data.id, city: data.name }));
+      toast.success("Taluka/city added.");
+    }
+    setLocationBusy(false);
+    if (!error || error.code === "23505") {
+      setAddingLocality(false);
+      setNewLocalityName("");
+    }
+  };
 
   useEffect(() => {
     if (!creating && !editingSite) return;
@@ -482,6 +595,7 @@ export function SitesPanel() {
 
   const create = async () => {
     if (!form.name) return toast.error("Name required");
+    if (!form.district_id || !form.locality_id) return toast.error("Select both district and taluka/city.");
     if (form.workers.length > 1) return toast.error("Select only one Field Associate.");
 
     const targetName = (form.company_name || form.name).trim();
@@ -544,6 +658,8 @@ export function SitesPanel() {
       name: form.name,
       company_name: form.company_name || form.name,
       city: form.city || null,
+      district_id: form.district_id,
+      locality_id: form.locality_id,
       address: form.address || null,
       assigned_worker_id: formWorkers[0] || null,
       task_notes: taskNotes,
@@ -572,6 +688,10 @@ export function SitesPanel() {
   };
 
   const startEdit = (s: any) => {
+    setAddingDistrict(false);
+    setAddingLocality(false);
+    setNewDistrictName("");
+    setNewLocalityName("");
     const meta = parseSiteMetadata(s.task_notes);
     const workerIds =
       meta.worker_ids?.length > 0
@@ -584,6 +704,8 @@ export function SitesPanel() {
       name: s.name,
       company_name: s.company_name ?? s.name,
       city: s.city ?? "",
+      district_id: s.district_id ?? "",
+      locality_id: s.locality_id ?? "",
       address: s.address ?? "",
       workers: workerIds,
       c1_name: meta.c1_name,
@@ -600,6 +722,7 @@ export function SitesPanel() {
 
   const updateSite = async () => {
     if (!editingSite) return;
+    if (!form.district_id || !form.locality_id) return toast.error("Select both district and taluka/city.");
 
     const targetName = (form.company_name || form.name).trim();
     const { data: existingName } = await supabase
@@ -672,6 +795,8 @@ export function SitesPanel() {
         name: form.name,
         company_name: form.company_name || form.name,
         city: form.city || null,
+        district_id: form.district_id,
+        locality_id: form.locality_id,
         address: form.address || null,
         assigned_worker_id: formWorkers[0] || null,
         task_notes: taskNotes,
@@ -710,10 +835,16 @@ export function SitesPanel() {
   };
 
   const resetForm = () => {
+    setAddingDistrict(false);
+    setAddingLocality(false);
+    setNewDistrictName("");
+    setNewLocalityName("");
     setForm({
       name: "",
       company_name: "",
       city: "",
+      district_id: "",
+      locality_id: "",
       address: "",
       workers: [],
       c1_name: "",
@@ -1574,7 +1705,19 @@ export function SitesPanel() {
     status: s.consultant_stage || parseSiteMetadata(s.task_notes).status,
   }));
 
-  const cities = Array.from(new Set(sites.map((s) => s.city).filter(Boolean))).sort();
+  const cityNames = new Map<string, string>();
+  for (const locality of localities) cityNames.set(siteCityKey(locality.name), locality.name);
+  for (const site of sites) {
+    if (site.city && !cityNames.has(siteCityKey(site.city))) {
+      cityNames.set(siteCityKey(site.city), formatSiteCityName(site.city));
+    }
+  }
+  const cities = Array.from(new Set(
+    sites
+      .filter((site) => !filterDistrict || (filterDistrict === "__legacy__" ? !site.district_id : site.district_id === filterDistrict))
+      .map((site) => site.city && cityNames.get(siteCityKey(site.city)))
+      .filter(Boolean),
+  )).sort() as string[];
   // These statuses are manually assignable. Pending panel dispatch is auto from logistics;
   // "Total Assignment Pending on Portal" is auto = Assigned − Submitted. Neither appears here.
   const statuses = [
@@ -1589,7 +1732,7 @@ export function SitesPanel() {
   const assessors = Array.from(
     new Set(allMetas.map((m) => m.assessor_company).filter(Boolean)),
   ).sort();
-  const hasFilters = !!(search || filterCity || filterStatus || filterAssessor || filterBC);
+  const hasFilters = !!(search || filterDistrict || filterCity || filterStatus || filterAssessor || filterBC);
 
   const q = search.toLowerCase().trim();
   const filteredSites = [...sites]
@@ -1603,7 +1746,8 @@ export function SitesPanel() {
         )
       )
         return false;
-      if (filterCity && s.city !== filterCity) return false;
+      if (filterDistrict && (filterDistrict === "__legacy__" ? !!s.district_id : s.district_id !== filterDistrict)) return false;
+      if (filterCity && siteCityKey(s.city ?? "") !== siteCityKey(filterCity)) return false;
       const canonicalStatus = getCanonicalStatus(s, aMap, iMap, cMap, materials);
       if (filterStatus && canonicalStatus !== filterStatus) return false;
       if (filterAssessor && meta.assessor_company !== filterAssessor) return false;
@@ -1647,6 +1791,9 @@ export function SitesPanel() {
           <h1 className="mt-2 text-4xl uppercase tracking-tight font-extrabold">Sites</h1>
         </div>
         <div className="flex flex-wrap justify-end gap-2">
+          <Button variant="secondary" onClick={() => setShowLocationReview(current => !current)}>
+            Review Locations ({sites.filter(site => !site.district_id).length})
+          </Button>
           <Button variant="secondary" onClick={openCustomList}>
             <FileText size={16} strokeWidth={1.5} /> Custom List
           </Button>
@@ -1661,6 +1808,8 @@ export function SitesPanel() {
           </Button>
         </div>
       </div>
+
+      {showLocationReview && <SiteLocationReview sites={sites} districts={districts} localities={localities} onSaved={load} />}
 
       {(creating || editingSite) && (
         <div ref={formRevealRef} className="scroll-mt-6">
@@ -1720,11 +1869,81 @@ export function SitesPanel() {
                 />
               </div>
               <div>
-                <Label>City</Label>
-                <Input
-                  value={form.city}
-                  onChange={(e) => setForm({ ...form, city: e.target.value })}
-                />
+                <Label>District *</Label>
+                <Select
+                  value={form.district_id}
+                  disabled={locationBusy}
+                  onChange={(e) => {
+                    if (e.target.value === "__add__") {
+                      setAddingDistrict(true);
+                      return;
+                    }
+                    selectDistrict(e.target.value);
+                  }}
+                >
+                  <option value="">Select district</option>
+                  {districts.map((district) => (
+                    <option key={district.id} value={district.id}>{district.name}</option>
+                  ))}
+                  <option value="__add__">+ Add new district</option>
+                </Select>
+                {addingDistrict && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Input
+                      autoFocus
+                      maxLength={100}
+                      value={newDistrictName}
+                      onChange={(e) => setNewDistrictName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") void addDistrict(); }}
+                      placeholder="New district name"
+                      className="min-w-40 flex-1"
+                    />
+                    <Button type="button" variant="secondary" disabled={locationBusy} onClick={addDistrict}>Add district</Button>
+                    <Button type="button" variant="ghost" onClick={() => setAddingDistrict(false)}>Cancel</Button>
+                  </div>
+                )}
+              </div>
+              <div>
+                <Label>Taluka / City *</Label>
+                <Select
+                  value={form.locality_id}
+                  disabled={!form.district_id || locationBusy}
+                  onChange={(e) => {
+                    if (e.target.value === "__add__") {
+                      setNewLocalityName(form.locality_id ? "" : form.city);
+                      setAddingLocality(true);
+                      return;
+                    }
+                    const locality = localities.find((item) => item.id === e.target.value);
+                    setForm((current) => ({ ...current, locality_id: locality?.id ?? "", city: locality?.name ?? "" }));
+                  }}
+                >
+                  <option value="">{form.district_id ? "Select taluka/city" : "Select district first"}</option>
+                  {localities.filter((locality) => locality.district_id === form.district_id).map((locality) => (
+                    <option key={locality.id} value={locality.id}>{locality.name}</option>
+                  ))}
+                  {form.district_id && <option value="__add__">+ Add new taluka/city</option>}
+                </Select>
+                {addingLocality && form.district_id && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Input
+                      autoFocus
+                      maxLength={100}
+                      value={newLocalityName}
+                      onChange={(e) => setNewLocalityName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") void addLocality(); }}
+                      placeholder="New taluka or city name"
+                      className="min-w-40 flex-1"
+                    />
+                    <Button type="button" variant="secondary" disabled={locationBusy} onClick={addLocality}>Add taluka/city</Button>
+                    <Button type="button" variant="ghost" onClick={() => setAddingLocality(false)}>Cancel</Button>
+                  </div>
+                )}
+                {!form.locality_id && form.city && (
+                  <p className="mt-1.5 text-xs text-amber-500">
+                    Existing city: {form.city}. Select its district and taluka/city to standardize this site.
+                  </p>
+                )}
               </div>
 
               <div className="md:col-span-2">
@@ -1885,6 +2104,7 @@ export function SitesPanel() {
             <div className="mt-6 flex justify-end gap-3">
               <Button
                 variant="secondary"
+                disabled={locationBusy}
                 onClick={() => {
                   setCreating(false);
                   setEditingSite(null);
@@ -1892,7 +2112,7 @@ export function SitesPanel() {
               >
                 Cancel
               </Button>
-              <Button onClick={editingSite ? updateSite : create}>
+              <Button disabled={locationBusy} onClick={editingSite ? updateSite : create}>
                 {editingSite ? "Save Details" : "Create Site"}
               </Button>
             </div>
@@ -2339,6 +2559,7 @@ export function SitesPanel() {
             <button
               onClick={() => {
                 setSearch("");
+                setFilterDistrict("");
                 setFilterCity("");
                 setFilterStatus("");
                 setFilterAssessor("");
@@ -2359,8 +2580,18 @@ export function SitesPanel() {
           </Button>
         </div>
         <div className="flex flex-wrap gap-2">
+          <select
+            value={filterDistrict}
+            onChange={(e) => { setFilterDistrict(e.target.value); setFilterCity(""); }}
+            aria-label="Filter by district"
+            className={`rounded-[6px] border px-2.5 py-1.5 text-xs font-mono focus:outline-none transition-colors cursor-pointer ${filterDistrict ? "border-lime bg-lime/5 text-lime" : "border-border bg-surface text-text-secondary"}`}
+          >
+            <option value="">All Districts</option>
+            {districts.map((district) => <option key={district.id} value={district.id}>{district.name}</option>)}
+            <option value="__legacy__">Needs district review</option>
+          </select>
           {[
-            { label: "City", value: filterCity, set: setFilterCity, options: cities },
+            { label: "Taluka / City", value: filterCity, set: setFilterCity, options: cities },
             { label: "Status", value: filterStatus, set: setFilterStatus, options: statuses },
             {
               label: "Assessor",
@@ -2375,7 +2606,7 @@ export function SitesPanel() {
               onChange={(e) => set(e.target.value)}
               className={`rounded-[6px] border px-2.5 py-1.5 text-xs font-mono focus:outline-none transition-colors cursor-pointer ${value ? "border-lime bg-lime/5 text-lime" : "border-border bg-surface text-text-secondary"}`}
             >
-              <option value="">All {label}s</option>
+              <option value="">{label === "Taluka / City" ? "All Talukas / Cities" : `All ${label}s`}</option>
               {options.map((o) => (
                 <option key={o} value={o}>
                   {o}
@@ -2476,7 +2707,12 @@ export function SitesPanel() {
                           </button>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-text-primary font-medium">{s.city || "—"}</td>
+                      <td className="px-4 py-3 text-text-primary font-medium">
+                        {s.city ? cityNames.get(siteCityKey(s.city)) : "—"}
+                        <span className="block text-[10px] font-normal text-text-secondary">
+                          {districts.find((district) => district.id === s.district_id)?.name ?? "District needs review"}
+                        </span>
+                      </td>
                       <td className="px-4 py-3 text-xs">
                         {meta.c1_name || meta.c1_mobile || meta.c1_email ? (
                           <div>

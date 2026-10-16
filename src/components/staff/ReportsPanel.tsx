@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button, Input, Label, Select } from "@/components/ui-kit";
 import { parseSiteMetadata } from "@/lib/site-metadata";
 import { getCanonicalStatus } from "@/utils/status";
+import { formatSiteCityName, siteCityKey, siteCityOptions } from "@/utils/site-location";
 import logoUrl from "../../../image copy.png";
 import {
   Building2,
@@ -354,7 +355,7 @@ export function ReportsPanel() {
           id: site.id,
           companyName: site.company_name?.trim() || site.name,
           factoryName: site.name,
-          city: site.city || "—",
+          city: site.city ? formatSiteCityName(site.city) : "—",
           consultantIds,
           consultantNames: consultantIds.map(
             (id: string) =>
@@ -384,7 +385,7 @@ export function ReportsPanel() {
       ) {
         return false;
       }
-      if (filters.city && row.city !== filters.city) return false;
+      if (filters.city && siteCityKey(row.city) !== siteCityKey(filters.city)) return false;
       if (filters.consultant && !row.consultantIds.includes(filters.consultant)) return false;
       if (filters.status && row.status !== filters.status) return false;
       if (filters.from && row.createdAt.slice(0, 10) < filters.from) return false;
@@ -419,7 +420,7 @@ export function ReportsPanel() {
             siteId: site.id,
             companyName: site.company_name?.trim() || site.name,
             factoryName: site.name,
-            city: site.city || "—",
+            city: site.city ? formatSiteCityName(site.city) : "—",
             userName: String(log.user_name || "Unknown User"),
             entityType: "site",
             fromStatus: String(log.from_status || "—"),
@@ -487,7 +488,7 @@ export function ReportsPanel() {
         siteId: site.id,
         companyName: site.company_name?.trim() || site.name,
         factoryName: site.name,
-        city: site.city || "—",
+        city: site.city ? formatSiteCityName(site.city) : "—",
         userName: profileName(row.worker_id),
         fromStatus,
         toStatus,
@@ -558,7 +559,7 @@ export function ReportsPanel() {
   );
 
   const cities = useMemo(
-    () => Array.from(new Set(rows.map((row) => row.city).filter((city) => city !== "—"))).sort(),
+    () => siteCityOptions(rows.map((row) => row.city).filter((city) => city !== "—")),
     [rows],
   );
 

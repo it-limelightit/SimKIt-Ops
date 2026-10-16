@@ -1,3 +1,5 @@
+import { siteCityKey } from "./site-location.ts";
+
 export const toLocalDateKey = (value: string) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
@@ -32,7 +34,7 @@ export function matchesOverviewFilters(
   filters: OverviewFilters,
   profileNames: ReadonlyMap<string, string>,
 ): boolean {
-  if (filters.city && row.city !== filters.city) return false;
+  if (filters.city && siteCityKey(row.city || "") !== siteCityKey(filters.city)) return false;
   if (filters.associateId && !row.workerIds.includes(filters.associateId)) return false;
   if (
     filters.myTasksUserId &&

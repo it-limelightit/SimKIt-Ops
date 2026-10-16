@@ -38,9 +38,11 @@ import { actorName, recordActivityLog } from "@/lib/activity-log";
 import { isTruthy } from "@/lib/inventory-service";
 import { inventoryOrderIncludesDm } from "@/lib/inventory-components";
 import { LogisticsResultsPortal } from "./LogisticsResultsPortal";
+import { companyCityMap, companyNameKey, formatSiteCityName, siteCityKey, siteCityOptions } from "@/utils/site-location";
 
 
 export type Material = {
+  company_city?: string | null;
   id: string;
   material_name: string;
   quantity: number;
@@ -178,17 +180,23 @@ export function InventoryPanel({
 
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
-    const { data, error } = await supabase
+    const [materialRes, siteRes] = await Promise.all([supabase
       .from("inventory_materials")
       .select("*")
       .eq("submitted", true)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false }),
+      supabase.from("sites").select("name,company_name,city"),
+    ]);
+    const { data, error } = materialRes;
+    if (siteRes.error) toast.error("Could not load company locations for logistics.");
 
     if (error) {
       toast.error("Could not load logistics data: " + error.message);
       setMaterials([]);
     } else {
-      setMaterials(((data ?? []) as Material[]).filter((material) => material.order_source !== "upscale"));
+      const cityMap = companyCityMap(siteRes.data ?? []);
+      setMaterials(((data ?? []) as Material[]).filter((material) => material.order_source !== "upscale")
+        .map(material => ({ ...material, company_city: cityMap.get(companyNameKey(material.material_name)) ?? null })));
     }
     setLoading(false);
   }, []);
@@ -200,6 +208,11 @@ export function InventoryPanel({
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "inventory_materials" },
+        () => void load(true),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "sites" },
         () => void load(true),
       )
       .subscribe();
@@ -229,7 +242,7 @@ export function InventoryPanel({
 
       const matchesDate = matchesTableDateFilter(getAnalysisDate(m), tableDateFilter);
       const matchesLocation =
-        tableLocationFilter === "all" || getLogisticsCity(m.location) === tableLocationFilter;
+        tableLocationFilter === "all" || siteCityKey(getMaterialCity(m)) === siteCityKey(tableLocationFilter);
 
       return matchesQuery && matchesDate && matchesLocation;
     });
@@ -255,10 +268,10 @@ export function InventoryPanel({
   const locationOptions = useMemo(() => {
     const locations = new Set<string>();
     materials.forEach((m) => {
-      const normalized = getLogisticsCity(m.location);
+      const normalized = getMaterialCity(m);
       if (normalized !== "Unassigned") locations.add(normalized);
     });
-    return Array.from(locations).sort((a, b) => a.localeCompare(b));
+    return siteCityOptions([...locations]);
   }, [materials]);
 
   const tableMaterials = useMemo(() => {
@@ -593,16 +606,14 @@ function DeviceOverviewKta({
   const [dmFilter, setDmFilter] = useState("all");
 
   const cityOptions = useMemo(
-    () => Array.from(new Set(materials.map((material) => getLogisticsCity(material.location))))
-      .filter((city) => city !== "Unassigned")
-      .sort((a, b) => a.localeCompare(b)),
+    () => siteCityOptions(materials.map(getMaterialCity).filter((city) => city !== "Unassigned")),
     [materials],
   );
 
   const filteredMaterials = useMemo(() => materials.filter((material) => {
     const dispatchDate = getDispatchDate(material);
     const matchesDate = matchesDeviceOverviewDate(dispatchDate, dateFilter);
-    const matchesCity = cityFilter === "all" || getLogisticsCity(material.location) === cityFilter;
+    const matchesCity = cityFilter === "all" || siteCityKey(getMaterialCity(material)) === siteCityKey(cityFilter);
     const matchesDm = dmFilter === "all" || material.material_name === dmFilter;
     return matchesDate && matchesCity && matchesDm;
   }), [materials, dateFilter, cityFilter, dmFilter]);
@@ -743,6 +754,10 @@ function formatMonthLabel(monthKey: string) {
   const [year, month] = monthKey.split("-");
   const date = new Date(Number(year), Number(month) - 1, 1);
   return new Intl.DateTimeFormat("en-IN", { month: "short", year: "numeric" }).format(date);
+}
+
+function getMaterialCity(material: Material) {
+  return formatSiteCityName(material.company_city || getLogisticsCity(material.location));
 }
 
 function getLogisticsCity(location: string | null | undefined) {
