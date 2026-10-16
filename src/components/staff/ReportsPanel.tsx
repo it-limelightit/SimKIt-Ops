@@ -53,6 +53,7 @@ type FactoryRow = {
 
 type ActivityRow = {
   id: string;
+  actorId?: string | null;
   activityType: "status_change" | "login" | "create" | "update" | "delete" | "logistics_update";
   siteId: string;
   companyName: string;
@@ -68,6 +69,7 @@ type ActivityRow = {
 type AuditRecord = {
   id: string;
   created_at: string;
+  actor_id: string | null;
   actor_name: string | null;
   action: ActivityRow["activityType"];
   entity_type: string;
@@ -80,6 +82,11 @@ type AuditRecord = {
   to_value: string | null;
   details: Record<string, any> | null;
 };
+
+function hideFromDisplayedLogs(nameOrEmail: string | null | undefined) {
+  const value = (nameOrEmail || "").trim().toLowerCase();
+  return value === "test" || value === "nit sanghani" || value === "nitsanghani1@gmail.com";
+}
 
 const STATUS_OPTIONS = [
   "Assessed",
@@ -189,6 +196,7 @@ export function ReportsPanel() {
   const [sites, setSites] = useState<SiteRecord[]>([]);
   const [consultants, setConsultants] = useState<Consultant[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditRecord[]>([]);
+  const [hiddenLogActorIds, setHiddenLogActorIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [assessments, setAssessments] = useState<any[]>([]);
@@ -284,6 +292,9 @@ export function ReportsPanel() {
         const workerIds = new Set((rolesRes.data ?? []).map((r: any) => r.user_id));
         const profiles = consultantResult.data ?? [];
         setConsultants(profiles.filter((c: any) => workerIds.has(c.id)));
+        setHiddenLogActorIds(new Set(profiles
+          .filter((profile: any) => hideFromDisplayedLogs(profile.name) || hideFromDisplayedLogs(profile.email))
+          .map((profile: any) => profile.id)));
         setAuditLogs(auditLogsRes.error ? [] : ((auditLogsRes.data ?? []) as unknown as AuditRecord[]));
         setAssessments(assessmentsRes.data ?? []);
         setInstallations(installationsRes.data ?? []);
@@ -403,6 +414,7 @@ export function ReportsPanel() {
           .filter((log: any) => hasValidDate(String(log.at || site.created_at)))
           .map((log: any) => ({
             id: String(log.id || `${site.id}-${log.at}`),
+            actorId: log.user_id || null,
             activityType: "status_change" as const,
             siteId: site.id,
             companyName: site.company_name?.trim() || site.name,
@@ -417,6 +429,7 @@ export function ReportsPanel() {
       });
     const auditRows = auditLogs.map((log) => ({
       id: log.id,
+      actorId: log.actor_id,
       activityType: log.action,
       siteId: log.site_id || "",
       companyName: log.company_name || log.entity_name || log.entity_type,
@@ -469,6 +482,7 @@ export function ReportsPanel() {
       if (hasLoggedStatus(site.id, toStatus, changedAt)) return null;
       return {
         id: `${phase}-${site.id}-${changedAt}`,
+        actorId: row.worker_id || null,
         activityType: "status_change",
         siteId: site.id,
         companyName: site.company_name?.trim() || site.name,
@@ -497,13 +511,14 @@ export function ReportsPanel() {
       (row) => !auditKeys.has(`${row.activityType}:${row.siteId}:${row.fromStatus}:${row.toStatus}`),
     );
     return [...auditRows, ...fallbackStatusRows, ...phaseRows]
+      .filter((row) => !hiddenLogActorIds.has(row.actorId || "") && !hideFromDisplayedLogs(row.userName))
       .map((row) => row.toStatus.trim() === "Commissioned" &&
         (row.activityType === "status_change" || row.activityType === "update")
         ? { ...row, changedAt: commissioningWorkTimestamp(
             commissioningWorkDates.get(row.siteId)?.date, row.changedAt)! }
         : row)
       .sort((a, b) => new Date(b.changedAt).getTime() - new Date(a.changedAt).getTime());
-  }, [sites, assessments, installations, commissionings, auditLogs, consultantMap, commissioningWorkDates]);
+  }, [sites, assessments, installations, commissionings, auditLogs, consultantMap, commissioningWorkDates, hiddenLogActorIds]);
 
   const filteredLogRows = useMemo(() => {
     const search = filters.search.trim().toLowerCase();
