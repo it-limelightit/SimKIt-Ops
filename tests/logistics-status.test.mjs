@@ -68,7 +68,8 @@ test("latest saved logistics status takes priority over legacy inventory state",
   assert.equal(isDispatchedMaterial(material("Pending", "Dispatched")), true);
 });
 
-test("saving courier status preserves the Without Cavli order selection", async () => {
+test("saving courier status preserves the Without Cavli order selection", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.UTC(2026, 9, 15, 12) });
   let handler;
   function findHandler(node) {
     if (ts.isVariableDeclaration(node) && node.name.getText(parsed) === "handleSaveStep2") {

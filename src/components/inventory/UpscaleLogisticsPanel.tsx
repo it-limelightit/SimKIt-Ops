@@ -458,7 +458,6 @@ export function UpscaleLogisticsPanel({
                         <div><dt className="text-xs text-text-secondary">CT channels</dt><dd className="mt-0.5 font-semibold text-text-primary">{[selectedDevice.ct1, selectedDevice.ct2, selectedDevice.ct3].filter((value) => value === "TRUE").length} active</dd></div>
                         <div><dt className="text-xs text-text-secondary">Vibration sensor</dt><dd className="mt-0.5 break-words font-semibold text-text-primary">{selectedDevice.vibration === "TRUE" ? selectedDevice.vibration_model || "Selected" : "Not selected"}</dd></div>
                         <div><dt className="text-xs text-text-secondary">Proxy model</dt><dd className="mt-0.5 break-words font-semibold text-text-primary">{selectedDevice.proxy_model || "Not set"}</dd></div>
-                        <div><dt className="text-xs text-text-secondary">ICCID</dt><dd className="mt-0.5 break-all font-semibold text-text-primary">{selectedDevice.iccid || "Not set"}</dd></div>
                         <div><dt className="text-xs text-text-secondary">Courier partner</dt><dd className="mt-0.5 break-words font-semibold text-text-primary">{selectedDevice.dispatch || "Not set"}</dd></div>
                         <div><dt className="text-xs text-text-secondary">Tracking number</dt><dd className="mt-0.5 break-all font-semibold text-text-primary">{selectedDevice.tracking_number || "Not set"}</dd></div>
                       </dl>

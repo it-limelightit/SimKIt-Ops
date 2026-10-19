@@ -15,3 +15,7 @@ verify_jwt = false
 verify_jwt = false
 [functions.attendance-leave-email]
 verify_jwt = false
+
+# Validates JWTs and attachment ownership inside the handler.
+[functions.expense-files]
+verify_jwt = false

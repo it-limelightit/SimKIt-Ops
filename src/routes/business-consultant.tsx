@@ -4,6 +4,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { persistPhaseChanges } from "@/lib/phase-draft";
 import { useAuth } from "@/lib/auth-store";
 import { canManageAttendance } from "@/lib/attendance-access";
+import { canManageFinance } from "@/lib/finance";
+import { FinanceWorkspace } from "@/components/finance/FinanceWorkspace";
 import { canAccessLeave, canReviewLeave } from "@/lib/attendance-access";
 import { LeaveWorkspace } from "@/components/attendance/LeaveWorkspace";
 import {
@@ -1679,6 +1681,7 @@ function Shell({
   };
 
   const [navigationOpen, setNavigationOpen] = useState(false);
+  const [expenseOpen, setExpenseOpen] = useState(false);
   const attendanceEmail = useAuth((state) => state.email);
   const attendanceNavigate = useNavigate();
   const navigation = [
@@ -1691,13 +1694,15 @@ function Shell({
     { label: "Company Tracker", icon: KanbanSquare, action: onGoToTracker, active: trackerActive },
     { label: "My Schedule", icon: Calendar, action: onGoToSchedule, active: scheduleActive },
     { label: "My Earnings", icon: TrendingUp, action: onGoToEarnings, active: earningsActive },
+    ...(!canManageFinance(attendanceEmail) ? [{ label: "Expense", icon: BookOpen, active: expenseOpen, action: () => setExpenseOpen(true) }] : []),
+    ...(canManageFinance(attendanceEmail) ? [{ label: "Salary / Expense", icon: TrendingUp, active: false, action: () => void attendanceNavigate({ to: "/manager/salary-expense" }) }] : []),
     ...(canAccessLeave(attendanceEmail) ? [{ label: "Leave", icon: CalendarCheck, action: onGoToLeave, active: leaveActive }] : []),
     ...(canManageAttendance(attendanceEmail) ? [{
       label: "Attendance", icon: Clock, active: false,
       action: () => void attendanceNavigate({ to: "/manager/attendance", search: { date: undefined } }),
     }] : []),
   ].filter((item) => item.action);
-  const activeTitle = navigation.find((item) => item.active)?.label || "Field workspace";
+  const activeTitle = expenseOpen ? "Expense" : navigation.find((item) => item.active)?.label || "Field workspace";
   return (
     <div className="min-h-screen bg-background text-text-primary font-sans antialiased">
       {navigationOpen && (
@@ -1715,6 +1720,7 @@ function Shell({
           <button
             onClick={() => {
               onGoToDashboard?.();
+              setExpenseOpen(false);
               setNavigationOpen(false);
             }}
             className="flex items-center gap-3 text-left"
@@ -1739,11 +1745,12 @@ function Shell({
           <p className="mb-4 px-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-text-secondary">
             Workspace
           </p>
-          {navigation.map(({ label, icon: Icon, action, active }) => (
+          {navigation.map(({ label, icon: Icon, action, active: currentActive }) => {const active=expenseOpen ? label==="Expense" : currentActive; return (
             <button
               key={label}
               aria-current={active ? "page" : undefined}
               onClick={() => {
+                if(label!=="Expense")setExpenseOpen(false);
                 action?.();
                 setNavigationOpen(false);
               }}
@@ -1752,7 +1759,7 @@ function Shell({
               <Icon size={19} />
               <span>{label}</span>
             </button>
-          ))}
+          );})}
         </nav>
         <div className="m-4 rounded-2xl border border-border bg-background p-4">
           <div className="mb-4 flex min-w-0 items-center gap-3">
@@ -1800,7 +1807,7 @@ function Shell({
             </button>
           </div>
         </header>
-        <main className="mx-auto min-w-0 max-w-7xl px-4 pb-10 sm:px-8">{children}</main>
+        <main className="mx-auto min-w-0 max-w-7xl px-4 pb-10 sm:px-8">{expenseOpen?<FinanceWorkspace personal embedded/>:children}</main>
       </div>
     </div>
   );

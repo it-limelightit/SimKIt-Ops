@@ -15,6 +15,7 @@ import { Route as BusinessConsultantRouteImport } from './routes/business-consul
 import { Route as ClientFormRouteImport } from './routes/client-form'
 import { Route as CompanyTrackerRouteImport } from './routes/company-tracker'
 import { Route as EmployeeRouteImport } from './routes/employee'
+import { Route as ExpensesRouteImport } from './routes/expenses'
 import { Route as ManagerRouteImport } from './routes/manager'
 import { Route as ManagerIndexRouteImport } from './routes/manager.index'
 import { Route as ManagerAttendanceRouteImport } from './routes/manager.attendance'
@@ -28,6 +29,7 @@ import { Route as ManagerLeaveRouteImport } from './routes/manager.leave'
 import { Route as ManagerLogisticRouteImport } from './routes/manager.logistic'
 import { Route as ManagerPerformanceRouteImport } from './routes/manager.performance'
 import { Route as ManagerReportsRouteImport } from './routes/manager.reports'
+import { Route as ManagerSalaryExpenseRouteImport } from './routes/manager.salary-expense'
 import { Route as ManagerSitesRouteImport } from './routes/manager.sites'
 import { Route as ManagerTasksRouteImport } from './routes/manager.tasks'
 import { Route as ManagerAttendanceIndexRouteImport } from './routes/manager.attendance.index'
@@ -61,6 +63,11 @@ const CompanyTrackerRoute = CompanyTrackerRouteImport.update({
 const EmployeeRoute = EmployeeRouteImport.update({
   id: '/employee',
   path: '/employee',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ExpensesRoute = ExpensesRouteImport.update({
+  id: '/expenses',
+  path: '/expenses',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ManagerRoute = ManagerRouteImport.update({
@@ -130,6 +137,11 @@ const ManagerReportsRoute = ManagerReportsRouteImport.update({
   path: '/reports',
   getParentRoute: () => ManagerRoute,
 } as any)
+const ManagerSalaryExpenseRoute = ManagerSalaryExpenseRouteImport.update({
+  id: '/salary-expense',
+  path: '/salary-expense',
+  getParentRoute: () => ManagerRoute,
+} as any)
 const ManagerSitesRoute = ManagerSitesRouteImport.update({
   id: '/sites',
   path: '/sites',
@@ -159,6 +171,7 @@ export interface FileRoutesByFullPath {
   '/client-form': typeof ClientFormRoute
   '/company-tracker': typeof CompanyTrackerRoute
   '/employee': typeof EmployeeRoute
+  '/expenses': typeof ExpensesRoute
   '/manager': typeof ManagerRouteWithChildren
   '/manager/attendance': typeof ManagerAttendanceRouteWithChildren
   '/manager/business-consultants': typeof ManagerBusinessConsultantsRoute
@@ -171,6 +184,7 @@ export interface FileRoutesByFullPath {
   '/manager/logistic': typeof ManagerLogisticRoute
   '/manager/performance': typeof ManagerPerformanceRoute
   '/manager/reports': typeof ManagerReportsRoute
+  '/manager/salary-expense': typeof ManagerSalaryExpenseRoute
   '/manager/sites': typeof ManagerSitesRoute
   '/manager/tasks': typeof ManagerTasksRoute
   '/manager/': typeof ManagerIndexRoute
@@ -184,6 +198,7 @@ export interface FileRoutesByTo {
   '/client-form': typeof ClientFormRoute
   '/company-tracker': typeof CompanyTrackerRoute
   '/employee': typeof EmployeeRoute
+  '/expenses': typeof ExpensesRoute
   '/manager/business-consultants': typeof ManagerBusinessConsultantsRoute
   '/manager/company-tracker': typeof ManagerCompanyTrackerRoute
   '/manager/drive-links': typeof ManagerDriveLinksRoute
@@ -194,6 +209,7 @@ export interface FileRoutesByTo {
   '/manager/logistic': typeof ManagerLogisticRoute
   '/manager/performance': typeof ManagerPerformanceRoute
   '/manager/reports': typeof ManagerReportsRoute
+  '/manager/salary-expense': typeof ManagerSalaryExpenseRoute
   '/manager/sites': typeof ManagerSitesRoute
   '/manager/tasks': typeof ManagerTasksRoute
   '/manager': typeof ManagerIndexRoute
@@ -208,6 +224,7 @@ export interface FileRoutesById {
   '/client-form': typeof ClientFormRoute
   '/company-tracker': typeof CompanyTrackerRoute
   '/employee': typeof EmployeeRoute
+  '/expenses': typeof ExpensesRoute
   '/manager': typeof ManagerRouteWithChildren
   '/manager/attendance': typeof ManagerAttendanceRouteWithChildren
   '/manager/business-consultants': typeof ManagerBusinessConsultantsRoute
@@ -220,6 +237,7 @@ export interface FileRoutesById {
   '/manager/logistic': typeof ManagerLogisticRoute
   '/manager/performance': typeof ManagerPerformanceRoute
   '/manager/reports': typeof ManagerReportsRoute
+  '/manager/salary-expense': typeof ManagerSalaryExpenseRoute
   '/manager/sites': typeof ManagerSitesRoute
   '/manager/tasks': typeof ManagerTasksRoute
   '/manager/': typeof ManagerIndexRoute
@@ -235,6 +253,7 @@ export interface FileRouteTypes {
     | '/client-form'
     | '/company-tracker'
     | '/employee'
+    | '/expenses'
     | '/manager'
     | '/manager/attendance'
     | '/manager/business-consultants'
@@ -247,6 +266,7 @@ export interface FileRouteTypes {
     | '/manager/logistic'
     | '/manager/performance'
     | '/manager/reports'
+    | '/manager/salary-expense'
     | '/manager/sites'
     | '/manager/tasks'
     | '/manager/'
@@ -260,6 +280,7 @@ export interface FileRouteTypes {
     | '/client-form'
     | '/company-tracker'
     | '/employee'
+    | '/expenses'
     | '/manager/business-consultants'
     | '/manager/company-tracker'
     | '/manager/drive-links'
@@ -270,6 +291,7 @@ export interface FileRouteTypes {
     | '/manager/logistic'
     | '/manager/performance'
     | '/manager/reports'
+    | '/manager/salary-expense'
     | '/manager/sites'
     | '/manager/tasks'
     | '/manager'
@@ -283,6 +305,7 @@ export interface FileRouteTypes {
     | '/client-form'
     | '/company-tracker'
     | '/employee'
+    | '/expenses'
     | '/manager'
     | '/manager/attendance'
     | '/manager/business-consultants'
@@ -295,6 +318,7 @@ export interface FileRouteTypes {
     | '/manager/logistic'
     | '/manager/performance'
     | '/manager/reports'
+    | '/manager/salary-expense'
     | '/manager/sites'
     | '/manager/tasks'
     | '/manager/'
@@ -309,6 +333,7 @@ export interface RootRouteChildren {
   ClientFormRoute: typeof ClientFormRoute
   CompanyTrackerRoute: typeof CompanyTrackerRoute
   EmployeeRoute: typeof EmployeeRoute
+  ExpensesRoute: typeof ExpensesRoute
   ManagerRoute: typeof ManagerRouteWithChildren
 }
 
@@ -354,6 +379,13 @@ declare module '@tanstack/react-router' {
       path: '/employee'
       fullPath: '/employee'
       preLoaderRoute: typeof EmployeeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/expenses': {
+      id: '/expenses'
+      path: '/expenses'
+      fullPath: '/expenses'
+      preLoaderRoute: typeof ExpensesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/manager': {
@@ -447,6 +479,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ManagerReportsRouteImport
       parentRoute: typeof ManagerRoute
     }
+    '/manager/salary-expense': {
+      id: '/manager/salary-expense'
+      path: '/salary-expense'
+      fullPath: '/manager/salary-expense'
+      preLoaderRoute: typeof ManagerSalaryExpenseRouteImport
+      parentRoute: typeof ManagerRoute
+    }
     '/manager/sites': {
       id: '/manager/sites'
       path: '/sites'
@@ -504,6 +543,7 @@ interface ManagerRouteChildren {
   ManagerLogisticRoute: typeof ManagerLogisticRoute
   ManagerPerformanceRoute: typeof ManagerPerformanceRoute
   ManagerReportsRoute: typeof ManagerReportsRoute
+  ManagerSalaryExpenseRoute: typeof ManagerSalaryExpenseRoute
   ManagerSitesRoute: typeof ManagerSitesRoute
   ManagerTasksRoute: typeof ManagerTasksRoute
   ManagerIndexRoute: typeof ManagerIndexRoute
@@ -521,6 +561,7 @@ const ManagerRouteChildren: ManagerRouteChildren = {
   ManagerLogisticRoute: ManagerLogisticRoute,
   ManagerPerformanceRoute: ManagerPerformanceRoute,
   ManagerReportsRoute: ManagerReportsRoute,
+  ManagerSalaryExpenseRoute: ManagerSalaryExpenseRoute,
   ManagerSitesRoute: ManagerSitesRoute,
   ManagerTasksRoute: ManagerTasksRoute,
   ManagerIndexRoute: ManagerIndexRoute,
@@ -536,6 +577,7 @@ const rootRouteChildren: RootRouteChildren = {
   ClientFormRoute: ClientFormRoute,
   CompanyTrackerRoute: CompanyTrackerRoute,
   EmployeeRoute: EmployeeRoute,
+  ExpensesRoute: ExpensesRoute,
   ManagerRoute: ManagerRouteWithChildren,
 }
 export const routeTree = rootRouteImport

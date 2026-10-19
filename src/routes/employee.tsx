@@ -1,6 +1,8 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { CalendarCheck, Check, Clock3, House, LogOut } from "lucide-react";
+import { CalendarCheck, Check, Clock3, House, LogOut, Receipt } from "lucide-react";
+import { FinanceWorkspace } from "@/components/finance/FinanceWorkspace";
+import { canManageFinance } from "@/lib/finance";
 import { useAuth } from "@/lib/auth-store";
 import { isRestrictedManager, managerHomePath } from "@/lib/manager-access";
 import { attendanceRpc, dateLabel, indiaDate, timeLabel } from "@/lib/device-attendance";
@@ -38,7 +40,7 @@ function EmployeePortal() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"leave" | "attendance">("leave");
+  const [tab, setTab] = useState<"leave" | "attendance" | "expense">("leave");
 
   useEffect(() => {
     if (!ready) return;
@@ -169,22 +171,29 @@ function EmployeePortal() {
             [
               { key: "leave", label: "Leave & WFH", icon: House },
               { key: "attendance", label: "My attendance", icon: Clock3 },
+              { key: "expense", label: "Expense", icon: Receipt },
             ] as const
-          ).map(({ key, label, icon: Icon }) => (
-            <button
-              key={key}
-              type="button"
-              aria-pressed={tab === key}
-              aria-controls={`employee-${key}`}
-              onClick={() => setTab(key)}
-              className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition-colors sm:px-5 sm:text-sm ${tab === key ? "bg-lime/10 text-lime" : "text-text-secondary hover:bg-surface-raised"}`}
-            >
-              <Icon size={16} />
-              {label}
-            </button>
-          ))}
+          )
+            .filter(({ key }) => key !== "expense" || !canManageFinance(email))
+            .map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={tab === key}
+                aria-controls={`employee-${key}`}
+                onClick={() => setTab(key)}
+                className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition-colors sm:px-5 sm:text-sm ${tab === key ? "bg-lime/10 text-lime" : "text-text-secondary hover:bg-surface-raised"}`}
+              >
+                <Icon size={16} />
+                {label}
+              </button>
+            ))}
         </nav>
-        {tab === "leave" ? (
+        {tab === "expense" ? (
+          <section id="employee-expense" aria-label="My expenses">
+            <FinanceWorkspace personal embedded />
+          </section>
+        ) : tab === "leave" ? (
           <section id="employee-leave" aria-label="Leave and work-from-home requests">
             <LeaveWorkspace embedded showHeader={false} />
           </section>

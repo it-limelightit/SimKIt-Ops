@@ -7,17 +7,17 @@ import { PGlite } from "@electric-sql/pglite";
 const source = readFileSync(new URL("../src/lib/manager-access.ts", import.meta.url), "utf8");
 const js = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
 const { canAccessManagerPath, managerHomePath } = await import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
-const allowed = ["attendance", "field-visit-tracker", "logistic", "inventory"];
-test("Hardik can open only the four modules and their child pages", () => {
+const allowed = ["salary-expense"];
+test("Hardik can open only salary/expense and its child pages", () => {
   for (const email of ["admin@limelightit.io", " ADMIN@LIMELIGHTIT.IO "]) {
     for (const module of allowed) {
       assert.equal(canAccessManagerPath(email, `/manager/${module}`), true);
       assert.equal(canAccessManagerPath(email, `/manager/${module}/details`), true);
       assert.equal(canAccessManagerPath(email, `/manager/${module}-other`), false);
     }
-    for (const module of ["", "/", "/sites", "/business-consultants", "/factory-data", "/performance", "/drive-links", "/company-tracker", "/leave", "/reports", "/tasks"])
+    for (const module of ["", "/", "/sites", "/business-consultants", "/factory-data", "/performance", "/drive-links", "/company-tracker", "/leave", "/reports", "/tasks", "/attendance", "/field-visit-tracker", "/logistic", "/inventory"])
       assert.equal(canAccessManagerPath(email, `/manager${module}`), false);
-    assert.equal(managerHomePath(email), "/manager/attendance");
+    assert.equal(managerHomePath(email), "/manager/salary-expense");
   }
   assert.equal(canAccessManagerPath("other@example.test", "/manager/sites"), true);
   assert.equal(managerHomePath("other@example.test"), "/manager");
@@ -132,4 +132,17 @@ test("Aryan retains his employee role and personal leave, can dispatch, and cann
   await asUser(hardik);
   await assert.rejects(db.query("SELECT attendance_my_leave_requests()"), /Module access denied/);
   await db.query("SELECT attendance_assert_manager()");
+});
+
+test("finance migration removes Hardik's old database access and preserves Aryan", async()=>{
+ await db.exec("RESET ROLE");
+ await db.exec(readFileSync(new URL("../supabase/migrations/20261016121000_salary_manager_access.sql",import.meta.url),"utf8"));
+ await db.exec("SET ROLE authenticated");
+ await asUser(hardik);
+ assert.deepEqual(await scalar("SELECT limited_manager_modules()"),["salary-expense"]);
+ for(const table of ["sites","inventory_stock","field_visit_schedules","attendance_employees"]){assert.equal(await scalar(`SELECT count(*) FROM ${table}`),0);await assert.rejects(db.query(`INSERT INTO ${table} VALUES(99)`),/row-level security/);}
+ await assert.rejects(db.query("SELECT field_ops_board()"),/Module access denied/);
+ await assert.rejects(db.query("SELECT attendance_assert_manager()"),/Module access denied/);
+ assert.equal(await scalar("SELECT role FROM user_roles"),"supervisor");
+ await asUser(aryan);await db.query("INSERT INTO inventory_materials VALUES(99)");assert.deepEqual(await scalar("SELECT attendance_my_leave_requests()"),[]);
 });

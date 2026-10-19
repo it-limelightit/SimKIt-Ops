@@ -7,7 +7,6 @@ import logoUrl from "../../../image copy.png";
 import { useAuth } from "@/lib/auth-store";
 import { actorName, recordActivityLog } from "@/lib/activity-log";
 import { formatLocationName, formatSiteCityName, isDistrictOnly, locationKey, siteCityKey } from "@/utils/site-location";
-import { SiteLocationReview } from "./SiteLocationReview";
 import {
   Plus,
   X,
@@ -331,7 +330,6 @@ export function SitesPanel() {
   const [newDistrictName, setNewDistrictName] = useState("");
   const [newLocalityName, setNewLocalityName] = useState("");
   const [locationBusy, setLocationBusy] = useState(false);
-  const [showLocationReview, setShowLocationReview] = useState(false);
 
   const [form, setForm] = useState({
     name: "",
@@ -1714,7 +1712,7 @@ export function SitesPanel() {
   }
   const cities = Array.from(new Set(
     sites
-      .filter((site) => !filterDistrict || (filterDistrict === "__legacy__" ? !site.district_id : site.district_id === filterDistrict))
+      .filter((site) => !filterDistrict || site.district_id === filterDistrict)
       .map((site) => site.city && cityNames.get(siteCityKey(site.city)))
       .filter(Boolean),
   )).sort() as string[];
@@ -1746,7 +1744,7 @@ export function SitesPanel() {
         )
       )
         return false;
-      if (filterDistrict && (filterDistrict === "__legacy__" ? !!s.district_id : s.district_id !== filterDistrict)) return false;
+      if (filterDistrict && s.district_id !== filterDistrict) return false;
       if (filterCity && siteCityKey(s.city ?? "") !== siteCityKey(filterCity)) return false;
       const canonicalStatus = getCanonicalStatus(s, aMap, iMap, cMap, materials);
       if (filterStatus && canonicalStatus !== filterStatus) return false;
@@ -1791,9 +1789,6 @@ export function SitesPanel() {
           <h1 className="mt-2 text-4xl uppercase tracking-tight font-extrabold">Sites</h1>
         </div>
         <div className="flex flex-wrap justify-end gap-2">
-          <Button variant="secondary" onClick={() => setShowLocationReview(current => !current)}>
-            Review Locations ({sites.filter(site => !site.district_id).length})
-          </Button>
           <Button variant="secondary" onClick={openCustomList}>
             <FileText size={16} strokeWidth={1.5} /> Custom List
           </Button>
@@ -1808,8 +1803,6 @@ export function SitesPanel() {
           </Button>
         </div>
       </div>
-
-      {showLocationReview && <SiteLocationReview sites={sites} districts={districts} localities={localities} onSaved={load} />}
 
       {(creating || editingSite) && (
         <div ref={formRevealRef} className="scroll-mt-6">
@@ -2588,7 +2581,6 @@ export function SitesPanel() {
           >
             <option value="">All Districts</option>
             {districts.map((district) => <option key={district.id} value={district.id}>{district.name}</option>)}
-            <option value="__legacy__">Needs district review</option>
           </select>
           {[
             { label: "Taluka / City", value: filterCity, set: setFilterCity, options: cities },
@@ -2710,7 +2702,7 @@ export function SitesPanel() {
                       <td className="px-4 py-3 text-text-primary font-medium">
                         {s.city ? cityNames.get(siteCityKey(s.city)) : "—"}
                         <span className="block text-[10px] font-normal text-text-secondary">
-                          {districts.find((district) => district.id === s.district_id)?.name ?? "District needs review"}
+                          {districts.find((district) => district.id === s.district_id)?.name ?? "District not set"}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-xs">

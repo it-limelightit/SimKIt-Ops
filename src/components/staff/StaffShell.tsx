@@ -3,6 +3,8 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { useAuth } from "@/lib/auth-store";
 import { canAccessManagerPath, isRestrictedManager, managerHomePath } from "@/lib/manager-access";
 import { canManageAttendance } from "@/lib/attendance-access";
+import { canManageFinance, isSalaryManager } from "@/lib/finance";
+import { FinanceWorkspace } from "@/components/finance/FinanceWorkspace";
 import { canAccessLeave, canReviewLeave, isTarunLeaveReviewer } from "@/lib/attendance-access";
 import {
   LayoutDashboard,
@@ -33,9 +35,11 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
   const path = useRouterState({ select: (s) => s.location.pathname });
   const [isOpen, setIsOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [expenseOpen, setExpenseOpen] = useState(false);
+  useEffect(()=>setExpenseOpen(false),[path]);
   const base = "/manager";
   const home = managerHomePath(email);
-  const displayRole =
+  const displayRole = isSalaryManager(email) ? "salary manager" : path.startsWith("/manager/salary-expense") && canManageFinance(email) ? "finance approver" :
     currentRole === "supervisor" || isRestrictedManager(email)
       ? "manager"
       : canReviewLeave(email)
@@ -80,6 +84,8 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
     { to: `${base}/company-tracker`, label: "Company Tracker", icon: KanbanSquare },
     { to: `${base}/field-visit-tracker`, label: "Field Visit Tracker", icon: CalendarDays },
     { to: `${base}/attendance`, label: "Attendance", icon: Clock3 },
+    ...(canManageFinance(email) ? [{ to: `${base}/salary-expense`, label: "Salary / Expense", icon: BarChart3 }] : []),
+    ...(!canManageFinance(email) ? [{ to: "/expenses", label: "Expense", icon: Folder }] : []),
     ...(!canAccessLeave(email) || isTarunLeaveReviewer(email)
       ? []
       : [{ to: `${base}/leave`, label: "My leave", icon: CalendarCheck }]),
@@ -89,23 +95,24 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
   ];
   const items: typeof allItems =
     currentRole === "supervisor" || isRestrictedManager(email)
-      ? allItems.filter((item) => canAccessManagerPath(email, item.to) && (item.to !== `${base}/attendance` || canManageAttendance(email)))
+      ? allItems.filter((item) => (item.to === "/expenses" || canAccessManagerPath(email, item.to)) && (item.to !== `${base}/attendance` || canManageAttendance(email)))
       : [
           { to: "/business-consultant", label: "Field workspace", icon: LayoutDashboard },
           ...(canAccessLeave(email) && canReviewLeave(email) && !isTarunLeaveReviewer(email)
             ? [{ to: `${base}/leave`, label: "My leave", icon: CalendarCheck }]
             : []),
           ...allItems.filter(
-            (item) => item.to === `${base}/attendance` && canManageAttendance(email),
+            (item) => (item.to === `${base}/attendance` && canManageAttendance(email)) || (item.to === `${base}/salary-expense` && canManageFinance(email)) || item.to === "/expenses",
           ),
         ];
 
   return (
-    <div className="flex min-h-screen flex-col md:flex-row bg-background text-text-primary">
+    <div className={`flex min-h-screen flex-col md:flex-row bg-background text-text-primary ${isSalaryManager(email)?"finance-account-shell":""}`}>
       {/* Mobile Header */}
       <header className="flex h-16 items-center justify-between border-b border-border bg-surface px-6 md:hidden">
         <Link
           to={home}
+          onClick={() => setExpenseOpen(false)}
           className="flex items-center gap-2 font-syne font-bold uppercase tracking-wider text-lime"
         >
           <span className="flex h-5 w-5 items-center justify-center rounded-[4px] bg-lime text-bg text-[10px] font-extrabold font-mono">
@@ -142,7 +149,7 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
             <Link
               to={home}
               className="flex items-center gap-2 font-syne font-bold uppercase tracking-wider text-lime"
-              onClick={() => setIsOpen(false)}
+              onClick={() => { setIsOpen(false); setExpenseOpen(false); }}
             >
               <span className="flex h-5 w-5 items-center justify-center rounded-[4px] bg-lime text-bg text-[10px] font-extrabold font-mono">
                 ⬡
@@ -158,7 +165,7 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
           </div>
           <nav className="flex-1 px-4 py-6 space-y-1">
             {items.map((it) => {
-              const active = path === it.to || (it.to !== base && path.startsWith(it.to));
+              const active = expenseOpen ? it.to === "/expenses" : path === it.to || (it.to !== base && path.startsWith(it.to));
               const cls = `flex items-center gap-3 px-4 py-3 text-sm font-semibold rounded-[6px] transition-all duration-150 ${active ? "bg-lime/10 text-lime border-l-3 border-lime" : "text-text-secondary hover:bg-surface hover:text-text-primary"}`;
               if (it.href) {
                 return (
@@ -176,7 +183,7 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
                 );
               }
               return (
-                <Link key={it.to} to={it.to} onClick={() => setIsOpen(false)} className={cls}>
+                <Link key={it.to} to={it.to} onClick={(event) => {setIsOpen(false);if(it.to==="/expenses"){event.preventDefault();setExpenseOpen(true);}else setExpenseOpen(false);}} className={cls}>
                   <it.icon size={18} strokeWidth={2} />
                   {it.label}
                 </Link>
@@ -214,6 +221,7 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
           {!collapsed && (
             <Link
               to={home}
+              onClick={() => setExpenseOpen(false)}
               className="flex items-center gap-2 font-syne font-bold uppercase tracking-wider text-lime"
             >
               <span className="flex h-5 w-5 items-center justify-center rounded-[4px] bg-lime text-bg text-[10px] font-extrabold font-mono shrink-0">
@@ -241,7 +249,7 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
         </div>
         <nav className={`flex-1 py-6 space-y-1 ${collapsed ? "px-2" : "px-3"}`}>
           {items.map((it) => {
-            const active = path === it.to || (it.to !== base && path.startsWith(it.to));
+            const active = expenseOpen ? it.to === "/expenses" : path === it.to || (it.to !== base && path.startsWith(it.to));
             const cls = `flex items-center gap-3 py-2.5 text-sm font-semibold transition-all duration-150 rounded-[6px] ${collapsed ? "justify-center px-0" : "px-4"} ${active ? "bg-lime/10 text-lime border-l-3 border-lime" : "text-text-secondary hover:bg-surface-raised hover:text-text-primary"}`;
             if (it.href) {
               return (
@@ -259,7 +267,7 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
               );
             }
             return (
-              <Link key={it.to} to={it.to} title={collapsed ? it.label : undefined} className={cls}>
+              <Link key={it.to} to={it.to} onClick={(event)=>{if(it.to==="/expenses"){event.preventDefault();setExpenseOpen(true);}else setExpenseOpen(false);}} title={collapsed ? it.label : undefined} className={cls}>
                 <it.icon size={16} strokeWidth={2} />
                 {!collapsed && it.label}
               </Link>
@@ -272,7 +280,7 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
           {!collapsed && (
             <div className="flex flex-col min-w-0">
               <div className="font-mono text-[8px] uppercase tracking-wider text-text-secondary font-bold truncate">
-                User
+                {isSalaryManager(email)?"Salary manager":"User"}
               </div>
               <div className="text-xs font-semibold text-text-primary truncate">
                 {profile?.name ?? "—"}
@@ -305,15 +313,16 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
       <main className="flex-1 overflow-x-hidden min-w-0">
         <div
           className={
-            path === "/manager/attendance" ||
+            expenseOpen || path === "/manager/attendance" ||
             path === "/manager/attendance/" ||
             path === "/manager/leave" ||
             path === "/manager/leave/"
+            || path === "/manager/salary-expense"
               ? "w-full"
               : "mx-auto max-w-6xl px-6 py-10 md:px-10 md:py-12"
           }
         >
-          {children}
+          {expenseOpen ? <FinanceWorkspace personal embedded/> : children}
         </div>
       </main>
     </div>

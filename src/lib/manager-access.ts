@@ -2,10 +2,7 @@ export const restrictedManagerEmail = "admin@limelightit.io";
 export const restrictedEmployeeEmail = "aryankadiya2005@gmail.com";
 
 export const operationsManagerPaths = [
-  "/manager/attendance",
-  "/manager/field-visit-tracker",
-  "/manager/logistic",
-  "/manager/inventory",
+  "/manager/salary-expense",
 ] as const;
 
 export function isRestrictedManager(email: string | null | undefined) {
@@ -24,5 +21,5 @@ export function canAccessManagerPath(email: string | null | undefined, path: str
 
 export function managerHomePath(email: string | null | undefined) {
   if (email?.trim().toLowerCase() === restrictedEmployeeEmail) return "/manager/leave";
-  return isRestrictedManager(email) ? "/manager/attendance" : "/manager";
+  return isRestrictedManager(email) ? "/manager/salary-expense" : "/manager";
 }

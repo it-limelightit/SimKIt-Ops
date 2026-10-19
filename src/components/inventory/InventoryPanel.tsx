@@ -1554,7 +1554,6 @@ export function OrderCard({
   const [otaKey, setOtaKey] = useState(material.ota_key || "");
   const [otaAccount, setOtaAccount] = useState(material.ota_account || "");
   const [uplink, setUplink] = useState(material.uplink || "");
-  const [iccid, setIccid] = useState(material.iccid || "");
   const [deviceName, setDeviceName] = useState(material.device_id || "");
 
   // Form State - Step 2
@@ -1595,7 +1594,6 @@ export function OrderCard({
     setOtaKey(material.ota_key || "");
     setOtaAccount(material.ota_account || "");
     setUplink(material.uplink || "");
-    setIccid(material.iccid || "");
     setDeviceName(material.device_id || "");
 
     setQuickCourierId(material.tracking_number || "");
@@ -1700,7 +1698,6 @@ export function OrderCard({
         ota_key: otaKey || null,
         ota_account: otaAccount || null,
         uplink: uplink || null,
-        iccid: iccid || null,
       })
       .eq("id", material.id);
 
@@ -2187,10 +2184,6 @@ export function OrderCard({
                           </Select>
                         </div>
                         <div>
-                          <Label>ICCID (SIM Serial)</Label>
-                          <Input value={iccid} onChange={(e) => setIccid(e.target.value)} placeholder="SIM Card ICCID" />
-                        </div>
-                        <div>
                           <DropdownWithCustomOption
                             label="OTA Key"
                             value={otaKey}
@@ -2255,7 +2248,6 @@ export function OrderCard({
                       <div className="p-4 bg-surface-raised/40 border border-border/60 rounded-xl font-mono text-[11px] not-italic space-y-1.5">
                         <div>Version: <strong>{material.version || "N/A"}</strong></div>
                         <div>Uplink: <strong>{material.uplink || "N/A"}</strong></div>
-                        <div>ICCID: <strong>{material.iccid || "N/A"}</strong></div>
                         <div>OTA Key: <strong>{material.ota_key || "N/A"}</strong></div>
                         <div>OTA Account: <strong>{material.ota_account || "N/A"}</strong></div>
                       </div>
