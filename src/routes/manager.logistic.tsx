@@ -14,7 +14,6 @@ export const Route = createFileRoute("/manager/logistic")({
 function LogisticPage() {
   const [activeTab, setActiveTab] = useState<"dispatch" | "deviceInfo">("dispatch");
   const [selectedSource, setSelectedSource] = useState<"simkit" | "upscale" | null>(null);
-  const [resultsHost, setResultsHost] = useState<HTMLDivElement | null>(null);
 
   return (
     <div className="space-y-6">
@@ -54,7 +53,6 @@ function LogisticPage() {
               editable defaultFilterState="all" viewMode="cards" revealOnMetricClick
               activeOrderSource={selectedSource}
               onMetricSelect={() => setSelectedSource("simkit")}
-              resultsHost={resultsHost}
             />
           </section>
           <section aria-labelledby="upscale-orders-heading" className="space-y-4">
@@ -64,10 +62,8 @@ function LogisticPage() {
             <UpscaleLogisticsPanel
               activeOrderSource={selectedSource}
               onMetricSelect={() => setSelectedSource("upscale")}
-              resultsHost={resultsHost}
             />
           </section>
-          <div ref={setResultsHost} className="empty:hidden" />
         </div>
       ) : (
         <div className="space-y-7">

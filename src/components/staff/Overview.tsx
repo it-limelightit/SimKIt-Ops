@@ -21,6 +21,7 @@ import {
 } from "@/utils/status";
 import { toast } from "sonner";
 import { Skeleton, Button, ProgressBar, Select, Label, Input, Card } from "@/components/ui-kit";
+import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth-store";
 import { ManagerAttendanceBox } from "@/components/field-operations/FieldOperations";
 import { AssessmentTab } from "@/components/business-consultant/AssessmentTab";
@@ -93,6 +94,9 @@ type SiteRow = {
     c1_name: string;
     c1_mobile: string;
     c1_email: string;
+    assessor_company: string;
+    assessor_name: string;
+    assessor_phone: string;
   };
   logisticsStatus: string;
   hasLogisticsOrder: boolean;
@@ -789,7 +793,7 @@ export function Overview() {
   const executives = rawProfiles.filter((p) => workerIds.has(p.id));
   const cityNames = new Map<string, string>();
   rawSites
-    .filter((site) => !districtFilter || (districtFilter === "__legacy__" ? !site.district_id : site.district_id === districtFilter))
+    .filter((site) => !districtFilter || site.district_id === districtFilter)
     .forEach((site) => {
       if (!site.city) return;
       const key = siteCityKey(site.city);
@@ -926,6 +930,9 @@ export function Overview() {
         c1_name: meta.c1_name || "",
         c1_mobile: meta.c1_mobile || "",
         c1_email: meta.c1_email || "",
+        assessor_company: meta.assessor_company?.trim() || "",
+        assessor_name: meta.assessor_name?.trim() || "",
+        assessor_phone: meta.assessor_phone?.trim() || "",
       },
       status: canonicalStatus,
       logisticsStatus,
@@ -939,7 +946,7 @@ export function Overview() {
 
   // Counts, table rows, and exports share every active filter.
   const filteredForCounts = allProcessedRows.filter((row) =>
-    (!districtFilter || (districtFilter === "__legacy__" ? !row.district_id : row.district_id === districtFilter)) &&
+    (!districtFilter || row.district_id === districtFilter) &&
     matchesOverviewFilters(row, {
       city: cityFilter,
       associateId: executiveFilter,
@@ -2617,7 +2624,6 @@ export function Overview() {
                   >
                     <option value="">All Districts</option>
                     {districts.map((district) => <option key={district.id} value={district.id}>{district.name}</option>)}
-                    <option value="__legacy__">Needs district review</option>
                   </select>
                 </div>
 
@@ -2719,23 +2725,24 @@ export function Overview() {
             </div>
 
             {/* Structured Table */}
-            <div className="overflow-x-auto border border-border rounded-lg bg-surface">
+            <div className="overflow-x-auto border border-border rounded-xl bg-surface shadow-sm">
               <table className="w-full text-left text-sm text-text-primary border-collapse">
                 <thead>
-                  <tr className="border-b border-border bg-surface-raised/50 text-[10px] uppercase tracking-widest text-text-secondary font-bold">
+                  <tr className="border-b border-border bg-surface-raised/50 text-[10px] uppercase tracking-wider text-text-secondary font-semibold [&>th]:whitespace-nowrap">
                     <th className="px-4 py-3 min-w-[200px]">{renderSortHeader("name", "Company")}</th>
                     <th className="px-4 py-3">{renderSortHeader("city", "City")}</th>
                     <th className="px-4 py-3">Assigned Field Associate</th>
-                    <th className="px-4 py-3 min-w-[240px]">Phases Progress</th>
+                    <th className="px-4 py-3 min-w-[220px]">Assessor Details</th>
                     <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3 min-w-[120px]">{renderSortHeader("updated", "Updated")}</th>
+                    <th className="px-4 py-3 min-w-[180px]">Phase Progress</th>
                     <th className="px-4 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {paginatedRows.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-4 py-12 text-center text-text-secondary italic">
+                      <td colSpan={8} className="px-4 py-12 text-center text-text-secondary italic">
                         No sites found matching criteria.
                       </td>
                     </tr>
@@ -2776,18 +2783,63 @@ export function Overview() {
                               {r.workerIds.length > 0 && renderApptBadge(r.progress.appt)}
                             </div>
                           </td>
-                          <td className="px-4 py-3.5">
-                            <div className="flex flex-wrap gap-1.5">
-                              {renderProgressPill("A", displayedProgress.a)}
-                              {renderProgressPill("I", displayedProgress.i)}
-                              {renderProgressPill("C", displayedProgress.c)}
-                            </div>
+                          <td className="px-4 py-3.5 align-middle" onClick={(event) => event.stopPropagation()}>
+                            {r.meta.assessor_company || r.meta.assessor_name || r.meta.assessor_phone ? (
+                              <Dialog>
+                                <DialogTrigger asChild>
+                                  <button
+                                    type="button"
+                                    onClick={(event) => event.stopPropagation()}
+                                    aria-label={`View assessor details for ${r.name}`}
+                                    className="max-w-[260px] cursor-pointer rounded-sm text-left text-xs font-medium leading-5 text-text-primary decoration-border underline underline-offset-4 transition-colors hover:decoration-current focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-lime"
+                                  >
+                                    {r.meta.assessor_company || "-"}
+                                  </button>
+                                </DialogTrigger>
+                                <DialogContent
+                                  onClick={(event) => event.stopPropagation()}
+                                  className="w-[calc(100%_-_2rem)] max-w-md rounded-xl border-border bg-surface text-text-primary"
+                                >
+                                  <DialogHeader className="pr-6 text-left">
+                                    <DialogTitle>Assessor Details</DialogTitle>
+                                    <DialogDescription className="text-text-secondary">{r.name}</DialogDescription>
+                                  </DialogHeader>
+                                  <dl className="divide-y divide-border text-sm">
+                                    <div className="py-3">
+                                      <dt className="text-xs text-text-secondary">Assessor Company</dt>
+                                      <dd className="mt-1 break-words font-medium">{r.meta.assessor_company || "-"}</dd>
+                                    </div>
+                                    <div className="py-3">
+                                      <dt className="text-xs text-text-secondary">Contact Name</dt>
+                                      <dd className="mt-1 break-words font-medium">{r.meta.assessor_name || "-"}</dd>
+                                    </div>
+                                    <div className="py-3">
+                                      <dt className="text-xs text-text-secondary">Mobile Number</dt>
+                                      <dd className="mt-1 font-medium tabular-nums">
+                                        {r.meta.assessor_phone ? (
+                                          <a href={`tel:${r.meta.assessor_phone}`} className="rounded-sm underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-lime">
+                                            {r.meta.assessor_phone}
+                                          </a>
+                                        ) : "-"}
+                                      </dd>
+                                    </div>
+                                  </dl>
+                                </DialogContent>
+                              </Dialog>
+                            ) : <span className="text-xs text-text-dim">-</span>}
                           </td>
                           <td className="px-4 py-3.5">
                             {renderStatusSelect(r)}
                           </td>
-                          <td className="px-4 py-3.5 text-xs font-mono font-bold text-text-secondary">
+                          <td className="whitespace-nowrap px-4 py-3.5 text-xs font-medium tabular-nums text-text-secondary">
                             {formatDate(r.progress.updated || r.assigned_at || r.appt_date)}
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <div className="flex flex-nowrap items-center gap-1.5 whitespace-nowrap">
+                              {renderProgressPill("A", displayedProgress.a)}
+                              {renderProgressPill("I", displayedProgress.i)}
+                              {renderProgressPill("C", displayedProgress.c)}
+                            </div>
                           </td>
                           <td className="px-4 py-3.5 text-right">
                             {userId && r.workerIds.includes(userId) ? (

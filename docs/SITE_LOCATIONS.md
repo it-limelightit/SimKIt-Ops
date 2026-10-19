@@ -4,9 +4,9 @@ Apply `supabase/migrations/20261016110000_site_district_and_locality.sql` to the
 
 The migration seeds seven districts and a city with the same name in each district. Managers can add more districts and talukas/cities from the site form. Names are matched without case or repeated whitespace differences. A locality belongs to one district; the same locality name can exist in different districts.
 
-Also apply `20261016130000_reconcile_site_locations.sql`. It saves legacy text in `location_original_city`, then maps exact seeded city names and clear variants such as `RAJKOT, GUJARAT` to canonical locations. District-only labels and villages/areas remain under **Needs district review**.
+Also apply `20261016130000_reconcile_site_locations.sql`. It saves legacy text in `location_original_city`, then maps exact seeded city names and clear variants such as `RAJKOT, GUJARAT` to canonical locations. Other legacy labels require a district and locality assignment through the site form.
 
-Use **Sites → Review Locations** to inspect a group of companies and map its old label to a district and taluka/city. An existing locality is reused; a new locality can be entered. Each group is updated atomically, and a stale group is rejected if another manager has already reviewed a site. For companies in different places, edit individual sites instead. Add missing districts through the New Site form first.
+Edit an existing site to select its district and taluka/city. An existing locality is reused; new districts and localities can be added through the site form. The bulk location review screen has been removed.
 
 Names are checked in the UI and database after removing case/spacing differences, a trailing Gujarat label, and administrative prefixes such as `Dist.` or `Tal-`. District-only labels are rejected as new locality names. Actual areas remain distinct: `Ring Road, Surat` is not automatically merged with `Surat`. The same locality name may exist in different districts.
 
