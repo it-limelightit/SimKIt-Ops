@@ -24,6 +24,7 @@ import {
   type Salary,
 } from "@/lib/finance";
 import { indiaDate, money } from "@/lib/field-operations";
+import { salaryDeductionGroups, waiveSalaryDays } from "@/lib/salary-deductions";
 import { AuditTrail, Field, Metric, Pill, type Confirm } from "./FinanceUi";
 
 export function SalaryPanel({
@@ -48,7 +49,6 @@ export function SalaryPanel({
   const [loading, setLoading] = useState(true);
   const [base, setBase] = useState(String(salary?.base_salary ?? ""));
   const [overrides, setOverrides] = useState<DayOverrides>(salary?.overrides ?? {});
-  const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState<FinanceDay | null>(null);
   const [unit, setUnit] = useState("1");
@@ -74,12 +74,7 @@ export function SalaryPanel({
     void load();
   }, [load]);
   const totals = salaryTotals(Number(base) || 0, days, overrides);
-  const deductionDays = days.filter(
-    (day) =>
-      day.working_day &&
-      !["scheduled", "not_employed"].includes(day.status) &&
-      ((day.automatic_units !== null && day.automatic_units < 1) || overrides[day.date]),
-  );
+  const deductionGroups = salaryDeductionGroups(days);
   const changed =
     Number(base) !== Number(salary?.base_salary) ||
     JSON.stringify(overrides) !== JSON.stringify(salary?.overrides ?? {});
@@ -117,7 +112,7 @@ export function SalaryPanel({
         _base: Number(base),
         _overrides: overrides,
         _revision: salary?.revision ?? 0,
-        _reason: reason.trim() || "Monthly salary calculation",
+        _reason: "Monthly salary calculation",
       });
       toast.success("Salary recalculated and saved. Approval starts with Hardik.");
       await reload();
@@ -138,8 +133,8 @@ export function SalaryPanel({
     <section>
       <h2>Office attendance & salary</h2>
       <p className="finance-muted mt-1">
-        Automatic calculation: late = half day, approved WFH = full paid day, leave = unpaid.
-        Managers can waive or change a deduction for individual dates with a reason.
+        Automatic calculation: late = half day, approved WFH = full paid day, leave = unpaid. Choose
+        how many days to allow without deduction for this month.
       </p>
       {loading ? (
         <p role="status" className="finance-notice">
@@ -203,66 +198,65 @@ export function SalaryPanel({
             <span>Absent / unpaid leave: 0</span>
             <span>Click a working day to adjust.</span>
           </div>
-          {deductionDays.length > 0 && (
+          {deductionGroups.length > 0 && (
             <div className="rounded-xl border border-border bg-surface p-5 space-y-4">
               <h3>Salary deductions</h3>
               <p className="finance-muted">
-                Choose what to deduct for each date. Approved WFH is fully paid.
+                Choose how many days to allow without deduction. Approved WFH is fully paid.
               </p>
-              {deductionDays.map((day) => {
-                const payable = overrides[day.date]?.units ?? day.units;
+              {deductionGroups.map((group) => {
+                const allowed = group.days.filter((day) => overrides[day.date]?.units === 1).length;
+                const label =
+                  group.status === "late"
+                    ? "Late days"
+                    : group.status === "absent"
+                      ? "Absent days"
+                      : group.status === "on_leave"
+                        ? "Unpaid leave days"
+                        : `${readable(group.status)} days`;
+                const deduction = group.days.reduce(
+                  (sum, day) =>
+                    sum + totals.daily * (1 - (overrides[day.date]?.units ?? day.units ?? 0)),
+                  0,
+                );
                 return (
                   <div
-                    key={day.date}
+                    key={group.status}
                     className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3"
                   >
                     <div>
                       <strong>
-                        {day.date} · {readable(day.status)}
+                        {label}: {group.days.length}
                       </strong>
                       <p className="finance-muted">
-                        Deduction:{" "}
-                        {payable === null ? "Needs review" : money(totals.daily * (1 - payable))}
+                        {allowed} without deduction · {group.days.length - allowed} with deduction
                       </p>
-                      {overrides[day.date] && (
-                        <p className="finance-muted">
-                          Manager reason: {overrides[day.date].reason}
-                        </p>
-                      )}
+                      <p className="finance-muted">Deduction: {money(deduction)}</p>
                     </div>
-                    {!salary?.paid_at && (
+                    <Field label={`${label} without deduction`}>
                       <select
                         className="finance-input sm:!w-auto"
-                        aria-label={`Salary deduction for ${day.date}`}
-                        value={overrides[day.date] ? String(payable) : "automatic"}
+                        disabled={!!salary?.paid_at || busy}
+                        value={String(allowed)}
                         onChange={(e) => {
-                          if (e.target.value === "automatic") {
-                            setOverrides((current) => {
-                              const next = { ...current };
-                              delete next[day.date];
-                              return next;
-                            });
-                          } else {
-                            editDay(day);
-                            setUnit(e.target.value);
-                          }
+                          const count = Number(e.target.value);
+                          setOverrides((current) => waiveSalaryDays(group.days, current, count));
                         }}
                       >
-                        <option value="automatic">
-                          Automatic (
-                          {day.automatic_units === null
-                            ? "Needs review"
-                            : money(totals.daily * (1 - day.automatic_units))}
-                          )
-                        </option>
-                        <option value="1">No deduction</option>
-                        <option value="0.5">Half-day deduction</option>
-                        <option value="0">Full-day deduction</option>
+                        {Array.from({ length: group.days.length + 1 }, (_, count) => (
+                          <option key={count} value={String(count)}>
+                            {count} {count === 1 ? "day" : "days"}
+                          </option>
+                        ))}
                       </select>
-                    )}
+                    </Field>
                   </div>
                 );
               })}
+              <p className="finance-muted text-xs">
+                Additional allowances apply to the earliest remaining dates. Use the calendar for a
+                specific date, then save the salary.
+              </p>
             </div>
           )}
           <form
@@ -272,7 +266,7 @@ export function SalaryPanel({
             }}
             className="rounded-xl border border-border bg-surface p-5 space-y-4"
           >
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Monthly salary (INR)">
                 <input
                   className="finance-input"
@@ -284,16 +278,6 @@ export function SalaryPanel({
                   value={base}
                   disabled={!!salary?.paid_at}
                   onChange={(e) => setBase(e.target.value)}
-                />
-              </Field>
-              <Field label="Note (optional)">
-                <input
-                  className="finance-input"
-                  maxLength={1000}
-                  value={reason}
-                  disabled={!!salary?.paid_at}
-                  placeholder="Add a note if needed"
-                  onChange={(e) => setReason(e.target.value)}
                 />
               </Field>
               <div>
@@ -460,7 +444,6 @@ export function SalaryPanel({
           </form>
         </DialogContent>
       </Dialog>
-      <AuditTrail events={events.filter((event) => event.entity_id === salary?.id)} />
     </section>
   );
 }

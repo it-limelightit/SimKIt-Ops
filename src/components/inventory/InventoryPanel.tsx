@@ -36,7 +36,7 @@ import { parseSiteMetadata } from "@/lib/site-metadata";
 import { useAuth } from "@/lib/auth-store";
 import { actorName, recordActivityLog } from "@/lib/activity-log";
 import { isTruthy } from "@/lib/inventory-service";
-import { inventoryOrderIncludesDm } from "@/lib/inventory-components";
+import { inventoryCtSensorCount, inventoryOrderIncludesDm } from "@/lib/inventory-components";
 import { LogisticsResultsPortal } from "./LogisticsResultsPortal";
 import { companyCityMap, companyNameKey, formatSiteCityName, siteCityKey, siteCityOptions } from "@/utils/site-location";
 
@@ -1168,6 +1168,16 @@ export function OrderCard({
   triggerMode?: "card" | "actions";
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [packingStockLocked, setPackingStockLocked] = useState(false);
+  useEffect(() => {
+    if (!expanded) return;
+    let active = true;
+    void supabase.from("inventory_dispatch_deductions" as any).select("packing_policy")
+      .eq("order_id", material.id).maybeSingle().then(({ data }) => {
+        if (active) setPackingStockLocked(!!(data as unknown as { packing_policy?: boolean } | null)?.packing_policy);
+      });
+    return () => { active = false; };
+  }, [expanded, material.id, material.notes]);
   const [step, setStep] = useState<1 | 2>(1);
   const [saving, setSaving] = useState(false);
   const { userId, email, profile } = useAuth();
@@ -1841,9 +1851,9 @@ export function OrderCard({
 
   // Dynamically filter which checkboxes to show based on BC selection
   const checklistItems = [];
-  if (isTruthy(material.ct1)) checklistItems.push({ label: "YHDC CT 1", checked: ct1, onChange: setCt1, id: `pack-ct1-${material.id}` });
-  if (isTruthy(material.ct2)) checklistItems.push({ label: "YHDC CT 2", checked: ct2, onChange: setCt2, id: `pack-ct2-${material.id}` });
-  if (isTruthy(material.ct3)) checklistItems.push({ label: "YHDC CT 3", checked: ct3, onChange: setCt3, id: `pack-ct3-${material.id}` });
+  if (isTruthy(material.ct1)) checklistItems.push({ label: "CT1 — Single-phase / 1 sensor", checked: ct1, onChange: setCt1, id: `pack-ct1-${material.id}` });
+  if (isTruthy(material.ct2)) checklistItems.push({ label: "CT2 — 2 sensors", checked: ct2, onChange: setCt2, id: `pack-ct2-${material.id}` });
+  if (isTruthy(material.ct3)) checklistItems.push({ label: "CT3 — Three-phase / 3 sensors", checked: ct3, onChange: setCt3, id: `pack-ct3-${material.id}` });
   if (material.proxy1 === "TRUE") {
     checklistItems.push({
       label: `Proxy 1 ${material.proxy_model ? `(${material.proxy_model})` : ""}`,
@@ -1967,7 +1977,7 @@ export function OrderCard({
           {/* Quick info list */}
           <div className="grid grid-cols-2 gap-2 text-[10.5px] text-text-secondary/90 font-mono bg-surface-raised p-2.5 rounded-lg border border-border/60">
             <div className="col-span-2">DM: <span className="text-text-primary font-bold">{inventoryOrderIncludesDm(material.notes) ? "Selected" : "Not requested"}</span></div>
-            <div>CTs: <span className="text-text-primary font-bold">{[material.ct1, material.ct2, material.ct3].filter(x => x === "TRUE").length} Active</span></div>
+            <div>CT sensors: <span className="text-text-primary font-bold">{inventoryCtSensorCount(material)}</span></div>
             <div>Vib: <span className="text-text-primary font-bold">{material.vibration === "TRUE" ? (material.vibration_model || "Yes") : "No"}</span></div>
             <div>Proxy: <span className="text-text-primary font-bold">{material.proxy_model || "None"}</span></div>
             <div>Uplink: <span className="text-text-primary font-bold">{material.uplink || "Unconfigured"}</span></div>
@@ -2147,7 +2157,7 @@ export function OrderCard({
                                 <Checkbox
                                   checked={item.checked}
                                   onCheckedChange={item.onChange}
-                                  disabled={material.order_source === "upscale" || item.id.startsWith("pack-ant-")}
+                                  disabled={packingStockLocked || material.order_source === "upscale" || item.id.startsWith("pack-ant-")}
                                   id={item.id}
                                 />
                               </div>
@@ -2176,12 +2186,12 @@ export function OrderCard({
                         </div>
                         <div>
                           <Label>Uplink Type</Label>
-                          <Select value={uplink} onChange={(e) => setUplink(e.target.value)}>
+                          <Select value={uplink} onChange={(e) => setUplink(e.target.value)} disabled={packingStockLocked}>
                             <option value="">Select Uplink...</option>
-                            <option value="LTE">LTE</option>
-                            <option value="Wi-Fi">Wi-Fi</option>
-                            <option value="Ethernet">Ethernet</option>
+                            <option value="LTE">LTE — With Cavli DM</option>
+                            <option value="Wi-Fi">Wi-Fi — Without Cavli DM</option>
                           </Select>
+                          <p className="mt-1 text-[10px] text-text-secondary">{packingStockLocked ? "Stock deducted. Hardware selections are locked." : "Save the uplink and hardware selections before marking In Packing."}</p>
                         </div>
                         <div>
                           <DropdownWithCustomOption

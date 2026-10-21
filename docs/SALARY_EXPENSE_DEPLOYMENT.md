@@ -47,7 +47,11 @@ Deploy `supabase/functions/expense-files/index.ts` as `expense-files`. Its `veri
 
 Uploads are proxied through the function and bounded before parsing. Allow up to five PDF/JPG/PNG files per claim, each up to **5,000,000 bytes**. Content signatures must match the declared type. Downloads use 60-second signed URLs.
 
-For browser downloads and monthly ZIP checks, allow **GET** from the exact production/frontend origins in the bucket CORS configuration. Browser PUT access is unnecessary because uploads go through the function. Keep the bucket private and avoid automatic expiry rules for submitted evidence. Suggested R2 CORS configuration, replacing the example origin:
+New receipt objects use `expenses/<profile-name>_<owner-uuid>/<file-uuid>_<original-filename>`, for example `expenses/mayank-patel_<owner-uuid>/<file-uuid>_invoice.pdf`. Folder names come from the authenticated user's profile, with an email-name fallback, and path characters are sanitized. The owner UUID separates duplicate names; the file UUID prevents invoices with the same filename from overwriting each other. Existing objects retain their recorded keys and remain downloadable. The `expense_files` owner, original filename, object key, size and SHA-256 metadata remain the migration source of truth.
+
+Monthly ZIP receipts are downloaded through the authenticated `expense-files` function using `{ id, download: true }`. It returns `application/octet-stream` with CORS headers after the existing owner/reviewer checks; the browser does not fetch R2 URLs for ZIPs. Deploy the updated function with this frontend change. Receipt sizes and SHA-256 checksums are still verified before creating the archive.
+
+Direct signed links remain available for opening individual receipts. Any future browser fetches of these links require **GET** from the exact frontend origin in the bucket CORS configuration (including its port, for example `http://localhost:8080`). Browser PUT access is unnecessary because uploads go through the function. Keep the bucket private and avoid automatic expiry rules for submitted evidence. Suggested R2 CORS configuration, replacing the example origin:
 
 ```json
 [

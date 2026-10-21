@@ -214,6 +214,7 @@ export function Overview() {
   const [districtFilter, setDistrictFilter] = useState("");
   const [districts, setDistricts] = useState<Array<{ id: string; name: string }>>([]);
   const [executiveFilter, setExecutiveFilter] = useState("");
+  const [assessorCompanyFilter, setAssessorCompanyFilter] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [updatedDateFilter, setUpdatedDateFilter] = useState<UpdatedDateFilter>("all");
   const [updatedDateStart, setUpdatedDateStart] = useState("");
@@ -658,6 +659,9 @@ export function Overview() {
   });
   const assessorOptions = Array.from(assessorMap.values())
     .sort((a, b) => a.assessor_company.localeCompare(b.assessor_company) || a.assessor_name.localeCompare(b.assessor_name));
+  const assessorCompanyOptions = Array.from(new Map(
+    assessorOptions.map((assessor) => [assessor.assessor_company.toLowerCase(), assessor.assessor_company]),
+  ), ([value, label]) => ({ value, label }));
 
   const handleAssessorChange = async (row: SiteRow, assessorId: string) => {
     const assessor = assessorOptions.find((option) => option.id === assessorId);
@@ -1004,6 +1008,7 @@ export function Overview() {
   // Counts, table rows, and exports share every active filter.
   const filteredForCounts = allProcessedRows.filter((row) =>
     (!districtFilter || row.district_id === districtFilter) &&
+    (!assessorCompanyFilter || row.meta.assessor_company.toLowerCase() === assessorCompanyFilter) &&
     matchesOverviewFilters(row, {
       city: cityFilter,
       associateId: executiveFilter,
@@ -1166,7 +1171,7 @@ export function Overview() {
   // Reset page number on filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedKpi, districtFilter, cityFilter, executiveFilter, searchQuery, updatedDateFilter, updatedDateStart, updatedDateEnd, sortField, sortOrder, showMyTasks]);
+  }, [selectedKpi, districtFilter, cityFilter, executiveFilter, assessorCompanyFilter, searchQuery, updatedDateFilter, updatedDateStart, updatedDateEnd, sortField, sortOrder, showMyTasks]);
 
   const handleSort = (field: "name" | "city" | "updated") => {
     if (sortField === field) {
@@ -1194,6 +1199,7 @@ export function Overview() {
     setDistrictFilter("");
     setCityFilter("");
     setExecutiveFilter("");
+    setAssessorCompanyFilter("");
     setSearchQuery("");
     setUpdatedDateFilter("all");
     setUpdatedDateStart("");
@@ -2701,6 +2707,25 @@ export function Overview() {
                   </select>
                 </div>
 
+                {/* Assessor company filter */}
+                <div className="flex flex-wrap items-center gap-2 bg-surface-raised border border-border rounded-md px-2 py-1">
+                  <Building className="h-3.5 w-3.5 text-text-secondary" aria-hidden="true" />
+                  <label htmlFor="overview-assessor-company" className="text-xs font-semibold text-text-secondary">
+                    Assessor Name (Company)
+                  </label>
+                  <select
+                    id="overview-assessor-company"
+                    value={assessorCompanyFilter}
+                    onChange={(event) => setAssessorCompanyFilter(event.target.value)}
+                    className="max-w-[220px] truncate bg-transparent text-xs focus:outline-none border-none pr-4 font-semibold text-text-primary cursor-pointer"
+                  >
+                    <option value="">All Assessor Companies</option>
+                    {assessorCompanyOptions.map((assessor) => (
+                      <option key={assessor.value} value={assessor.value}>{assessor.label}</option>
+                    ))}
+                  </select>
+                </div>
+
                 {/* Last updated date filter */}
                 <div className="flex items-center gap-1 bg-surface-raised border border-border rounded-md px-2 py-1">
                   <Calendar className="h-3.5 w-3.5 text-text-secondary" />
@@ -2770,7 +2795,7 @@ export function Overview() {
                 )}
 
                 {/* Reset Filters */}
-                {(searchQuery || districtFilter || cityFilter || executiveFilter || updatedDateFilter !== "all" || showMyTasks) && (
+                {(searchQuery || districtFilter || cityFilter || executiveFilter || assessorCompanyFilter || updatedDateFilter !== "all" || showMyTasks) && (
                   <button
                     onClick={handleResetFilters}
                     className="text-xs text-coral hover:text-coral/80 font-bold px-2 py-1.5 transition-colors border border-dashed border-coral/30 rounded cursor-pointer"

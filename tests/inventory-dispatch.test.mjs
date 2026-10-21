@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import ts from "typescript";
+import { inventoryPackingRolloutSql } from "../supabase/scripts/inventory-packing-rollout.mjs";
 
 const db = new PGlite();
 const manager = "00000000-0000-4000-8000-000000000001";
@@ -48,7 +49,7 @@ before(async () => {
     INSERT INTO profiles VALUES('${manager}'),('${worker}');
     CREATE FUNCTION is_staff(id uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT id='${manager}'::uuid $$;
     CREATE TABLE inventory_materials(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), quantity numeric DEFAULT 1, submitted boolean DEFAULT true,
-      created_at timestamptz DEFAULT clock_timestamp(), state text DEFAULT 'Pending', notes text, material_name text,
+      created_at timestamptz DEFAULT clock_timestamp(), state text DEFAULT 'Pending', notes text, material_name text, uplink text,
       ct1 text DEFAULT 'FALSE',ct2 text DEFAULT 'FALSE',ct3 text DEFAULT 'FALSE',energy_meter text DEFAULT 'FALSE',
       proxy1 text DEFAULT 'FALSE',proxy2 text DEFAULT 'FALSE',proxy_model text,encoder text DEFAULT 'FALSE',
       vibration text DEFAULT 'FALSE',vibration_model text,antenna text DEFAULT 'FALSE',tower_light text DEFAULT 'FALSE',plc text DEFAULT 'FALSE');`);
@@ -116,6 +117,152 @@ const quantity = async (category) =>
   Number(
     await scalar("SELECT sum(actual_quantity) FROM inventory_stock WHERE category=$1", [category]),
   );
+
+const activatePacking = () => db.exec(migration("20261021120000_inventory_packing_consumption.sql").replace(/^BEGIN;\s*/m, "").replace(/COMMIT;\s*$/, ""));
+const packingOrder = (options = {}) => order({ uplink: "LTE", ...options });
+
+test("deployment wrapper verifies real table keys and preserves existing business data transactionally", async () => {
+  const id = await packingOrder();
+  await dispatch(id);
+  const before = await quantity("SIM CARD");
+  const sql = inventoryPackingRolloutSql(migration("20261021120000_inventory_packing_consumption.sql"));
+  await db.exec(sql.replace(/^BEGIN;\s*/m, "").replace(/COMMIT;/, ""));
+  assert.equal(await quantity("SIM CARD"), before);
+  assert.equal(await scalar("SELECT packing_policy FROM inventory_dispatch_deductions WHERE order_id=$1", [id]), false);
+});
+
+test("new packing policy deducts once at Packing and preserves later courier transitions", async () => {
+  await activatePacking();
+  const id = await packingOrder();
+  assert.equal(await quantity("SIM CARD"), 100);
+  await dispatch(id, "Packing");
+  assert.equal(await quantity("SIM CARD"), 99);
+  assert.equal(await quantity("ENCLOUSURE STICKER"), 97.5);
+  assert.equal(await scalar("SELECT packing_policy FROM inventory_dispatch_deductions WHERE order_id=$1", [id]), true);
+  for (const status of ["Packing", "Transit", "Delivered", "Pending", "Packing", "Dispatched"]) await dispatch(id, status);
+  await db.query("UPDATE inventory_materials SET material_name='Courier details saved again' WHERE id=$1", [id]);
+  assert.equal(await quantity("SIM CARD"), 99);
+  assert.equal(await scalar("SELECT count(*)::int FROM inventory_dispatch_deductions WHERE order_id=$1", [id]), 1);
+});
+
+test("saved manager Wi-Fi/LTE overrides either original Cavli request", async () => {
+  await activatePacking();
+  for (const [uplink, requestedWithout, expected] of [["Wi-Fi", false, 100], ["wifi", false, 100], ["LTE", true, 99], ["LTE", false, 99]]) {
+    await db.exec("SAVEPOINT uplink_case");
+    const id = await packingOrder({ uplink, notes: JSON.stringify({ dm_selected: true, without_cavli: requestedWithout }) });
+    await dispatch(id, "Packing");
+    assert.equal(await quantity("CAVLI PCB"), expected, `${uplink} overrides requested without=${requestedWithout}`);
+    assert.equal(await quantity("SIM CARD"), 99);
+    await db.exec("ROLLBACK TO SAVEPOINT uplink_case");
+  }
+});
+
+test("new CT phase selections consume 0/1/2/3 sensors, including legacy multi-flag selections", async () => {
+  await activatePacking();
+  const source = readFileSync(new URL("../src/lib/inventory-components.ts", import.meta.url), "utf8");
+  const { inventoryCtSensorCount } = await import(`data:text/javascript;base64,${Buffer.from(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ES2022 } }).outputText).toString("base64")}`);
+  for (let mask = 0; mask < 8; mask++) {
+    await db.exec("SAVEPOINT phase_case");
+    const selection = Object.fromEntries(["ct1", "ct2", "ct3"].map((key, index) => [key, mask & (1 << index) ? "TRUE" : "FALSE"]));
+    const expected = mask & 4 ? 3 : mask & 2 ? 2 : mask & 1 ? 1 : 0;
+    assert.equal(inventoryCtSensorCount(selection), expected, "UI and database use the same phase quantity");
+    const id = await packingOrder(selection);
+    await dispatch(id, "Packing");
+    assert.equal(await quantity("YHDC CT SENSOR"), 100 - expected, `phase flags ${mask}`);
+    assert.equal(await quantity("2 CORE WIRE"), expected ? 88 : 100, "existing wire rule is unchanged");
+    await db.exec("ROLLBACK TO SAVEPOINT phase_case");
+  }
+});
+
+test("rollout leaves completed/legacy orders and their balances untouched but activates existing pending orders", async () => {
+  const completed = await packingOrder();
+  await dispatch(completed);
+  const receipt = await scalar("SELECT to_jsonb(d) FROM inventory_dispatch_deductions d WHERE order_id=$1", [completed]);
+  const untrackedCompleted = await packingOrder({ submitted: false, notes: JSON.stringify({ logistics_status: "Delivered" }) });
+  const pending = await packingOrder({ ct1: "TRUE" });
+  const before = await quantity("SIM CARD");
+  await activatePacking();
+  assert.equal(await quantity("SIM CARD"), before);
+  await dispatch(completed, "Delivered");
+  await db.query("UPDATE inventory_materials SET submitted=true,material_name='Historical courier edit' WHERE id=$1", [untrackedCompleted]);
+  await dispatch(untrackedCompleted, "Packing");
+  assert.equal(await quantity("SIM CARD"), before);
+  const after = await scalar("SELECT to_jsonb(d)-'packing_policy' FROM inventory_dispatch_deductions d WHERE order_id=$1", [completed]);
+  assert.deepEqual(after, receipt);
+  await dispatch(pending, "Packing");
+  assert.equal(await quantity("SIM CARD"), before - 1);
+  assert.equal(await quantity("YHDC CT SENSOR"), 99);
+});
+
+test("existing packing rows are not backfilled on unrelated edits; stock deducts on their next status transition", async () => {
+  const id = await packingOrder();
+  await dispatch(id, "Packing");
+  await activatePacking();
+  await db.query("UPDATE inventory_materials SET material_name='Saved courier contact' WHERE id=$1", [id]);
+  assert.equal(await quantity("SIM CARD"), 100);
+  await dispatch(id, "Transit");
+  assert.equal(await quantity("SIM CARD"), 99);
+});
+
+test("hardware is locked after packing deduction while courier edits and old receipts retain their behavior", async () => {
+  const old = await packingOrder();
+  await dispatch(old);
+  await activatePacking();
+  await db.query("UPDATE inventory_materials SET uplink='Wi-Fi' WHERE id=$1", [old]);
+  const id = await packingOrder({ ct1: "TRUE" });
+  await dispatch(id, "Packing");
+  for (const change of ["id=gen_random_uuid()", "uplink='Wi-Fi'", "ct3='TRUE'", "quantity=2", "notes='{\"dm_selected\":false}'"]) {
+    await db.exec("SAVEPOINT hardware_edit");
+    await assert.rejects(db.query(`UPDATE inventory_materials SET ${change} WHERE id=$1`, [id]), /Hardware selections cannot be changed/);
+    await db.exec("ROLLBACK TO SAVEPOINT hardware_edit");
+  }
+  await dispatch(id, "Delivered");
+  assert.equal(await quantity("SIM CARD"), 98);
+});
+
+test("Packing shortage rolls back stock and status atomically", async () => {
+  await activatePacking();
+  await db.exec("UPDATE inventory_stock SET actual_quantity=0 WHERE category='SIM CARD'");
+  const id = await packingOrder();
+  await db.exec("SAVEPOINT packing_shortage");
+  await assert.rejects(dispatch(id, "Packing"), /Insufficient stock/);
+  await db.exec("ROLLBACK TO SAVEPOINT packing_shortage");
+  assert.equal(await quantity("CAVLI PCB"), 100);
+  assert.equal(await scalar("SELECT count(*)::int FROM inventory_dispatch_deductions WHERE order_id=$1", [id]), 0);
+  assert.equal(await scalar("SELECT inventory_dispatch_notes(notes)->>'logistics_status' FROM inventory_materials WHERE id=$1", [id]), null);
+});
+
+test("Packing requires a manager and saved DM uplink; sensor-only orders do not require uplink", async () => {
+  await activatePacking();
+  const id = await order();
+  await db.exec("SAVEPOINT missing_uplink");
+  await assert.rejects(dispatch(id, "Packing"), /Select and save the uplink/);
+  await db.exec("ROLLBACK TO SAVEPOINT missing_uplink");
+  await db.query("UPDATE inventory_materials SET uplink='Wi-Fi' WHERE id=$1", [id]);
+  await asUser(worker);
+  await db.exec("SAVEPOINT unauthorized_packing");
+  await assert.rejects(dispatch(id, "Packing"), /Inventory manager access required/);
+  await db.exec("ROLLBACK TO SAVEPOINT unauthorized_packing");
+  await asUser(manager);
+  const sensorOnly = await order({ notes: JSON.stringify({ dm_selected: false }), ct1: "TRUE" });
+  await dispatch(sensorOnly, "Packing");
+  assert.equal(await quantity("SIM CARD"), 100);
+  assert.equal(await quantity("YHDC CT SENSOR"), 99);
+});
+
+test("packing migration is repeatable and later saves cannot deduct a second time", async () => {
+  await activatePacking();
+  const id = await packingOrder();
+  await dispatch(id, "Packing");
+  const pending = await packingOrder();
+  const cutoff = await scalar("SELECT packing_activated_at::text FROM inventory_dispatch_settings");
+  await activatePacking();
+  assert.equal(await scalar("SELECT packing_activated_at::text FROM inventory_dispatch_settings"), cutoff);
+  await Promise.all([dispatch(id, "Transit"), dispatch(id, "Delivered")]);
+  assert.equal(await quantity("SIM CARD"), 99);
+  await dispatch(pending, "Packing");
+  assert.equal(await quantity("SIM CARD"), 98);
+});
 
 test("Packing consumes nothing; Transit consumes configured kit parts, antennas and fixed defaults once", async () => {
   const id = await order({ antenna: "TRUE" });

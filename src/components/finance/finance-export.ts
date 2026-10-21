@@ -1,9 +1,9 @@
 import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
-import { zip, strToU8 } from "fflate";
+import { zipSync, strToU8 } from "fflate";
+import { attendanceReportLogo } from "@/lib/attendance-report-logo";
 import {
   categories,
-  expenseFileRequest,
+  expenseFileDownload,
   financeRpc,
   type FinanceBoard,
   type FinanceEmployee,
@@ -20,7 +20,9 @@ function saveBlob(bytes: Uint8Array, filename: string, type: string) {
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
+  document.body.appendChild(a);
   a.click();
+  a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 export function statementBytes(
@@ -29,12 +31,17 @@ export function statementBytes(
   person: FinancePerson,
   employee?: FinanceEmployee,
   field?: FieldFinance,
+  logo?: string,
 ) {
   const salary = board.salaries.find((s) => s.employee_id === employee?.id);
   const claims = board.claims.filter((c) => c.owner_id === person.id);
   const approved = claims.filter((c) => c.status === "approved");
   const expenses = approved.reduce((s, c) => s + Number(c.amount), 0);
   const expensesPaid = approved.filter((c) => c.paid_at).reduce((s, c) => s + Number(c.amount), 0);
+  const calculatedSalary = Number(salary?.amount ?? 0);
+  const activeExpenses = claims
+    .filter((claim) => !["rejected", "cancelled"].includes(claim.status))
+    .reduce((sum, claim) => sum + Number(claim.amount), 0);
   const salaryAmount = salary?.status === "approved" ? Number(salary.amount) : 0;
   const incentiveAmount =
     field?.review?.status === "approved"
@@ -46,172 +53,165 @@ export function statementBytes(
     (field?.payments.reduce((s, p) => s + Number(p.amount), 0) ?? 0);
   const payable = expenses + salaryAmount + incentiveAmount;
   const doc = new jsPDF();
-  doc.setFillColor(30, 41, 59);
-  doc.rect(0, 0, 210, 40, "F");
+  doc.setProperties({
+    title: `Salary statement - ${person.name || person.email} - ${month}`,
+    author: "LimelightIT Research Pvt. Ltd.",
+  });
+  const short = (value: string, width: number) => {
+    let text = value;
+    while (text.length && doc.getTextWidth(text) > width) text = text.slice(0, -1);
+    return text === value ? text : `${text.slice(0, -3)}...`;
+  };
+  const date = (value: string | null | undefined) =>
+    value
+      ? new Date(value).toLocaleDateString("en-GB", {
+          timeZone: "Asia/Kolkata",
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+        })
+      : "Pending";
+  const monthLabel = new Date(`${month}-01T12:00:00Z`).toLocaleDateString("en-GB", {
+    month: "long",
+    year: "numeric",
+  });
+  const row = (label: string, value: string, y: number, bold = false) => {
+    doc.setFont("helvetica", bold ? "bold" : "normal");
+    doc.setFontSize(bold ? 11 : 10);
+    doc.setTextColor(35);
+    doc.text(label, 18, y);
+    doc.text(value, 192, y, { align: "right" });
+  };
+  const rule = (y: number) => {
+    doc.setDrawColor(210);
+    doc.setLineWidth(0.2);
+    doc.line(18, y, 192, y);
+  };
+  const heading = (label: string, y: number) => {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(35);
+    doc.text(label, 18, y);
+    rule(y + 3);
+  };
+  doc.setFillColor(31, 51, 71);
+  doc.rect(0, 0, 210, 30, "F");
+  doc.setFillColor(99, 102, 241);
+  doc.rect(0, 30, 210, 1.2, "F");
+  if (logo) doc.addImage(logo, "PNG", 18, 7, 16, 16);
   doc.setTextColor(255);
-  doc.setFontSize(20);
-  doc.text("LIMELIGHT IT | SIM-KIT", 14, 18);
-  doc.setFontSize(11);
-  doc.text("Salary, incentives & reimbursement statement", 14, 29);
-  doc.setTextColor(30, 41, 59);
-  doc.setFontSize(15);
-  doc.text(person.name || person.email, 14, 52);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.text("LimelightIT Research Pvt. Ltd.", logo ? 40 : 18, 14);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text("SIM-Kit | Monthly salary & expenses", logo ? 40 : 18, 22);
+  doc.setTextColor(25);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(16);
+  doc.text(person.field ? "Monthly statement" : "Salary statement", 18, 43);
+  doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
-  doc.text(person.email || "", 14, 59);
-  doc.text(`Statement: ${month}-${safe(person.id).slice(0, 12)}`, 14, 67);
-  doc.text(`Salary / expense month: ${month}`, 14, 73);
-  doc.text(
-    `Generated: ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST`,
-    14,
-    79,
+  doc.text(monthLabel, 192, 43, { align: "right" });
+  rule(49);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text(short(person.name || person.email || "Employee", 174), 18, 59);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(90);
+  doc.text(short(person.email || "", 115), 18, 66);
+  const status = salary?.paid_at ? "Paid" : (salary?.status ?? field?.review?.status);
+  if (status) {
+    const label = status === "tarun_pending" ? "Awaiting Tarun" : status.replaceAll("_", " ");
+    doc.text(`Status: ${label.charAt(0).toUpperCase()}${label.slice(1)}`, 192, 66, {
+      align: "right",
+    });
+  }
+
+  heading("Salary calculation", 79);
+  row("Monthly salary", salary ? amount(Number(salary.base_salary)) : "Not recorded", 91);
+  row("Working days in month", salary ? String(salary.working_days) : "-", 100);
+  row(
+    salary?.status === "approved" ? "Approved payable days" : "Payable days (pending approval)",
+    salary ? `${salary.payable_days} day equivalents` : "-",
+    109,
   );
+  row(
+    "Non-payable day equivalents",
+    salary ? String(Math.max(0, salary.working_days - salary.payable_days)) : "-",
+    118,
+  );
+  row(
+    "Salary per working day",
+    salary
+      ? amount(salary.working_days ? Number(salary.base_salary) / salary.working_days : 0)
+      : "-",
+    127,
+  );
+  row(
+    "Attendance deduction",
+    salary ? amount(Math.max(0, Number(salary.base_salary) - calculatedSalary)) : "-",
+    136,
+  );
+  row("Salary earned", amount(calculatedSalary), 145, true);
+
+  heading("Expense reimbursement", 159);
+  const activeCount = claims.filter(
+    (claim) => !["rejected", "cancelled"].includes(claim.status),
+  ).length;
+  row(
+    `Expenses submitted (${activeCount} ${activeCount === 1 ? "claim" : "claims"})`,
+    amount(activeExpenses),
+    171,
+  );
+  row("Approved expenses", amount(expenses), 180);
+  row("Expenses awaiting approval", amount(Math.max(0, activeExpenses - expenses)), 189);
+  rule(195);
+  row("SALARY + EXPENSES TOTAL", amount(calculatedSalary + activeExpenses), 205, true);
+  if (field) row("Approved field incentives", amount(incentiveAmount), 214);
+  row("Approved for payment", amount(payable), field ? 223 : 218);
+  row("Payments recorded", amount(paid), field ? 232 : 227);
+  rule(236);
+  row("Remaining approved payable", amount(Math.max(0, payable - paid)), 245, true);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7);
+  doc.setTextColor(90);
   const hasDraft =
     (!!salary && salary.status !== "approved") ||
-    (!!field?.review && field.review.status !== "approved");
-  if (hasDraft) {
-    doc.setTextColor(180, 83, 9);
-    doc.text("DRAFT: unapproved calculations are excluded from payable totals.", 14, 86);
-    doc.setTextColor(30, 41, 59);
+    (!!field?.review && field.review.status !== "approved") ||
+    claims.some((claim) => !["approved", "rejected", "cancelled"].includes(claim.status));
+  if (hasDraft)
+    doc.text(
+      "Pending review: the salary + expenses total includes amounts awaiting approval.",
+      18,
+      254,
+    );
+  if (salary || field?.review) {
+    const review = salary ?? field?.review;
+    doc.text(
+      `Hardik verified: ${date(review?.hardik_at)}     Tarun reviewed: ${date(review?.tarun_at)}`,
+      18,
+      262,
+    );
   }
-  let y = hasDraft ? 93 : 87;
-  if (salary) {
-    autoTable(doc, {
-      startY: y,
-      head: [["Office salary", "Working days", "Payable days", "Daily rate", "Calculated"]],
-      body: [
-        [
-          salary.status,
-          String(salary.working_days),
-          String(salary.payable_days),
-          amount(Number(salary.base_salary) / salary.working_days),
-          amount(Number(salary.amount)),
-        ],
-      ],
-      styles: { fontSize: 9 },
-      headStyles: { fillColor: [30, 41, 59] },
-    });
-    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
-    autoTable(doc, {
-      startY: y,
-      head: [["Date", "Attendance", "Payable units", "Adjustment reason"]],
-      body: salary.days
-        .filter((d) => d.working_day)
-        .map((d) => [
-          d.date,
-          d.status.replaceAll("_", " "),
-          String(d.units ?? "Needs review"),
-          d.override_reason || "",
-        ]),
-      styles: { fontSize: 8 },
-      headStyles: { fillColor: [30, 41, 59] },
-    });
-    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
-  }
-  if (field) {
-    autoTable(doc, {
-      startY: y,
-      head: [["Field incentive cycle ending", "Approval", "Amount"]],
-      body: [
-        [
-          `${month}-15 (previous 16th to this 15th)`,
-          field.review?.status ?? "Not verified",
-          amount(field.earnings.reduce((s, e) => s + Number(e.amount ?? 0), 0)),
-        ],
-      ],
-      styles: { fontSize: 9 },
-      headStyles: { fillColor: [30, 41, 59] },
-    });
-    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
-    autoTable(doc, {
-      startY: y,
-      head: [["Date", "Work", "Company", "Amount", "Payment"]],
-      body: field.earnings.map((e) => [
-        e.date,
-        e.phase,
-        e.company,
-        e.amount === null ? "Rate pending" : amount(Number(e.amount)),
-        e.paid ? "Paid" : "Remaining",
-      ]),
-      styles: { fontSize: 8 },
-      headStyles: { fillColor: [30, 41, 59] },
-    });
-    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
-  }
-  autoTable(doc, {
-    startY: y,
-    head: [["Expense date", "Expense", "Category", "Amount", "Approval", "Payment"]],
-    body: claims.map((c) => [
-      c.expense_date,
-      c.title,
-      categories[c.category],
-      amount(Number(c.amount)),
-      c.status,
-      c.paid_at ? "Paid" : c.status === "approved" ? "Remaining" : "Not payable",
-    ]),
-    styles: { fontSize: 8 },
-    headStyles: { fillColor: [30, 41, 59] },
-  });
-  y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
-  autoTable(doc, {
-    startY: y,
-    body: [
-      ["Approved office salary", amount(salaryAmount)],
-      ["Approved field incentives (16th–15th)", amount(incentiveAmount)],
-      ["Approved reimbursements", amount(expenses)],
-      ["Total approved payable", amount(payable)],
-      ["Recorded payments", amount(paid)],
-      ["Remaining payable", amount(Math.max(0, payable - paid))],
-    ],
-    styles: { fontSize: 10 },
-    columnStyles: { 1: { halign: "right" } },
-    theme: "striped",
-  });
-  doc.addPage();
-  doc.setFontSize(15);
-  doc.text("Approval & payment details", 14, 20);
-  autoTable(doc, {
-    startY: 28,
-    head: [["Item", "Hardik decision / date", "Tarun decision / date", "Reason / reference"]],
-    body: [
-      ...(salary
-        ? [
-            [
-              "Office salary",
-              salary.hardik_at ?? "Pending",
-              salary.tarun_at ?? "Pending",
-              salary.rejection_reason || salary.payment_reference || "",
-            ],
-          ]
-        : []),
-      ...(field?.review
-        ? [
-            [
-              "Field incentives",
-              field.review.hardik_at,
-              field.review.tarun_at ?? "Pending",
-              field.review.reason || field.payments.map((p) => p.reference).join(", "),
-            ],
-          ]
-        : []),
-      ...claims.map((c) => [
-        c.title,
-        `${c.hardik_decision ?? "Pending"} ${c.hardik_at ?? ""}`,
-        `${c.tarun_decision ?? "Awaiting Hardik"} ${c.tarun_at ?? ""}`,
-        [c.hardik_reason, c.tarun_reason, c.payment_reference].filter(Boolean).join("; "),
-      ]),
-    ],
-    styles: { fontSize: 8 },
-    headStyles: { fillColor: [30, 41, 59] },
-  });
-  const pages = doc.getNumberOfPages();
-  for (let page = 1; page <= pages; page++) {
-    doc.setPage(page);
-    doc.setFontSize(8);
-    doc.setTextColor(100);
-    doc.text(`SIM-Kit Ops | Records payments; does not transfer money | ${page}/${pages}`, 14, 290);
-  }
+  doc.text(
+    "Payable days include full days, half days and approved paid adjustments. Itemised records: monthly ZIP.",
+    18,
+    270,
+  );
+  rule(275);
+  doc.setFontSize(7);
+  doc.text(
+    `Generated ${date(new Date().toISOString())} | ${month}-${safe(person.id).slice(0, 12)}`,
+    18,
+    282,
+  );
+  doc.text("1 / 1", 192, 282, { align: "right" });
   return new Uint8Array(doc.output("arraybuffer"));
 }
+
 export async function downloadStatement(
   board: FinanceBoard,
   month: string,
@@ -225,7 +225,7 @@ export async function downloadStatement(
       })
     : undefined;
   saveBlob(
-    statementBytes(board, month, person, employee, field),
+    statementBytes(board, month, person, employee, field, await attendanceReportLogo()),
     `SimKit-${safe(person.name || person.id)}-${month}.pdf`,
     "application/pdf",
   );
@@ -301,6 +301,7 @@ export async function downloadFinanceBackup(board: FinanceBoard, month: string) 
     .join("\r\n");
   add("expenses.csv", strToU8("\ufeff" + csv));
   const statementPeople = [...board.people];
+  const logo = await attendanceReportLogo();
   for (const employee of board.employees) {
     if (!statementPeople.some((p) => p.id === employee.auth_user_id))
       statementPeople.push({
@@ -316,16 +317,11 @@ export async function downloadFinanceBackup(board: FinanceBoard, month: string) 
     );
     add(
       `statements/${safe(person.id)}.pdf`,
-      statementBytes(board, month, person, employee, field[person.id]),
+      statementBytes(board, month, person, employee, field[person.id], logo),
     );
   }
   for (const file of board.files) {
-    const result = await expenseFileRequest({ id: file.id });
-    if (!result.url)
-      throw new Error(`Attachment ${file.filename} is unavailable; backup incomplete.`);
-    const response = await fetch(result.url);
-    if (!response.ok) throw new Error(`Could not download ${file.filename}; backup incomplete.`);
-    const bytes = new Uint8Array(await response.arrayBuffer());
+    const bytes = await expenseFileDownload(file.id);
     const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)))
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
@@ -354,8 +350,9 @@ export async function downloadFinanceBackup(board: FinanceBoard, month: string) 
       ),
     ),
   );
-  const bytes = await new Promise<Uint8Array>((resolve, reject) =>
-    zip(archive, { level: 1 }, (error, data) => (error ? reject(error) : resolve(data))),
-  );
+  // Receipts/PDFs are already compressed. Store them directly, avoiding blob workers
+  // that may be blocked by browser security settings during asynchronous compression.
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  const bytes = zipSync(archive, { level: 0 });
   saveBlob(bytes, `SimKit-salary-expense-${month}.zip`, "application/zip");
 }

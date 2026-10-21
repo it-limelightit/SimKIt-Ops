@@ -8,10 +8,16 @@ const source = readFileSync(new URL("../src/lib/finance.ts", import.meta.url), "
   'import { supabase } from "@/integrations/supabase/client";',
   "const supabase = {};",
 );
-const { settlementDates, canReapply, salaryTotals, validateExpenseFile, canManageFinance } =
-  await import(
-    `data:text/javascript;base64,${Buffer.from(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText).toString("base64")}`
-  );
+const {
+  settlementDates,
+  canReapply,
+  salaryTotals,
+  validateExpenseFile,
+  canManageFinance,
+  expenseReapplication,
+} = await import(
+  `data:text/javascript;base64,${Buffer.from(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText).toString("base64")}`
+);
 const db = new PGlite();
 const hardik = "00000000-0000-4000-8000-000000000001",
   tarun = "00000000-0000-4000-8000-000000000002",
@@ -68,6 +74,60 @@ before(async () => {
     );
 });
 after(() => db.close());
+
+test("reapplication uses the latest saved rejection even after current approval fields reset", () => {
+  const events = [
+    {
+      entity_type: "expense",
+      entity_id: "claim",
+      action: "reapplied",
+      occurred_at: "2026-10-17T10:00:00Z",
+      before_data: { hardik_reason: "Old receipt", hardik_at: "2026-10-16T10:00:00Z" },
+    },
+    {
+      entity_type: "expense",
+      entity_id: "other",
+      action: "reapplied",
+      occurred_at: "2026-10-20T10:00:00Z",
+      before_data: { hardik_reason: "Other person's reason" },
+    },
+    {
+      entity_type: "expense",
+      entity_id: "claim",
+      action: "reapplied",
+      occurred_at: "2026-10-19T10:00:00Z",
+      before_data: {
+        hardik_reason: null,
+        tarun_reason: "Attach the revised invoice.\nInclude the total.",
+        tarun_at: "2026-10-18T10:00:00Z",
+      },
+    },
+  ];
+  assert.deepEqual(expenseReapplication("claim", events), {
+    reappliedAt: "2026-10-19T10:00:00Z",
+    rejections: [
+      {
+        reviewer: "Tarun",
+        reason: "Attach the revised invoice.\nInclude the total.",
+        at: "2026-10-18T10:00:00Z",
+      },
+    ],
+  });
+  assert.equal(expenseReapplication("new-claim", events), null);
+  assert.equal(expenseReapplication("claim", [events[0]], "tarun"), null);
+  assert.equal(
+    expenseReapplication("claim", [events[0]], "hardik").rejections[0].reviewer,
+    "Hardik",
+  );
+  assert.equal(expenseReapplication("claim", events, "tarun").rejections[0].reviewer, "Tarun");
+  const hardikReappliedAgain = { ...events[0], occurred_at: "2026-10-21T10:00:00Z" };
+  assert.equal(expenseReapplication("claim", [...events, hardikReappliedAgain], "tarun"), null);
+  assert.equal(expenseReapplication("claim", [{ ...events[0], action: "approve" }]), null);
+  assert.deepEqual(
+    expenseReapplication("claim", [{ ...events[0], before_data: null }]).rejections,
+    [],
+  );
+});
 
 test("month boundaries, year rollover and inclusive fifth-day deadline", () => {
   assert.deepEqual(settlementDates("2026-12"), { deadline: "2027-01-05", due: "2027-01-07" });

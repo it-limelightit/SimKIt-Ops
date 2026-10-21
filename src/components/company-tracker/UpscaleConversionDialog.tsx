@@ -11,9 +11,6 @@ const componentOptions = [
   ["dm", "DM (Data Meter)"],
   ["without_cavli", "Without Cavli"],
   ["antenna", "Antenna Kit"],
-  ["ct1", "CT 1"],
-  ["ct2", "CT 2"],
-  ["ct3", "CT 3"],
   ["proxy1", "Proxy 1 (Inductive)"],
   ["proxy2", "Proxy 2 (Inductive)"],
   ["encoder", "Encoder"],
@@ -254,6 +251,25 @@ export function UpscaleConversionDialog({
             />
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="sm:col-span-2">
+              <Label>CT supply phase</Label>
+              <div className="mt-2 flex flex-wrap gap-3 sm:gap-4">
+                <Checkbox
+                  id={`upscale-ct-single-phase-${activeIndex}`}
+                  label="Single-phase — 1 CT sensor"
+                  checked={!!active.components.ct1}
+                  disabled={busy}
+                  onCheckedChange={(checked) => updateDevice({ components: { ...active.components, ct1: checked, ct2: false, ct3: false } }, true)}
+                />
+                <Checkbox
+                  id={`upscale-ct-three-phase-${activeIndex}`}
+                  label="Three-phase — 3 CT sensors"
+                  checked={!!active.components.ct3}
+                  disabled={busy}
+                  onCheckedChange={(checked) => updateDevice({ components: { ...active.components, ct1: false, ct2: false, ct3: checked } }, true)}
+                />
+              </div>
+            </div>
             {componentOptions.map(([key, label]) => (
               <Checkbox
                 key={key}

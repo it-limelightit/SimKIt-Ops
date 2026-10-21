@@ -44,7 +44,7 @@ globalThis.financeFileMocks = {
       },
       maybeSingle: async () =>
         table === "profiles"
-          ? { data: { is_active: state.active }, error: null }
+          ? { data: { is_active: state.active, name: state.name }, error: null }
           : table === "expense_claims"
             ? { data: state.claim, error: null }
             : { data: state.file, error: null },
@@ -57,6 +57,10 @@ globalThis.financeFileMocks = {
   AwsClient: class {
     async fetch(url, options) {
       state.r2.push({ url, options });
+      if (options.method === "GET")
+        return new Response(state.receipt ?? "%PDF-1.7 receipt", {
+          status: state.downloadFails ? 503 : 200,
+        });
       return new Response(null, { status: state.uploadFails ? 503 : 200 });
     }
     async sign(request) {
@@ -79,6 +83,7 @@ beforeEach(() => {
     email: "staff@example.test",
     verified: true,
     active: true,
+    name: "Mayank Patel",
     r2: [],
     file: null,
     saveFails: false,
@@ -126,9 +131,36 @@ test("upload uses a private owner key, stores hash and does not expose credentia
   const result = await response.json();
   assert.deepEqual(Object.keys(result), ["id"]);
   assert.equal(state.saved.owner_id, "user-one");
-  assert.match(state.saved.object_key, /^expenses\/user-one\//);
+  assert.match(
+    state.saved.object_key,
+    /^expenses\/mayank-patel_user-one\/[a-f0-9-]+_receipt\.pdf$/,
+  );
   assert.match(state.saved.sha256, /^[a-f0-9]{64}$/);
   assert.equal(state.saved.size_bytes, 13);
+});
+
+test("upload folders use the authenticated profile name and readable sanitized filenames", async () => {
+  state.name = "  Mayank / Patel ..  ";
+  const form = new FormData();
+  form.set(
+    "file",
+    new File(["%PDF-1.7 invoice"], "../Invoice Mayank.pdf", { type: "application/pdf" }),
+  );
+  form.set("name", "another-user");
+  assert.equal((await request(form)).status, 200);
+  assert.match(
+    state.saved.object_key,
+    /^expenses\/mayank-patel_user-one\/[a-f0-9-]+_.._Invoice_Mayank\.pdf$/,
+  );
+  assert.doesNotMatch(state.saved.object_key, /another-user|\.\.\//);
+  assert.equal(state.r2[0].url.endsWith(state.saved.object_key), true);
+});
+
+test("missing profile names fall back to email while preserving the unique owner ID", async () => {
+  state.name = "";
+  state.email = "mayank@example.test";
+  assert.equal((await upload(new TextEncoder().encode("%PDF-1.7 test"))).status, 200);
+  assert.match(state.saved.object_key, /^expenses\/mayank_user-one\//);
 });
 test("metadata failure cleans up its newly uploaded object", async () => {
   state.saveFails = true;
@@ -171,6 +203,43 @@ test("missing storage configuration returns a controlled failure", async () => {
   assert.equal(state.r2.length, 0);
 });
 
+test("receipt proxy returns authenticated bytes with CORS instead of an R2 browser URL", async () => {
+  state.file = {
+    owner_id: "user-one",
+    claim_id: "claim",
+    object_key: "expenses/user-one/saved",
+    filename: 'receipt".pdf',
+  };
+  const response = await request({ id: "receipt", download: true, object_key: "injected" });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "application/octet-stream");
+  assert.equal(response.headers.get("access-control-allow-origin"), "*");
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(await response.text(), "%PDF-1.7 receipt");
+  assert.match(state.r2[0].url, /expenses\/user-one\/saved$/);
+  assert.equal(state.r2[0].options.method, "GET");
+  assert.equal(state.signed, undefined);
+});
+
+test("receipt proxy preserves ownership checks and fails closed on missing or oversized objects", async () => {
+  state.file = {
+    owner_id: "other",
+    claim_id: "claim",
+    object_key: "receipt.pdf",
+    filename: "receipt.pdf",
+  };
+  assert.equal((await request({ id: "receipt", download: true })).status, 404);
+  assert.equal(state.r2.length, 0);
+  state.file.owner_id = "user-one";
+  state.downloadFails = true;
+  const failed = await request({ id: "receipt", download: true });
+  assert.equal(failed.status, 502);
+  assert.equal(failed.headers.get("access-control-allow-origin"), "*");
+  state.downloadFails = false;
+  state.receipt = new Uint8Array(5000001);
+  assert.equal((await request({ id: "receipt", download: true })).status, 413);
+});
+
 test("Tarun cannot download receipts until Hardik explicitly sends the expense", async () => {
   state.email = "tarun@limelightit.io";
   state.file = {
@@ -181,7 +250,10 @@ test("Tarun cannot download receipts until Hardik explicitly sends the expense",
   };
   state.claim = { sent_to_tarun_at: null };
   assert.equal((await request({ id: "a" })).status, 404);
+  assert.equal((await request({ id: "a", download: true })).status, 404);
+  assert.equal(state.r2.length, 0);
   assert.equal(state.signed, undefined);
   state.claim.sent_to_tarun_at = "2026-10-19T00:00:00Z";
   assert.equal((await request({ id: "a" })).status, 200);
+  assert.equal((await request({ id: "a", download: true })).status, 200);
 });

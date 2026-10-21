@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button, Card, Checkbox, EmptyState, Input, Select } from "@/components/ui-kit";
 import { MetricCard, OrderCard, normalizeLogisticsStatus, type Material } from "./InventoryPanel";
 import { LogisticsResultsPortal } from "./LogisticsResultsPortal";
+import { inventoryCtSensorCount } from "@/lib/inventory-components";
 
 type UpscaleCompanyOrder = {
   id: string;
@@ -17,9 +18,9 @@ type UpscaleCompanyOrder = {
 const componentNames: Record<string, string> = {
   dm: "DM (Data Meter)",
   without_cavli: "Without Cavli",
-  ct1: "CT 1",
-  ct2: "CT 2",
-  ct3: "CT 3",
+  ct1: "CT1 — Single-phase / 1 sensor",
+  ct2: "CT2 — 2 sensors",
+  ct3: "CT3 — Three-phase / 3 sensors",
   proxy1: "Proxy 1 (Inductive)",
   proxy2: "Proxy 2 (Inductive)",
   encoder: "Encoder",
@@ -455,7 +456,7 @@ export function UpscaleLogisticsPanel({
                         <div><dt className="text-xs text-text-secondary">Device model</dt><dd className="mt-0.5 break-words font-semibold text-text-primary">{selectedDevice.material_name || "Not set"}</dd></div>
                         <div><dt className="text-xs text-text-secondary">Hardware version</dt><dd className="mt-0.5 break-words font-semibold text-text-primary">{selectedDevice.version || "Not set"}</dd></div>
                         <div><dt className="text-xs text-text-secondary">Uplink</dt><dd className="mt-0.5 break-words font-semibold text-text-primary">{selectedDevice.uplink || "Not set"}</dd></div>
-                        <div><dt className="text-xs text-text-secondary">CT channels</dt><dd className="mt-0.5 font-semibold text-text-primary">{[selectedDevice.ct1, selectedDevice.ct2, selectedDevice.ct3].filter((value) => value === "TRUE").length} active</dd></div>
+                        <div><dt className="text-xs text-text-secondary">CT sensors</dt><dd className="mt-0.5 font-semibold text-text-primary">{inventoryCtSensorCount(selectedDevice)}</dd></div>
                         <div><dt className="text-xs text-text-secondary">Vibration sensor</dt><dd className="mt-0.5 break-words font-semibold text-text-primary">{selectedDevice.vibration === "TRUE" ? selectedDevice.vibration_model || "Selected" : "Not selected"}</dd></div>
                         <div><dt className="text-xs text-text-secondary">Proxy model</dt><dd className="mt-0.5 break-words font-semibold text-text-primary">{selectedDevice.proxy_model || "Not set"}</dd></div>
                         <div><dt className="text-xs text-text-secondary">Courier partner</dt><dd className="mt-0.5 break-words font-semibold text-text-primary">{selectedDevice.dispatch || "Not set"}</dd></div>

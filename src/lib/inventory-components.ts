@@ -55,6 +55,11 @@ export function inventoryModelKey(category: string, model?: string | null) {
     : "";
 }
 
+export function inventoryCtSensorCount(order: { ct1?: unknown; ct2?: unknown; ct3?: unknown }): number {
+  const selected = (value: unknown) => value === true || ["true", "1", "yes"].includes(String(value ?? "").trim().toLowerCase());
+  return selected(order.ct3) ? 3 : selected(order.ct2) ? 2 : selected(order.ct1) ? 1 : 0;
+}
+
 export function inventoryDispatchHint(category: string) {
   const key = inventoryComponentKey(category);
   if (["zip ties", "tape roll", "formsheet"].includes(key))
@@ -62,9 +67,9 @@ export function inventoryDispatchHint(category: string) {
   if (key === "2corewire")
     return "Normal YHDC CT orders deduct a fixed 12 meters. Energy-meter CTs do not use this wire rule.";
   if (key === "4corewire") return "Vibration sensor orders deduct a fixed 5 meters.";
-  if (key === "cablegland") return "Each new dispatched device order deducts 3 cable glands.";
+  if (key === "cablegland") return "Each new device order deducts 3 cable glands when it enters In Packing.";
   if (["box", "powercordcable", "panelboxdoorlock", "uvprinting"].includes(key))
-    return "Each new dispatched device order deducts 1 unit.";
+    return "Each new device order deducts 1 unit when it enters In Packing.";
   if (key === "towerlight")
     return "Deduct 1 unit only when tower light is selected in the device order.";
   if (["magneticmountantenna", "rfcableantenna"].includes(key))
@@ -72,7 +77,7 @@ export function inventoryDispatchHint(category: string) {
   if (key === "energymeterctsensor")
     return "Energy meter orders include 3 of these CT sensors. These are separate from YHDC CTs.";
   if (key === "yhdcctsensor")
-    return "Any selected CT checkbox deducts a complete set of 3 YHDC sensors. No CT selection deducts none.";
+    return "Single-phase uses 1 YHDC sensor; three-phase uses 3. No selection uses none.";
   if (key === "proximitysensor")
     return "Only Inductive proxy sensors are used. Deduct one sensor for each selected proxy input.";
   return null;
