@@ -104,6 +104,46 @@ export type FinanceEvent = {
   after_data: unknown;
 };
 export type FinancePerson = { id: string; name: string; email: string; field: boolean };
+
+export function expenseReapplication(
+  claimId: string,
+  events: FinanceEvent[],
+  viewer: FinanceRole = null,
+) {
+  const latest = events
+    .filter(
+      (event) =>
+        event.entity_type === "expense" &&
+        event.entity_id === claimId &&
+        event.action === "reapplied",
+    )
+    .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))[0];
+  if (!latest) return null;
+  const before =
+    latest.before_data &&
+    typeof latest.before_data === "object" &&
+    !Array.isArray(latest.before_data)
+      ? (latest.before_data as Record<string, unknown>)
+      : {};
+  const rejections = (["hardik", "tarun"] as const).flatMap((reviewer) => {
+    const reason = before[`${reviewer}_reason`];
+    if (typeof reason !== "string" || !reason.trim()) return [];
+    const at = before[`${reviewer}_at`];
+    return [
+      {
+        reviewer: reviewer === "hardik" ? "Hardik" : "Tarun",
+        reason,
+        at: typeof at === "string" ? at : null,
+      },
+    ];
+  });
+  if (viewer === "tarun") {
+    const ownRejections = rejections.filter((rejection) => rejection.reviewer === "Tarun");
+    if (!ownRejections.length && before.tarun_decision !== "reject") return null;
+    return { reappliedAt: latest.occurred_at, rejections: ownRejections };
+  }
+  return { reappliedAt: latest.occurred_at, rejections };
+}
 export type FinanceEmployee = {
   id: string;
   name: string;
@@ -183,7 +223,7 @@ export function salaryTotals(base: number, days: FinanceDay[], overrides: DayOve
     amount: working ? Math.round(((base * payable) / working + Number.EPSILON) * 100) / 100 : 0,
   };
 }
-export async function expenseFileRequest(body: FormData | Record<string, unknown>) {
+async function invokeExpenseFiles(body: FormData | Record<string, unknown>) {
   const { data, error } = await supabase.functions.invoke("expense-files", { body });
   if (error) {
     let message = error.message;
@@ -196,7 +236,16 @@ export async function expenseFileRequest(body: FormData | Record<string, unknown
     }
     throw new Error(message);
   }
-  return data as { id?: string; url?: string };
+  return data as unknown;
+}
+export async function expenseFileRequest(body: FormData | Record<string, unknown>) {
+  return (await invokeExpenseFiles(body)) as { id?: string; url?: string };
+}
+export async function expenseFileDownload(id: string) {
+  const result = await invokeExpenseFiles({ id, download: true });
+  if (!(result instanceof Blob))
+    throw new Error("Receipt download could not be prepared. Please retry.");
+  return new Uint8Array(await result.arrayBuffer());
 }
 export function validateExpenseFile(file: Pick<File, "size" | "type">) {
   if (file.size < 1 || file.size > MAX_EXPENSE_FILE_BYTES)

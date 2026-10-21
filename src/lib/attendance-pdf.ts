@@ -37,42 +37,50 @@ async function report(title: string, generatedAt: Date, logo?: string) {
   });
   function frame() {
     doc.setFillColor(...navy);
-    doc.rect(0, 0, 210, 22, "F");
-    if (logo) doc.addImage(logo, "PNG", 12, 5, 12, 12);
+    doc.rect(0, 0, 210, 26, "F");
+    doc.setFillColor(99, 102, 241);
+    doc.rect(0, 26, 210, 1.2, "F");
+    if (logo) doc.addImage(logo, "PNG", 12, 6, 13, 13);
+    const textX = logo ? 30 : 12;
     doc.setTextColor(255, 255, 255);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
-    doc.text("LimelightIT Research Pvt. Ltd.", 28, 10);
+    doc.text("LimelightIT Research Pvt. Ltd.", textX, 11);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
-    doc.text(`SIM-Kit | ${title}`, 28, 16);
+    doc.text(`SIM-Kit | ${title}`, textX, 19);
   }
   frame();
-  let y = 29;
+  let y = 36;
   function table(heading: string, head: string[], body: string[][], options: UserOptions = {}) {
     if (y > 248) {
       doc.addPage();
       frame();
-      y = 29;
+      y = 36;
     }
     doc.setTextColor(...navy);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
+    doc.setFontSize(11);
     doc.text(heading, 12, y);
     autoTable(doc, {
-      startY: y + 3,
+      startY: y + 4,
       head: [head],
       body,
-      margin: { left: 12, right: 12, top: 29, bottom: 20 },
+      margin: { left: 12, right: 12, top: 36, bottom: 22 },
       styles: {
         font: "helvetica",
         fontSize: 8,
-        cellPadding: 2,
+        cellPadding: 2.5,
         textColor: navy,
         overflow: "linebreak",
         lineWidth: 0,
       },
-      headStyles: { fillColor: navy, textColor: [255, 255, 255], fontStyle: "bold" },
+      headStyles: {
+        fillColor: navy,
+        textColor: [255, 255, 255],
+        fontStyle: "bold",
+        cellPadding: 3,
+      },
       alternateRowStyles: { fillColor: [247, 249, 252] },
       rowPageBreak: "avoid",
       showHead: "everyPage",

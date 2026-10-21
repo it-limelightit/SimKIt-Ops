@@ -205,6 +205,8 @@ export function Overview() {
   const [workerIds, setWorkerIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  const [savingAssessorIds, setSavingAssessorIds] = useState<Set<string>>(new Set());
+  const [editingAssessorId, setEditingAssessorId] = useState<string | null>(null);
 
   // Filter States
   const [selectedKpi, setSelectedKpi] = useState<string>("assigned");
@@ -212,6 +214,7 @@ export function Overview() {
   const [districtFilter, setDistrictFilter] = useState("");
   const [districts, setDistricts] = useState<Array<{ id: string; name: string }>>([]);
   const [executiveFilter, setExecutiveFilter] = useState("");
+  const [assessorCompanyFilter, setAssessorCompanyFilter] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [updatedDateFilter, setUpdatedDateFilter] = useState<UpdatedDateFilter>("all");
   const [updatedDateStart, setUpdatedDateStart] = useState("");
@@ -640,6 +643,64 @@ export function Overview() {
     }
   };
 
+  // Keep each distinct contact together rather than combining people from the same company.
+  const assessorMap = new Map<string, { id: string; assessor_company: string; assessor_name: string; assessor_phone: string; assessor_email: string }>();
+  rawSites.forEach((site) => {
+    const meta = parseSiteMetadata(site.task_notes);
+    const assessor = {
+      assessor_company: meta.assessor_company?.trim() || "",
+      assessor_name: meta.assessor_name?.trim() || "",
+      assessor_phone: meta.assessor_phone?.trim() || "",
+      assessor_email: meta.assessor_email?.trim() || "",
+    };
+    if (!assessor.assessor_company) return;
+    const key = JSON.stringify(Object.values(assessor).map((value) => value.toLowerCase()));
+    if (!assessorMap.has(key)) assessorMap.set(key, { id: site.id as string, ...assessor });
+  });
+  const assessorOptions = Array.from(assessorMap.values())
+    .sort((a, b) => a.assessor_company.localeCompare(b.assessor_company) || a.assessor_name.localeCompare(b.assessor_name));
+  const assessorCompanyOptions = Array.from(new Map(
+    assessorOptions.map((assessor) => [assessor.assessor_company.toLowerCase(), assessor.assessor_company]),
+  ), ([value, label]) => ({ value, label }));
+
+  const handleAssessorChange = async (row: SiteRow, assessorId: string) => {
+    const assessor = assessorOptions.find((option) => option.id === assessorId);
+    if (!assessor || savingAssessorIds.has(row.id)) return;
+    setSavingAssessorIds((current) => new Set(current).add(row.id));
+    try {
+      // Read the current metadata so assigning an assessor preserves other site changes.
+      const { data: currentSite, error: readError } = await supabase
+        .from("sites").select("task_notes").eq("id", row.id).single();
+      if (readError) throw readError;
+      const meta = parseSiteMetadata(currentSite.task_notes);
+      const originalMeta = parseSiteMetadata(row.task_notes);
+      const assessorFields = ["assessor_company", "assessor_name", "assessor_phone", "assessor_email"] as const;
+      if (assessorFields.some((field) => (meta[field]?.trim() || "") !== (originalMeta[field]?.trim() || ""))) {
+        throw new Error("The assessor has changed. Refresh to see the latest details before editing.");
+      }
+      const { id: _sourceSiteId, ...assessorDetails } = assessor;
+      const taskNotes = serializeSiteMetadata(currentSite.task_notes, { ...meta, ...assessorDetails });
+      let update = supabase.from("sites").update({ task_notes: taskNotes }).eq("id", row.id);
+      update = currentSite.task_notes === null
+        ? update.is("task_notes", null)
+        : update.eq("task_notes", currentSite.task_notes);
+      const { data: updatedSite, error } = await update.select("id,task_notes").maybeSingle();
+      if (error) throw error;
+      if (!updatedSite) throw new Error("The company changed while saving. Refresh and try again.");
+      setRawSites((sites) => sites.map((site) => site.id === row.id ? { ...site, task_notes: updatedSite.task_notes } : site));
+      setEditingAssessorId((current) => current === row.id ? null : current);
+      toast.success(row.meta.assessor_company ? "Assessor updated successfully" : "Assessor assigned successfully");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not assign assessor. Please try again.");
+    } finally {
+      setSavingAssessorIds((current) => {
+        const next = new Set(current);
+        next.delete(row.id);
+        return next;
+      });
+    }
+  };
+
   const handleBcChange = async (row: SiteRow, workerId: string) => {
     try {
       const workerIds = workerId ? [workerId] : [];
@@ -947,6 +1008,7 @@ export function Overview() {
   // Counts, table rows, and exports share every active filter.
   const filteredForCounts = allProcessedRows.filter((row) =>
     (!districtFilter || row.district_id === districtFilter) &&
+    (!assessorCompanyFilter || row.meta.assessor_company.toLowerCase() === assessorCompanyFilter) &&
     matchesOverviewFilters(row, {
       city: cityFilter,
       associateId: executiveFilter,
@@ -1109,7 +1171,7 @@ export function Overview() {
   // Reset page number on filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedKpi, districtFilter, cityFilter, executiveFilter, searchQuery, updatedDateFilter, updatedDateStart, updatedDateEnd, sortField, sortOrder, showMyTasks]);
+  }, [selectedKpi, districtFilter, cityFilter, executiveFilter, assessorCompanyFilter, searchQuery, updatedDateFilter, updatedDateStart, updatedDateEnd, sortField, sortOrder, showMyTasks]);
 
   const handleSort = (field: "name" | "city" | "updated") => {
     if (sortField === field) {
@@ -1137,6 +1199,7 @@ export function Overview() {
     setDistrictFilter("");
     setCityFilter("");
     setExecutiveFilter("");
+    setAssessorCompanyFilter("");
     setSearchQuery("");
     setUpdatedDateFilter("all");
     setUpdatedDateStart("");
@@ -2644,6 +2707,25 @@ export function Overview() {
                   </select>
                 </div>
 
+                {/* Assessor company filter */}
+                <div className="flex flex-wrap items-center gap-2 bg-surface-raised border border-border rounded-md px-2 py-1">
+                  <Building className="h-3.5 w-3.5 text-text-secondary" aria-hidden="true" />
+                  <label htmlFor="overview-assessor-company" className="text-xs font-semibold text-text-secondary">
+                    Assessor Name (Company)
+                  </label>
+                  <select
+                    id="overview-assessor-company"
+                    value={assessorCompanyFilter}
+                    onChange={(event) => setAssessorCompanyFilter(event.target.value)}
+                    className="max-w-[220px] truncate bg-transparent text-xs focus:outline-none border-none pr-4 font-semibold text-text-primary cursor-pointer"
+                  >
+                    <option value="">All Assessor Companies</option>
+                    {assessorCompanyOptions.map((assessor) => (
+                      <option key={assessor.value} value={assessor.value}>{assessor.label}</option>
+                    ))}
+                  </select>
+                </div>
+
                 {/* Last updated date filter */}
                 <div className="flex items-center gap-1 bg-surface-raised border border-border rounded-md px-2 py-1">
                   <Calendar className="h-3.5 w-3.5 text-text-secondary" />
@@ -2713,7 +2795,7 @@ export function Overview() {
                 )}
 
                 {/* Reset Filters */}
-                {(searchQuery || districtFilter || cityFilter || executiveFilter || updatedDateFilter !== "all" || showMyTasks) && (
+                {(searchQuery || districtFilter || cityFilter || executiveFilter || assessorCompanyFilter || updatedDateFilter !== "all" || showMyTasks) && (
                   <button
                     onClick={handleResetFilters}
                     className="text-xs text-coral hover:text-coral/80 font-bold px-2 py-1.5 transition-colors border border-dashed border-coral/30 rounded cursor-pointer"
@@ -2784,7 +2866,8 @@ export function Overview() {
                             </div>
                           </td>
                           <td className="px-4 py-3.5 align-middle" onClick={(event) => event.stopPropagation()}>
-                            {r.meta.assessor_company || r.meta.assessor_name || r.meta.assessor_phone ? (
+                            {r.meta.assessor_company && editingAssessorId !== r.id ? (
+                              <div className="flex items-center justify-between gap-3">
                               <Dialog>
                                 <DialogTrigger asChild>
                                   <button
@@ -2826,7 +2909,48 @@ export function Overview() {
                                   </dl>
                                 </DialogContent>
                               </Dialog>
-                            ) : <span className="text-xs text-text-dim">-</span>}
+                                <button
+                                  type="button"
+                                  aria-label={`Edit assessor for ${r.name}`}
+                                  onClick={() => setEditingAssessorId(r.id)}
+                                  className="shrink-0 cursor-pointer rounded-md border border-border px-2 py-1 text-[11px] font-medium text-text-secondary transition-colors hover:bg-surface-raised hover:text-text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime"
+                                >
+                                  Edit
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                              <select
+                                value=""
+                                aria-label={`Select assessor for ${r.name}`}
+                                disabled={savingAssessorIds.has(r.id) || assessorOptions.length === 0}
+                                onChange={(event) => void handleAssessorChange(r, event.target.value)}
+                                className="w-full max-w-[240px] cursor-pointer truncate rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-text-secondary outline-none transition-colors hover:border-border-bright focus-visible:ring-2 focus-visible:ring-lime disabled:cursor-default disabled:opacity-60"
+                              >
+                                <option value="">
+                                  {savingAssessorIds.has(r.id) ? "Saving assessor..." : assessorOptions.length ? r.meta.assessor_company ? "Select replacement" : "Select assessor" : "No saved assessors"}
+                                </option>
+                                {assessorOptions.map((assessor) => (
+                                  <option key={assessor.id} value={assessor.id}>
+                                    {assessor.assessor_company}
+                                    {assessorOptions.some((other) => other.id !== assessor.id && other.assessor_company.toLowerCase() === assessor.assessor_company.toLowerCase())
+                                      ? ` · ${[assessor.assessor_name, assessor.assessor_phone, assessor.assessor_email].filter(Boolean).join(" · ") || "-"}`
+                                      : ""}
+                                  </option>
+                                ))}
+                              </select>
+                                {editingAssessorId === r.id && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingAssessorId(null)}
+                                    disabled={savingAssessorIds.has(r.id)}
+                                    className="shrink-0 cursor-pointer rounded-sm px-1 py-1 text-xs text-text-secondary hover:text-text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime disabled:cursor-default disabled:opacity-50"
+                                  >
+                                    Cancel
+                                  </button>
+                                )}
+                              </div>
+                            )}
                           </td>
                           <td className="px-4 py-3.5">
                             {renderStatusSelect(r)}

@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import logoUrl from "../../../image copy.png";
-import { inventoryComponentKey, inventoryModelKey, inventoryDispatchHint, inventoryOrderIncludesDm } from "@/lib/inventory-components";
+import { inventoryComponentKey, inventoryModelKey, inventoryDispatchHint, inventoryOrderIncludesDm, inventoryCtSensorCount } from "@/lib/inventory-components";
 import {
   InventoryStockItem,
   PREDEFINED_CATEGORIES,
@@ -443,9 +443,7 @@ export function InventoryStockPanel() {
       const quantity = Math.max(1, Number(order.quantity) || 1);
       const requirements = [
         ...(inventoryOrderIncludesDm(order.notes) ? [{ group: "Data Meter" as InventoryGroup, category: "Datameter Box", required: quantity }] : []),
-        ...(enabled(order.ct1) ? [{ group: "Sensors" as InventoryGroup, category: "CT 1", required: quantity }] : []),
-        ...(enabled(order.ct2) ? [{ group: "Sensors" as InventoryGroup, category: "CT 2", required: quantity }] : []),
-        ...(enabled(order.ct3) ? [{ group: "Sensors" as InventoryGroup, category: "CT 3", required: quantity }] : []),
+        ...(inventoryCtSensorCount(order) ? [{ group: "Sensors" as InventoryGroup, category: "YHDC CT SENSOR", required: quantity * inventoryCtSensorCount(order) }] : []),
         ...(enabled(order.proxy1) ? [{ group: "Sensors" as InventoryGroup, category: "Proxy 1", required: quantity }] : []),
         ...(enabled(order.proxy2) ? [{ group: "Sensors" as InventoryGroup, category: "Proxy 2", required: quantity }] : []),
         ...(enabled(order.vibration) ? [{ group: "Sensors" as InventoryGroup, category: "Vibration Sensor", required: quantity }] : []),
@@ -1000,6 +998,7 @@ export function InventoryStockPanel() {
     return {
       group,
       itemCount: items.length,
+      totalUnitValue: items.reduce((total, item) => total + getUnitValueWithGst(Number(item.unit_price) || 0), 0),
       quantity: group === "Data Meter"
         ? `${ktaMetrics.totalItems} DMs ready`
         : Array.from(quantitiesByUnit.entries()).map(([unit, quantity]) => `${quantity} ${unit}`).join(" · ") || "0",
@@ -1053,14 +1052,6 @@ export function InventoryStockPanel() {
   const selectedRowCount = useMemo(
     () => combinedInventoryRows.filter(({ bom, stock: stockItem }) => selectedInventoryRowKeys.has(getInventoryRowKey(bom?.id, stockItem?.id))).length,
     [combinedInventoryRows, selectedInventoryRowKeys],
-  );
-
-  const totalVisibleUnitValue = useMemo(
-    () => combinedInventoryRows.reduce(
-      (total, { stock: stockItem }) => total + (stockItem ? getUnitValueWithGst(Number(stockItem.unit_price) || 0) : 0),
-      0,
-    ),
-    [combinedInventoryRows],
   );
 
   const allVisibleRowsSelected = combinedInventoryRows.length > 0 && selectedRowCount === combinedInventoryRows.length;
@@ -1903,10 +1894,10 @@ export function InventoryStockPanel() {
           <h2 className="text-base font-bold text-text-primary">Inventory Cost by Category</h2>
           <p className="mt-1 text-xs text-text-secondary">Click a category row to view its item details. Category cost is shown with GST.</p>
         </div>
-        <div className="max-w-full overflow-x-hidden">
-          <table className="w-full min-w-[620px] table-fixed text-left text-xs">
+        <div className="max-w-full overflow-x-auto">
+          <table className="w-full min-w-[760px] table-fixed text-left text-xs">
             <thead className="bg-surface-raised/40 text-[10px] uppercase tracking-wider text-text-secondary">
-              <tr><th className="p-3 text-center">Select</th><th className="p-3">Category</th><th className="p-3 text-center">Total</th><th className="p-3 text-center">Items</th><th className="p-3 text-right">Cost (with GST)</th><th className="p-3 text-right">Details</th></tr>
+              <tr><th className="p-3 text-center">Select</th><th className="p-3">Category</th><th className="p-3 text-center">Total</th><th className="p-3 text-center">Items</th><th className="p-3 text-right">Total Unit Value</th><th className="p-3 text-right">Cost (with GST)</th><th className="p-3 text-right">Details</th></tr>
             </thead>
             <tbody className="divide-y divide-border/40">
               {inventoryGroupSummaries.map((summary) => (
@@ -1916,11 +1907,12 @@ export function InventoryStockPanel() {
                   <td className="p-3 font-bold text-text-primary">{summary.group}</td>
                   <td className="p-3 text-center font-mono font-bold">{summary.quantity}</td>
                   <td className="p-3 text-center font-mono">{summary.itemCount}</td>
+                  <td className="p-3 text-right font-mono font-bold text-emerald-400">₹{summary.totalUnitValue.toLocaleString("en-IN")}</td>
                   <td className="p-3 text-right font-mono font-bold text-emerald-400">₹{summary.stockValue.toLocaleString("en-IN")}</td>
                   <td className="p-3 text-right text-violet font-semibold">{expandedInventoryGroup === summary.group ? "Hide items" : "View items"}</td>
                 </tr>
                 {expandedInventoryGroup === summary.group && <tr className="bg-violet/5">
-                  <td colSpan={6} className="max-w-0 p-3">
+                  <td colSpan={7} className="max-w-0 p-3">
                     <div className="w-full max-w-full min-w-0 overflow-x-auto overflow-y-auto overscroll-x-contain rounded-lg border border-violet/20 [scrollbar-color:theme(colors.violet.DEFAULT)_theme(colors.surface.raised)] [scrollbar-width:auto]" title="Scroll horizontally to view all columns">
                       <p className="sticky left-0 z-20 w-fit whitespace-nowrap px-3 py-1 text-[10px] text-text-muted">← Scroll horizontally to view all columns →</p>
                       <div className="grid min-w-[1130px] grid-cols-[3rem_8rem_minmax(12rem,1fr)_6rem_7rem_6rem_7rem_7rem_7rem_8rem_8rem_9rem_6rem] bg-surface-raised/40 text-[10px] uppercase tracking-wider text-text-secondary">
@@ -1934,27 +1926,26 @@ export function InventoryStockPanel() {
                         const minQuantity = stockItem?.min_quantity ?? bom?.min_quantity ?? 0;
                         const status = getInventoryStatus(quantity, minQuantity);
                         const unitValue = getUnitValueWithGst(Number(stockItem?.unit_price) || 0);
-                        return <div key={`inline-${bom?.id || stockItem?.id || itemName}`} className="grid min-w-[1130px] grid-cols-[3rem_8rem_minmax(12rem,1fr)_6rem_7rem_6rem_7rem_7rem_7rem_8rem_8rem_9rem_6rem] items-center text-xs">
-                          <span className="sticky left-0 z-[1] bg-surface p-3 text-center"><input type="checkbox" checked={selectedInventoryRowKeys.has(rowKey)} onChange={() => toggleInventoryRowSelection(rowKey)} aria-label={`Select ${itemName}`} className="h-3.5 w-3.5 accent-violet" /></span>
-                          <span className="sticky left-[3rem] z-[1] whitespace-nowrap bg-surface p-3 text-text-secondary font-mono">{stockItem?.entry_date ? formatDisplayDate(stockItem.entry_date) : "-"}</span>
-                          <span className="sticky left-[11rem] z-[1] bg-surface p-3 font-semibold text-text-primary">{itemName}{(bom?.sensor_type || stockItem?.sensor_type) ? <span className="block text-[10px] text-violet">{bom?.sensor_type || stockItem?.sensor_type}</span> : null}</span>
+                        const isLow = status === "LOW STOCK";
+                        const isOut = status === "OUT OF STOCK";
+                        const warningTint = isOut ? "linear-gradient(rgba(244,63,94,0.10), rgba(244,63,94,0.10))" : isLow ? "linear-gradient(rgba(245,158,11,0.10), rgba(245,158,11,0.10))" : undefined;
+                        const warningText = isOut ? "text-rose-300" : isLow ? "text-amber-300" : "";
+                        return <div key={`inline-${bom?.id || stockItem?.id || itemName}`} className={`grid min-w-[1130px] grid-cols-[3rem_8rem_minmax(12rem,1fr)_6rem_7rem_6rem_7rem_7rem_7rem_8rem_8rem_9rem_6rem] items-center text-xs ${isOut ? "bg-rose-500/10" : isLow ? "bg-amber-500/10" : ""}`}>
+                          <span style={{ backgroundImage: warningTint }} className="sticky left-0 z-[1] self-stretch flex items-center justify-center bg-surface p-3"><input type="checkbox" checked={selectedInventoryRowKeys.has(rowKey)} onChange={() => toggleInventoryRowSelection(rowKey)} aria-label={`Select ${itemName}`} className="h-3.5 w-3.5 accent-violet" /></span>
+                          <span style={{ backgroundImage: warningTint }} className="sticky left-[3rem] z-[1] self-stretch flex items-center whitespace-nowrap bg-surface p-3 text-text-secondary font-mono">{stockItem?.entry_date ? formatDisplayDate(stockItem.entry_date) : "-"}</span>
+                          <span style={{ backgroundImage: warningTint }} className="sticky left-[11rem] z-[1] self-stretch flex flex-col justify-center bg-surface p-3 font-semibold text-text-primary">{itemName}{(bom?.sensor_type || stockItem?.sensor_type) ? <span className="block text-[10px] text-violet">{bom?.sensor_type || stockItem?.sensor_type}</span> : null}{(isLow || isOut) && <span className={`mt-1 flex items-center gap-1 text-[10px] font-semibold ${warningText}`}><AlertCircle size={12} aria-hidden="true" />{isOut ? "Out of stock" : "Low stock"}</span>}</span>
                           <span className="p-3 text-center font-mono">{stockItem ? getInventoryUnit(stockItem.notes) : bom?.unit || "-"}</span>
                           <span className="p-3 text-center font-mono">{bom ? `${bom.quantity_per_kit} ${bom.unit}` : "-"}</span>
-                          <span className="p-3 text-center font-mono font-bold">{quantity}</span>
+                          <span className={`p-3 text-center font-mono font-bold ${warningText}`}>{quantity}</span>
                           <span className="p-3 text-center font-mono">{minQuantity}</span>
                           <span className="p-3 text-center font-mono font-bold text-rose-300">{bom ? bom.bulk_order_quantity : "-"}</span>
                           <span className="p-3 text-center font-mono text-rose-300">{bom ? bom.shortage_quantity : "-"}</span>
-                          <span className="p-3 text-center"><Badge className={status === "AVAILABLE" ? "text-emerald-400" : status === "LOW STOCK" ? "text-amber-300" : "text-rose-300"}>{status}</Badge></span>
+                          <span className="p-3 text-center"><Badge className={isOut ? "border border-rose-500/40 bg-rose-500/15 text-rose-300" : isLow ? "border border-amber-500/40 bg-amber-500/15 text-amber-300" : "text-emerald-400"}>{status}</Badge></span>
                           <span className="p-3 text-right font-mono">{stockItem ? `₹${unitValue.toLocaleString("en-IN")}` : "-"}</span>
                           <span className="p-3 text-right font-mono font-bold text-emerald-400">{stockItem ? `₹${(Math.max(0, Number(stockItem.actual_quantity) || 0) * unitValue).toLocaleString("en-IN")}` : "-"}</span>
                           <span className="p-3"><span className="flex justify-center gap-1">{stockItem ? <><button type="button" onClick={() => handleEditItem(stockItem)} className="p-1.5 text-text-secondary hover:text-violet" title="Edit inventory item"><Edit2 size={13} /></button><button type="button" onClick={() => void handleDeleteItem(stockItem.id, stockItem.category)} className="p-1.5 text-text-secondary hover:text-rose-300" title="Delete inventory item"><Trash2 size={13} /></button></> : bom ? <><button type="button" onClick={() => handleEditBomItem(bom)} className="p-1.5 text-text-secondary hover:text-violet" title="Edit BOM item"><Edit2 size={13} /></button><button type="button" onClick={() => void handleDeleteBomItem(bom)} className="p-1.5 text-text-secondary hover:text-rose-300" title="Delete BOM item"><Trash2 size={13} /></button></> : null}</span></span>
                         </div>;
                       })}
-                      <div className="grid min-w-[1130px] grid-cols-[3rem_8rem_minmax(12rem,1fr)_6rem_7rem_6rem_7rem_7rem_7rem_8rem_8rem_9rem_6rem] items-center border-t border-border/70 bg-surface-raised/30 text-xs">
-                        <span className="col-span-10 p-3 text-right font-bold text-text-primary">Total Unit Value</span>
-                        <span className="p-3 text-right font-mono font-bold text-emerald-400">₹{totalVisibleUnitValue.toLocaleString("en-IN")}</span>
-                        <span className="col-span-2" />
-                      </div>
                       </div>
                     </div>
                   </td>

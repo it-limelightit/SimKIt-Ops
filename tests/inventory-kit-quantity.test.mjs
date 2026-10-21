@@ -346,7 +346,7 @@ test("packing checks only the requested CT inputs without changing the saved inp
     setCt1: value => { changes.ct1 = value; }, setCt2: value => { changes.ct2 = value; }, setCt3: value => { changes.ct3 = value; },
   };
   const items = checklist(state);
-  assert.deepEqual(items.map(item => item.label), ["YHDC CT 2"]);
+  assert.deepEqual(items.map(item => item.label), ["CT2 — 2 sensors"]);
   items[0].onChange(true);
   assert.deepEqual(changes, { ct2: true });
 });

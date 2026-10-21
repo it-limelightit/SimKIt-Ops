@@ -35,6 +35,7 @@ import {
   canReapply,
   categories,
   expenseFileRequest,
+  expenseReapplication,
   financeRpc,
   dateTime,
   readable,
@@ -51,7 +52,15 @@ import {
 import { SalaryPanel, FieldFinancePanel } from "./SalaryPanel";
 import { ManagerExpenseReview } from "./ManagerExpenseReview";
 import { downloadFinanceBackup, downloadStatement } from "./finance-export";
-import { Pill, Metric, Field, RecordDetails, type Confirmation, type Confirm } from "./FinanceUi";
+import {
+  Pill,
+  Metric,
+  Field,
+  RecordDetails,
+  ReapplicationNotice,
+  type Confirmation,
+  type Confirm,
+} from "./FinanceUi";
 import "./finance.css";
 
 export function FinanceWorkspace({
@@ -1168,208 +1177,218 @@ function ExpenseTable({
             </tr>
           </thead>
           <tbody>
-            {visible.map((c, index) => (
-              <tr key={c.id} data-selected={selected[c.id] === c.revision}>
-                <td>
-                  <span className="finance-row-number" title={`Claim ${c.id}`}>
-                    {String(index + 1).padStart(2, "0")}
-                  </span>
-                  {board.events.some((e) => e.entity_id === c.id && e.action === "reapplied") && (
-                    <small className="text-warning font-semibold">Reapplied</small>
+            {visible.map((c, index) => {
+              const reapplied = expenseReapplication(c.id, board.events, role);
+              return (
+                <tr
+                  key={c.id}
+                  data-selected={selected[c.id] === c.revision}
+                  data-reapplied={!!reapplied}
+                >
+                  <td>
+                    <span className="finance-row-number" title={`Claim ${c.id}`}>
+                      {String(index + 1).padStart(2, "0")}
+                    </span>
+                    {reapplied && <small className="text-warning font-semibold">Reapplied</small>}
+                    <small>Rev. {c.revision}</small>
+                  </td>
+                  {role && (
+                    <td className="finance-check-cell">
+                      <input
+                        aria-label={`Verify ${c.title}`}
+                        title={
+                          reviewable(c)
+                            ? "Select this expense for review"
+                            : role === "hardik"
+                              ? "Select pending or verified expenses"
+                              : "Only claims forwarded by Hardik can be selected"
+                        }
+                        type="checkbox"
+                        disabled={busy || !reviewable(c)}
+                        checked={selected[c.id] === c.revision}
+                        onChange={(e) =>
+                          setSelected((current) => {
+                            const next = { ...current };
+                            if (e.target.checked) next[c.id] = c.revision;
+                            else delete next[c.id];
+                            return next;
+                          })
+                        }
+                      />
+                    </td>
                   )}
-                  <small>Rev. {c.revision}</small>
-                </td>
-                {role && (
-                  <td className="finance-check-cell">
-                    <input
-                      aria-label={`Verify ${c.title}`}
-                      title={
-                        reviewable(c)
-                          ? "Select this expense for review"
-                          : role === "hardik"
-                            ? "Select pending or verified expenses"
-                            : "Only claims forwarded by Hardik can be selected"
-                      }
-                      type="checkbox"
-                      disabled={busy || !reviewable(c)}
-                      checked={selected[c.id] === c.revision}
-                      onChange={(e) =>
-                        setSelected((current) => {
-                          const next = { ...current };
-                          if (e.target.checked) next[c.id] = c.revision;
-                          else delete next[c.id];
-                          return next;
-                        })
+                  {!personal && (
+                    <td>
+                      {c.owner_name}
+                      <small>{c.owner_email}</small>
+                    </td>
+                  )}
+                  <td className="finance-claim-cell">
+                    <strong>{c.title}</strong>
+                    <small>{categories[c.category]}</small>
+                    {reapplied && <ReapplicationNotice info={reapplied} />}
+                    <small>
+                      <Pill value={c.status} />
+                    </small>
+                  </td>
+                  <td className="whitespace-nowrap">
+                    {c.expense_date}
+                    <small>Submitted {dateTime(c.created_at)}</small>
+                  </td>
+                  <td className="finance-amount-cell whitespace-nowrap font-semibold">
+                    {money(Number(c.amount))}
+                  </td>
+                  <td>
+                    {c.attachment_ids.map((id) => {
+                      const file = files.find((f) => f.id === id);
+                      return file ? (
+                        <button
+                          key={id}
+                          className="finance-attachment"
+                          title={`${file.filename} · ${(file.size_bytes / 1e6).toFixed(2)} MB`}
+                          onClick={() => {
+                            void expenseFileRequest({ id })
+                              .then((result) => {
+                                if (result.url) {
+                                  const a = document.createElement("a");
+                                  a.href = result.url;
+                                  a.target = "_blank";
+                                  a.rel = "noopener";
+                                  a.click();
+                                }
+                              })
+                              .catch((e) => toast.error(e.message));
+                          }}
+                        >
+                          <Paperclip size={13} />
+                          <span>{file.filename}</span>
+                          <ArrowUpRight size={12} />
+                        </button>
+                      ) : (
+                        <small key={id}>Attachment unavailable</small>
+                      );
+                    })}
+                    {!c.attachment_ids.length && "—"}
+                  </td>
+                  <td>
+                    <p className="finance-description" title={c.description || undefined}>
+                      {c.description || "—"}
+                    </p>
+                  </td>
+                  <td>
+                    <Pill value={c.hardik_decision || "pending"} />
+                    <small>{dateTime(c.hardik_at)}</small>
+                    {c.hardik_reason && (
+                      <small className="finance-rejection-reason">
+                        <AlertCircle size={12} />
+                        {c.hardik_reason}
+                      </small>
+                    )}
+                  </td>
+                  <td>
+                    <Pill
+                      value={
+                        c.tarun_decision ||
+                        (c.status === "tarun_pending" ? "pending" : "awaiting Hardik")
                       }
                     />
+                    <small>{dateTime(c.tarun_at)}</small>
+                    {c.tarun_reason && (
+                      <small className="finance-rejection-reason">
+                        <AlertCircle size={12} />
+                        {c.tarun_reason}
+                      </small>
+                    )}
                   </td>
-                )}
-                {!personal && (
                   <td>
-                    {c.owner_name}
-                    <small>{c.owner_email}</small>
+                    <Pill
+                      value={
+                        c.paid_at
+                          ? "paid"
+                          : c.status === "approved"
+                            ? "remaining"
+                            : "not yet payable"
+                      }
+                    />
+                    {c.status === "approved" && (
+                      <small>{money(c.paid_at ? 0 : Number(c.amount))} remaining</small>
+                    )}
+                    {c.paid_at && (
+                      <small>
+                        {dateTime(c.paid_at)}
+                        <br />
+                        {c.payment_reference}
+                      </small>
+                    )}
                   </td>
-                )}
-                <td className="finance-claim-cell">
-                  <strong>{c.title}</strong>
-                  <small>{categories[c.category]}</small>
-                  <small>
-                    <Pill value={c.status} />
-                  </small>
-                </td>
-                <td className="whitespace-nowrap">
-                  {c.expense_date}
-                  <small>Submitted {dateTime(c.created_at)}</small>
-                </td>
-                <td className="finance-amount-cell whitespace-nowrap font-semibold">
-                  {money(Number(c.amount))}
-                </td>
-                <td>
-                  {c.attachment_ids.map((id) => {
-                    const file = files.find((f) => f.id === id);
-                    return file ? (
-                      <button
-                        key={id}
-                        className="finance-attachment"
-                        title={`${file.filename} · ${(file.size_bytes / 1e6).toFixed(2)} MB`}
-                        onClick={() => {
-                          void expenseFileRequest({ id })
-                            .then((result) => {
-                              if (result.url) {
-                                const a = document.createElement("a");
-                                a.href = result.url;
-                                a.target = "_blank";
-                                a.rel = "noopener";
-                                a.click();
-                              }
-                            })
-                            .catch((e) => toast.error(e.message));
-                        }}
-                      >
-                        <Paperclip size={13} />
-                        <span>{file.filename}</span>
-                        <ArrowUpRight size={12} />
-                      </button>
-                    ) : (
-                      <small key={id}>Attachment unavailable</small>
-                    );
-                  })}
-                  {!c.attachment_ids.length && "—"}
-                </td>
-                <td>
-                  <p className="finance-description" title={c.description || undefined}>
-                    {c.description || "—"}
-                  </p>
-                </td>
-                <td>
-                  <Pill value={c.hardik_decision || "pending"} />
-                  <small>{dateTime(c.hardik_at)}</small>
-                  {c.hardik_reason && (
-                    <small className="finance-rejection-reason">
-                      <AlertCircle size={12} />
-                      {c.hardik_reason}
-                    </small>
-                  )}
-                </td>
-                <td>
-                  <Pill
-                    value={
-                      c.tarun_decision ||
-                      (c.status === "tarun_pending" ? "pending" : "awaiting Hardik")
-                    }
-                  />
-                  <small>{dateTime(c.tarun_at)}</small>
-                  {c.tarun_reason && (
-                    <small className="finance-rejection-reason">
-                      <AlertCircle size={12} />
-                      {c.tarun_reason}
-                    </small>
-                  )}
-                </td>
-                <td>
-                  <Pill
-                    value={
-                      c.paid_at ? "paid" : c.status === "approved" ? "remaining" : "not yet payable"
-                    }
-                  />
-                  {c.status === "approved" && (
-                    <small>{money(c.paid_at ? 0 : Number(c.amount))} remaining</small>
-                  )}
-                  {c.paid_at && (
-                    <small>
-                      {dateTime(c.paid_at)}
-                      <br />
-                      {c.payment_reference}
-                    </small>
-                  )}
-                </td>
-                <td className="finance-actions-cell">
-                  <div className="finance-row-actions">
-                    <Button
-                      className="finance-history-action"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setHistory(c)}
-                    >
-                      History
-                    </Button>
-                    {personal && canReapply(c, today) && (
-                      <Button size="sm" disabled={busy} onClick={() => onEdit(c)}>
-                        Edit & Reapply
-                      </Button>
-                    )}
-                    {personal && c.status === "rejected" && !canReapply(c, today) && (
-                      <small>Reapply closed {settlementDates(c.settlement_month).deadline}</small>
-                    )}
-                    {personal && ["hardik_pending", "rejected"].includes(c.status) && (
+                  <td className="finance-actions-cell">
+                    <div className="finance-row-actions">
                       <Button
-                        variant="danger"
+                        className="finance-history-action"
+                        variant="ghost"
                         size="sm"
-                        disabled={busy}
-                        onClick={() => action(c, "cancel")}
+                        onClick={() => setHistory(c)}
                       >
-                        Delete
+                        History
                       </Button>
-                    )}
-                    {reviewable(c) && (
-                      <>
-                        {c.status !== "hardik_verified" && (
+                      {personal && canReapply(c, today) && (
+                        <Button size="sm" disabled={busy} onClick={() => onEdit(c)}>
+                          Edit & Reapply
+                        </Button>
+                      )}
+                      {personal && c.status === "rejected" && !canReapply(c, today) && (
+                        <small>Reapply closed {settlementDates(c.settlement_month).deadline}</small>
+                      )}
+                      {personal && ["hardik_pending", "rejected"].includes(c.status) && (
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          disabled={busy}
+                          onClick={() => action(c, "cancel")}
+                        >
+                          Delete
+                        </Button>
+                      )}
+                      {reviewable(c) && (
+                        <>
+                          {c.status !== "hardik_verified" && (
+                            <Button
+                              className="finance-approve-action"
+                              variant="secondary"
+                              size="sm"
+                              disabled={busy}
+                              onClick={() => action(c, "approve")}
+                            >
+                              {role === "hardik" ? "Verify" : "Approve"}
+                            </Button>
+                          )}
                           <Button
-                            className="finance-approve-action"
-                            variant="secondary"
                             size="sm"
+                            variant="danger"
                             disabled={busy}
-                            onClick={() => action(c, "approve")}
+                            onClick={() => action(c, "reject")}
                           >
-                            {role === "hardik" ? "Verify" : "Approve"}
+                            Reject
                           </Button>
-                        )}
+                        </>
+                      )}
+                      {role && c.status === "approved" && !c.paid_at && (
                         <Button
                           size="sm"
-                          variant="danger"
-                          disabled={busy}
-                          onClick={() => action(c, "reject")}
+                          variant="secondary"
+                          disabled={busy || today < settlementDates(c.settlement_month).due}
+                          onClick={() => action(c, "pay")}
                         >
-                          Reject
+                          {today < settlementDates(c.settlement_month).due
+                            ? `Payable from ${settlementDates(c.settlement_month).due}`
+                            : "Record payment"}
                         </Button>
-                      </>
-                    )}
-                    {role && c.status === "approved" && !c.paid_at && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={busy || today < settlementDates(c.settlement_month).due}
-                        onClick={() => action(c, "pay")}
-                      >
-                        {today < settlementDates(c.settlement_month).due
-                          ? `Payable from ${settlementDates(c.settlement_month).due}`
-                          : "Record payment"}
-                      </Button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
             {!visible.length && (
               <tr>
                 <td
@@ -1584,7 +1603,7 @@ function ExpenseEditor({
         if (!open && !busy) onClose();
       }}
     >
-      <DialogContent className="finance-expense-dialog max-h-[90vh] overflow-auto sm:max-w-xl">
+      <DialogContent className="finance-expense-dialog finance-editor-dialog">
         <DialogHeader>
           <DialogTitle>{claim ? "Edit & Reapply" : "Add Expense"}</DialogTitle>
           <DialogDescription>
@@ -1593,153 +1612,161 @@ function ExpenseEditor({
               : `New claims submitted now belong to ${today.slice(0, 7)}, due ${settlementDates(today).due}.`}
           </DialogDescription>
         </DialogHeader>
-        <div className="finance-form-note">
-          <ShieldCheck size={16} />
-          <span>
-            {claim
-              ? "Your updated claim returns to Hardik for verification."
-              : "Your claim goes to Hardik first, then Tarun for final approval."}
-          </span>
-        </div>
         <form
-          className="space-y-4"
+          className="finance-editor-form"
           onSubmit={(e) => {
             e.preventDefault();
             void submit();
           }}
         >
-          <div className="grid grid-cols-2 gap-4">
-            <Field label="Expense date">
-              <input
-                type="date"
-                className="finance-input"
-                required
-                min="2000-01-01"
-                max={today}
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-              />
-            </Field>
-            <Field label="Amount (INR)">
-              <input
-                type="number"
-                className="finance-input"
-                required
-                min="0.01"
-                max="9999999999"
-                step="0.01"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-              />
-            </Field>
-          </div>
-          <Field label="Expense name">
-            <input
-              className="finance-input"
-              required
-              maxLength={160}
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-            />
-          </Field>
-          <Field label="Category">
-            <select
-              className="finance-input"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-            >
-              {Object.entries(categories).map(([key, label]) => (
-                <option key={key} value={key}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Description">
-            <textarea
-              className="finance-input"
-              maxLength={4000}
-              rows={3}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </Field>
-          <div className="finance-upload-area">
-            <div className="finance-upload-heading">
-              <Paperclip size={18} />
-              <div>
-                <strong>Supporting receipts</strong>
-                <p>PDF, JPG or PNG · Up to 5 files · 5 MB per file</p>
-              </div>
-              <span>{ids.length + uploads.length}/5</span>
-            </div>
-            <Field label="Choose receipt files">
-              <input
-                type="file"
-                accept="application/pdf,image/jpeg,image/png"
-                multiple
-                disabled={busy}
-                className="finance-input"
-                onChange={(e) => {
-                  try {
-                    const next = Array.from(e.target.files ?? []);
-                    next.forEach(validateExpenseFile);
-                    if (ids.length + uploads.length + next.length > 5)
-                      throw new Error("Maximum five attachments per claim");
-                    setUploads((current) => [...current, ...next]);
-                    setError(null);
-                  } catch (f) {
-                    setError(f instanceof Error ? f.message : "Invalid file");
-                  }
-                  e.target.value = "";
-                }}
-              />
-            </Field>
-          </div>
-          {ids.map((id) => (
-            <div key={id} className="finance-uploaded-file">
-              <FileText size={16} />
-              <span>{files.find((f) => f.id === id)?.filename || "Uploaded attachment"}</span>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => setIds((current) => current.filter((x) => x !== id))}
-              >
-                Remove
-              </button>
-            </div>
-          ))}
-          {uploads.map((file, i) => (
-            <div key={i} className="finance-uploaded-file">
-              <FileText size={16} />
+          <div className="finance-editor-body">
+            <div className="finance-form-note">
+              <ShieldCheck size={16} />
               <span>
-                {file.name} · {(file.size / 1e6).toFixed(2)} MB
+                {claim
+                  ? "Your updated claim returns to Hardik for verification."
+                  : "Your claim goes to Hardik first, then Tarun for final approval."}
               </span>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => setUploads((current) => current.filter((_, n) => n !== i))}
-              >
-                Remove
-              </button>
             </div>
-          ))}
-          {error && (
-            <p role="alert" className="text-sm text-coral">
-              {error}
-            </p>
-          )}
-          <div className="finance-form-total">
-            <span>Claim amount</span>
-            <strong>{money(Number(amount) || 0)}</strong>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Expense date">
+                <input
+                  type="date"
+                  className="finance-input"
+                  required
+                  min="2000-01-01"
+                  max={today}
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                />
+              </Field>
+              <Field label="Amount (INR)">
+                <input
+                  type="number"
+                  className="finance-input"
+                  required
+                  min="0.01"
+                  max="9999999999"
+                  step="0.01"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                />
+              </Field>
+            </div>
+            <Field label="Expense name">
+              <input
+                className="finance-input"
+                required
+                maxLength={160}
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+              />
+            </Field>
+            <Field label="Category">
+              <select
+                className="finance-input"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+              >
+                {Object.entries(categories).map(([key, label]) => (
+                  <option key={key} value={key}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Description">
+              <textarea
+                className="finance-input"
+                maxLength={4000}
+                rows={3}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+              />
+            </Field>
+            <div className="finance-upload-area">
+              <div className="finance-upload-heading">
+                <Paperclip size={18} />
+                <div>
+                  <strong>Supporting receipts</strong>
+                  <p>PDF, JPG or PNG · Up to 5 files · 5 MB per file</p>
+                </div>
+                <span>{ids.length + uploads.length}/5</span>
+              </div>
+              <Field label="Choose receipt files">
+                <input
+                  type="file"
+                  accept="application/pdf,image/jpeg,image/png"
+                  multiple
+                  disabled={busy}
+                  className="finance-input"
+                  onChange={(e) => {
+                    try {
+                      const next = Array.from(e.target.files ?? []);
+                      next.forEach(validateExpenseFile);
+                      if (ids.length + uploads.length + next.length > 5)
+                        throw new Error("Maximum five attachments per claim");
+                      setUploads((current) => [...current, ...next]);
+                      setError(null);
+                    } catch (f) {
+                      setError(f instanceof Error ? f.message : "Invalid file");
+                    }
+                    e.target.value = "";
+                  }}
+                />
+              </Field>
+            </div>
+            {ids.map((id) => (
+              <div key={id} className="finance-uploaded-file">
+                <FileText size={16} />
+                <span>{files.find((f) => f.id === id)?.filename || "Uploaded attachment"}</span>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setIds((current) => current.filter((x) => x !== id))}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+            {uploads.map((file, i) => (
+              <div key={i} className="finance-uploaded-file">
+                <FileText size={16} />
+                <span>
+                  {file.name} · {(file.size / 1e6).toFixed(2)} MB
+                </span>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setUploads((current) => current.filter((_, n) => n !== i))}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+            {error && (
+              <p role="alert" className="text-sm text-coral">
+                {error}
+              </p>
+            )}
           </div>
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="secondary" disabled={busy} onClick={onClose}>
-              Cancel
-            </Button>
-            <Button disabled={busy}>
-              {busy ? "Uploading & submitting…" : claim ? "Reapply to Hardik" : "Submit to Hardik"}
-            </Button>
+          <div className="finance-editor-footer">
+            <div className="finance-form-total">
+              <span>Claim amount</span>
+              <strong>{money(Number(amount) || 0)}</strong>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="secondary" disabled={busy} onClick={onClose}>
+                Cancel
+              </Button>
+              <Button disabled={busy}>
+                {busy
+                  ? "Uploading & submitting…"
+                  : claim
+                    ? "Reapply to Hardik"
+                    : "Submit to Hardik"}
+              </Button>
+            </div>
           </div>
         </form>
       </DialogContent>

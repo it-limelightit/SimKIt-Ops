@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, Paperclip, Receipt, Search } from "lucide-react";
+import { ArrowLeft, Paperclip, Receipt, Search, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui-kit";
 import {
@@ -12,6 +12,7 @@ import {
 import { money } from "@/lib/field-operations";
 import {
   categories,
+  expenseReapplication,
   expenseFileRequest,
   financeRpc,
   settlementDates,
@@ -19,7 +20,7 @@ import {
   type ExpenseFile,
   type FinanceEvent,
 } from "@/lib/finance";
-import { AuditTrail, Pill, type Confirm } from "./FinanceUi";
+import { AuditTrail, Pill, ReapplicationNotice, type Confirm } from "./FinanceUi";
 
 export function ManagerExpenseReview({
   claims,
@@ -44,6 +45,9 @@ export function ManagerExpenseReview({
   const [query, setQuery] = useState("");
   const [history, setHistory] = useState<ExpenseClaim | null>(null);
   const hardik = role === "hardik";
+  const reapplications = new Map(
+    claims.map((claim) => [claim.id, expenseReapplication(claim.id, events, role)]),
+  );
   const sent = claims.filter((c) =>
     hardik
       ? c.status !== "cancelled"
@@ -63,6 +67,7 @@ export function ManagerExpenseReview({
         rows,
         awaiting,
         ready,
+        reapplied: rows.filter((claim) => reapplications.get(claim.id)).length,
         total: rows.reduce((sum, c) => sum + Number(c.amount), 0),
         pendingTotal: rows
           .filter((c) => c.status.endsWith("pending") || c.status === "hardik_verified")
@@ -145,7 +150,7 @@ export function ManagerExpenseReview({
           </button>
         </div>
       )}
-      <div className="finance-approval-header">
+      <div className={`finance-approval-header ${person ? "finance-approval-person-header" : ""}`}>
         <div>
           <h2>{person ? person.name : hardik ? "Expense verification" : "Expense approvals"}</h2>
           <p className="finance-muted mt-1">
@@ -157,9 +162,18 @@ export function ManagerExpenseReview({
           </p>
         </div>
         <div className="finance-register-totals">
-          <span>{scope.length} expenses</span>
-          <strong>{money(scope.reduce((sum, c) => sum + Number(c.amount), 0))} total</strong>
-          <span>{money(awaitingTotal)} pending</span>
+          <span>
+            <small>Expenses</small>
+            <strong>{scope.length}</strong>
+          </span>
+          <span>
+            <small>Total amount</small>
+            <strong>{money(scope.reduce((sum, c) => sum + Number(c.amount), 0))}</strong>
+          </span>
+          <span>
+            <small>Pending review</small>
+            <strong>{money(awaitingTotal)}</strong>
+          </span>
         </div>
       </div>
       {!person ? (
@@ -204,10 +218,16 @@ export function ManagerExpenseReview({
                     (g.name + " " + g.email).toLowerCase().includes(query.toLowerCase()),
                   )
                   .map((g) => (
-                    <tr key={g.id}>
+                    <tr key={g.id} data-reapplied={g.reapplied > 0}>
                       <td>
                         <strong>{g.name}</strong>
                         <small>{g.email}</small>
+                        {g.reapplied > 0 && (
+                          <span className="finance-reapplied-badge">
+                            <RotateCcw size={12} />
+                            {g.reapplied} reapplied {g.reapplied === 1 ? "expense" : "expenses"}
+                          </span>
+                        )}
                       </td>
                       <td>{g.rows.length}</td>
                       <td className="finance-register-money">{money(g.total)}</td>
@@ -294,116 +314,126 @@ export function ManagerExpenseReview({
       ) : (
         <div className="finance-table-scroll" tabIndex={0} aria-label="Person expense details">
           <table className="finance-table finance-approval-details">
+            <caption className="sr-only">
+              Expenses for {person.name}: receipts, status and review actions
+            </caption>
             <colgroup>
+              <col style={{ width: "11%" }} />
+              <col style={{ width: "25%" }} />
               <col style={{ width: "13%" }} />
-              <col style={{ width: "28%" }} />
-              <col style={{ width: "15%" }} />
-              <col style={{ width: "18%" }} />
-              <col style={{ width: "26%" }} />
+              <col style={{ width: "22%" }} />
+              <col style={{ width: "13%" }} />
+              <col style={{ width: "16%" }} />
             </colgroup>
             <thead>
               <tr>
                 <th>Date</th>
                 <th>Expense</th>
-                <th>Amount</th>
+                <th className="finance-approval-amount">Amount</th>
                 <th>Receipts</th>
-                <th>Status / decision</th>
+                <th>Status</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {[...person.rows]
                 .sort((a, b) => a.expense_date.localeCompare(b.expense_date))
-                .map((c) => (
-                  <tr key={c.id}>
-                    <td data-label="Date" className="finance-approval-date">
-                      {c.expense_date}
-                    </td>
-                    <td data-label="Expense" className="finance-approval-description">
-                      <strong>{c.title}</strong>
-                      <small>{categories[c.category]}</small>
-                      {c.description && <p>{c.description}</p>}
-                      {(c.tarun_reason || c.hardik_reason) && (
-                        <small>Rejection reason: {c.tarun_reason || c.hardik_reason}</small>
-                      )}
-                    </td>
-                    <td data-label="Amount" className="finance-approval-amount">
-                      {money(Number(c.amount))}
-                    </td>
-                    <td data-label="Receipts" className="finance-approval-receipts">
-                      {c.attachment_ids.length ? (
-                        c.attachment_ids.map((id) => (
-                          <button
-                            key={id}
-                            className="finance-attachment"
-                            onClick={() => void openFile(id)}
-                          >
-                            <Paperclip size={13} />
-                            {files.find((f) => f.id === id)?.filename ?? "Receipt"}
-                          </button>
-                        ))
-                      ) : (
-                        <small>No receipt</small>
-                      )}
-                    </td>
-                    <td data-label="Decision" className="finance-approval-decision">
-                      <Pill
-                        value={
-                          c.paid_at
-                            ? "paid"
-                            : c.status === "hardik_pending"
-                              ? "to verify"
-                              : c.status === "tarun_pending"
-                                ? hardik
-                                  ? "sent to Tarun"
-                                  : "pending"
-                                : c.status
-                        }
-                      />
-                      {(hardik
-                        ? ["hardik_pending", "hardik_verified"].includes(c.status)
-                        : c.status === "tarun_pending") && (
-                        <div className="flex flex-wrap gap-2 mt-2">
-                          {c.status !== "hardik_verified" && (
+                .map((c) => {
+                  const reapplied = reapplications.get(c.id);
+                  return (
+                    <tr key={c.id} data-reapplied={!!reapplied}>
+                      <td data-label="Date" className="finance-approval-date">
+                        {c.expense_date}
+                      </td>
+                      <td data-label="Expense" className="finance-approval-description">
+                        <strong>{c.title}</strong>
+                        <small>{categories[c.category]}</small>
+                        {reapplied && <ReapplicationNotice info={reapplied} />}
+                        {c.description && <p title={c.description}>{c.description}</p>}
+                        {(c.tarun_reason || c.hardik_reason) && (
+                          <small>Rejection reason: {c.tarun_reason || c.hardik_reason}</small>
+                        )}
+                      </td>
+                      <td data-label="Amount" className="finance-approval-amount">
+                        {money(Number(c.amount))}
+                      </td>
+                      <td data-label="Receipts" className="finance-approval-receipts">
+                        {c.attachment_ids.length ? (
+                          c.attachment_ids.map((id) => (
+                            <button
+                              key={id}
+                              className="finance-attachment"
+                              title={files.find((f) => f.id === id)?.filename ?? "Receipt"}
+                              onClick={() => void openFile(id)}
+                            >
+                              <Paperclip size={13} />
+                              <span>{files.find((f) => f.id === id)?.filename ?? "Receipt"}</span>
+                            </button>
+                          ))
+                        ) : (
+                          <small>No receipt</small>
+                        )}
+                      </td>
+                      <td data-label="Status" className="finance-approval-status">
+                        <Pill
+                          value={
+                            c.paid_at
+                              ? "paid"
+                              : c.status === "hardik_pending"
+                                ? "to verify"
+                                : c.status === "tarun_pending"
+                                  ? hardik
+                                    ? "sent to Tarun"
+                                    : "pending"
+                                  : c.status
+                          }
+                        />
+                      </td>
+                      <td data-label="Actions" className="finance-approval-decision">
+                        {(hardik
+                          ? ["hardik_pending", "hardik_verified"].includes(c.status)
+                          : c.status === "tarun_pending") && (
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            {c.status !== "hardik_verified" && (
+                              <Button
+                                size="sm"
+                                variant={hardik ? "secondary" : "primary"}
+                                disabled={busy}
+                                onClick={() => decide([c], "approve")}
+                              >
+                                {hardik ? "Verify" : "Approve"}
+                              </Button>
+                            )}
                             <Button
                               size="sm"
-                              variant={hardik ? "secondary" : "primary"}
+                              variant="danger"
                               disabled={busy}
-                              onClick={() => decide([c], "approve")}
+                              onClick={() => decide([c], "reject")}
                             >
-                              {hardik ? "Verify" : "Approve"}
+                              Reject
                             </Button>
-                          )}
+                          </div>
+                        )}
+                        {c.status === "approved" && !c.paid_at && (
                           <Button
                             size="sm"
-                            variant="danger"
-                            disabled={busy}
-                            onClick={() => decide([c], "reject")}
+                            variant="secondary"
+                            disabled={busy || today < settlementDates(c.settlement_month).due}
+                            onClick={() => recordPayment(c)}
                           >
-                            Reject
+                            {today < settlementDates(c.settlement_month).due
+                              ? `Payable from ${settlementDates(c.settlement_month).due}`
+                              : "Record payment"}
                           </Button>
-                        </div>
-                      )}
-                      {c.status === "approved" && !c.paid_at && (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          disabled={busy || today < settlementDates(c.settlement_month).due}
-                          onClick={() => recordPayment(c)}
-                        >
-                          {today < settlementDates(c.settlement_month).due
-                            ? `Payable from ${settlementDates(c.settlement_month).due}`
-                            : "Record payment"}
-                        </Button>
-                      )}
-                      {c.paid_at && <small>{c.payment_reference}</small>}
-                      {hardik && (
+                        )}
+                        {c.paid_at && <small>{c.payment_reference}</small>}
                         <Button size="sm" variant="ghost" onClick={() => setHistory(c)}>
                           History
                         </Button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                    </tr>
+                  );
+                })}
             </tbody>
           </table>
         </div>

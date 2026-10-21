@@ -14,6 +14,14 @@ const secret = (key: string) => {
   return value;
 };
 const maximum = 5_000_000;
+const folderName = (value: string) =>
+  value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
 function contentType(bytes: Uint8Array) {
   if (bytes.length >= 5 && new TextDecoder().decode(bytes.subarray(0, 5)) === "%PDF-")
     return "application/pdf";
@@ -43,7 +51,7 @@ Deno.serve(async (req: Request) => {
     );
     const account = await admin
       .from("profiles")
-      .select("is_active")
+      .select("is_active,name")
       .eq("id", user.id)
       .maybeSingle();
     if (account.error || !account.data?.is_active)
@@ -90,7 +98,17 @@ Deno.serve(async (req: Request) => {
       if (!mime || mime !== file.type)
         return json({ error: "Use a valid PDF, JPG or PNG file" }, 400);
       const id = crypto.randomUUID();
-      const key = `expenses/${user.id}/${id}`;
+      const ownerName =
+        folderName(account.data.name || "") ||
+        folderName(user.email?.split("@")[0] || "") ||
+        "user";
+      const filename = file.name.replace(/[\\/\x00-\x1f]/g, "_").slice(0, 180);
+      const storedName =
+        filename
+          .normalize("NFKD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-zA-Z0-9._-]/g, "_") || "receipt";
+      const key = `expenses/${ownerName}_${user.id}/${id}_${storedName}`;
       const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)))
         .map((b) => b.toString(16).padStart(2, "0"))
         .join("");
@@ -104,7 +122,7 @@ Deno.serve(async (req: Request) => {
         id,
         owner_id: user.id,
         object_key: key,
-        filename: file.name.replace(/[\\/\x00-\x1f]/g, "_").slice(0, 180),
+        filename,
         mime_type: mime,
         size_bytes: bytes.length,
         sha256: hash,
@@ -138,6 +156,38 @@ Deno.serve(async (req: Request) => {
         .maybeSingle();
       if (claim.error || !claim.data?.sent_to_tarun_at)
         return json({ error: "Attachment unavailable" }, 404);
+    }
+    if (input.download === true) {
+      const stored = await r2.fetch(endpoint + file.object_key, { method: "GET" });
+      if (!stored.ok || !stored.body)
+        return json({ error: "Receipt could not be downloaded. Please retry." }, 502);
+      const reader = stored.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let size = 0;
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        size += value.length;
+        if (size > maximum) {
+          await reader.cancel();
+          return json({ error: "Receipt exceeds the 5 MB download limit." }, 413);
+        }
+        chunks.push(value);
+      }
+      const bytes = new Uint8Array(size);
+      let offset = 0;
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.length;
+      }
+      return new Response(bytes, {
+        headers: {
+          ...cors,
+          "Content-Type": "application/octet-stream",
+          "Content-Disposition": `attachment; filename="${file.filename.replace(/[^a-zA-Z0-9._ -]/g, "_")}"`,
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
     }
     const url = new URL(endpoint + file.object_key);
     url.searchParams.set("X-Amz-Expires", "60");

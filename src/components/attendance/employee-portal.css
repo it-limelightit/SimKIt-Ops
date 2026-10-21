@@ -1,4 +1,6 @@
-.employee-portal {
+/* Radix dialogs render under body, outside the employee portal's theme scope. */
+.employee-portal,
+body:has(.employee-portal) [role="dialog"] {
   color-scheme: light;
   --bg: #f8fafc;
   --surface: #ffffff;
@@ -24,6 +26,13 @@
   background: var(--bg);
   color: var(--text-primary);
   font-weight: 400;
+}
+body:has(.employee-portal) [role="dialog"] input[type="date"],
+body:has(.employee-portal) [role="dialog"] input[type="time"] {
+  color-scheme: light;
+}
+body:has(.employee-portal) [role="dialog"] {
+  background: var(--surface);
 }
 .employee-portal h1 {
   font-size: clamp(1.4rem, 3vw, 1.8rem);

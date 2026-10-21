@@ -350,17 +350,29 @@ export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
             <div className="p-4 border border-border bg-surface-raised/10 rounded-[8px] space-y-3 flex flex-col justify-between min-h-[160px]">
               <div>
                 <Label className="text-text-primary font-bold flex items-center gap-1.5"><Cpu size={14} /> YHDC CT Sensors</Label>
-                <p className="text-[10px] text-text-secondary mt-1">Any CT selection includes a complete set of 3 YHDC sensors.</p>
+                <p className="text-[10px] text-text-secondary mt-1">Choose the supply phase: CT1 uses 1 sensor and CT3 uses 3 sensors.</p>
               </div>
               <div className="flex flex-wrap gap-3 sm:gap-4">
                 <Checkbox
+                  id="order-ct-single-phase"
+                  label="Single-phase — 1 CT sensor"
                   checked={ct1}
-                  onCheckedChange={setCt1}
-                  label="CT 1"
-                  id="order-ct1"
+                  onCheckedChange={(checked) => {
+                    setCt1(checked);
+                    setCt2(false);
+                    setCt3(false);
+                  }}
                 />
-                <Checkbox checked={ct2} onCheckedChange={setCt2} label="CT 2" id="order-ct2" />
-                <Checkbox checked={ct3} onCheckedChange={setCt3} label="CT 3" id="order-ct3" />
+                <Checkbox
+                  id="order-ct-three-phase"
+                  label="Three-phase — 3 CT sensors"
+                  checked={ct3}
+                  onCheckedChange={(checked) => {
+                    setCt1(false);
+                    setCt2(false);
+                    setCt3(checked);
+                  }}
+                />
               </div>
             </div>
 

@@ -1,5 +1,35 @@
 import { cloneElement, isValidElement, useId, type ReactElement, type ReactNode } from "react";
-import { dateTime, readable, type FinanceEvent } from "@/lib/finance";
+import { dateTime, readable, type FinanceEvent, type expenseReapplication } from "@/lib/finance";
+import { RotateCcw, AlertCircle } from "lucide-react";
+
+export function ReapplicationNotice({
+  info,
+}: {
+  info: NonNullable<ReturnType<typeof expenseReapplication>>;
+}) {
+  return (
+    <div className="finance-reapplication">
+      <span className="finance-reapplied-badge">
+        <RotateCcw size={12} />
+        Reapplied
+      </span>
+      <small>Resubmitted {dateTime(info.reappliedAt)}</small>
+      {info.rejections.length ? (
+        info.rejections.map((rejection) => (
+          <div className="finance-reapply-reason" key={rejection.reviewer}>
+            <strong>
+              <AlertCircle size={12} /> Previously rejected by {rejection.reviewer}
+            </strong>
+            {rejection.at && <small>{dateTime(rejection.at)}</small>}
+            <p>{rejection.reason}</p>
+          </div>
+        ))
+      ) : (
+        <small>Previous rejection reason was not recorded.</small>
+      )}
+    </div>
+  );
+}
 export function Pill({ value }: { value: string }) {
   return (
     <span
