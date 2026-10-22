@@ -23,7 +23,7 @@ import {
   type FinanceEvent,
   type Salary,
 } from "@/lib/finance";
-import { indiaDate, money } from "@/lib/field-operations";
+import { indiaDate, money, paymentPeriod } from "@/lib/field-operations";
 import { salaryDeductionGroups, waiveSalaryDays } from "@/lib/salary-deductions";
 import { AuditTrail, Field, Metric, Pill, type Confirm } from "./FinanceUi";
 
@@ -489,12 +489,13 @@ export function FieldFinancePanel({
   useEffect(() => {
     void load();
   }, [load]);
-  const end = `${month}-15`;
-  const previous = new Date(`${month}-01T12:00:00Z`);
-  previous.setUTCMonth(previous.getUTCMonth() - 1);
-  const start = `${previous.toISOString().slice(0, 7)}-16`;
+  const { start, end, due } = paymentPeriod(`${month}-01`);
   const review = board?.review;
-  const isPaid = !!board?.payments.length;
+  const isPaid =
+    !!board?.payments.length ||
+    (!!board?.earnings.length && board.earnings.every((earning) => earning.paid));
+  const periodFinished = end < indiaDate();
+  const paymentOpen = indiaDate() >= due;
   const action = (action: string) =>
     confirm({
       title:
@@ -505,7 +506,7 @@ export function FieldFinancePanel({
             : action === "reject"
               ? "Reject incentives?"
               : "Record completed incentive payment?",
-      detail: `${person.name} · ${start} to ${end} · ${money((board?.earnings ?? []).reduce((s, e) => s + Number(e.amount ?? 0), 0))}`,
+      detail: `${person.name} · ${start} to ${end} · ${money((board?.earnings ?? []).filter((earning) => action !== "pay" || !earning.paid).reduce((s, e) => s + Number(e.amount ?? 0), 0))}`,
       requireReason: ["reject", "pay"].includes(action),
       reasonLabel: action === "pay" ? "Payment reference / method" : "Rejection reason",
       execute: async (reason) => {
@@ -536,11 +537,11 @@ export function FieldFinancePanel({
     <section>
       <h2>Field attendance & incentives</h2>
       <p className="finance-notice">
-        Incentive cycle:{" "}
+        Monthly incentives:{" "}
         <strong>
           {start} → {end}
         </strong>
-        . Attendance and expenses below use calendar month {month}. No monthly field salary.
+        . Payment clearance: {due}. Attendance and expenses use the same calendar month.
       </p>
       <div className="finance-metrics">
         <Metric
@@ -573,12 +574,16 @@ export function FieldFinancePanel({
         />
         <Metric label="Off days" value={board.calendar.filter((day) => day.off_day).length} />
         <Metric
-          label="Incentives (cycle)"
+          label="Incentives (month)"
           value={money(board.earnings.reduce((s, e) => s + Number(e.amount ?? 0), 0))}
         />
         <Metric
           label="Incentives paid"
-          value={money(board.payments.reduce((s, e) => s + Number(e.amount), 0))}
+          value={money(
+            board.earnings
+              .filter((earning) => earning.paid)
+              .reduce((s, e) => s + Number(e.amount ?? 0), 0),
+          )}
         />
       </div>
       <div className="finance-calendar" aria-label="Field calendar">
@@ -713,7 +718,7 @@ export function FieldFinancePanel({
             ))}
             {!board.earnings.length && (
               <tr>
-                <td colSpan={6}>No eligible completed work in this cycle.</td>
+                <td colSpan={6}>No eligible completed work in this month.</td>
               </tr>
             )}
           </tbody>
@@ -729,7 +734,13 @@ export function FieldFinancePanel({
         )}
         <div className="flex flex-wrap gap-2 mt-3">
           {!isPaid && role === "hardik" && board.earnings.length > 0 && (
-            <Button onClick={() => action("forward")}>Verify & forward incentives</Button>
+            <Button
+              disabled={!periodFinished}
+              title={periodFinished ? undefined : "Verification opens after month end"}
+              onClick={() => action("forward")}
+            >
+              Verify & forward incentives
+            </Button>
           )}
           {!isPaid && role === "tarun" && review?.status === "tarun_pending" && (
             <>
@@ -740,7 +751,13 @@ export function FieldFinancePanel({
             </>
           )}
           {!isPaid && review?.status === "approved" && (
-            <Button onClick={() => action("pay")}>Record incentive payment</Button>
+            <Button
+              disabled={!paymentOpen}
+              title={paymentOpen ? undefined : `Payment clearance opens on ${due}`}
+              onClick={() => action("pay")}
+            >
+              Record incentive payment
+            </Button>
           )}
         </div>
       </div>

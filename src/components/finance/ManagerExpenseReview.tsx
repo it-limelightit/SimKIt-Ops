@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, Paperclip, Receipt, Search, RotateCcw } from "lucide-react";
-import { toast } from "sonner";
+import { ArrowLeft, Receipt, Search, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui-kit";
 import {
   Dialog,
@@ -13,7 +12,6 @@ import { money } from "@/lib/field-operations";
 import {
   categories,
   expenseReapplication,
-  expenseFileRequest,
   financeRpc,
   settlementDates,
   type ExpenseClaim,
@@ -21,6 +19,7 @@ import {
   type FinanceEvent,
 } from "@/lib/finance";
 import { AuditTrail, Pill, ReapplicationNotice, type Confirm } from "./FinanceUi";
+import { ExpenseReceipt } from "./ExpenseReceipt";
 
 export function ManagerExpenseReview({
   claims,
@@ -108,20 +107,6 @@ export function ManagerExpenseReview({
         await reload();
       },
     });
-  };
-  const openFile = async (id: string) => {
-    try {
-      const result = await expenseFileRequest({ id });
-      if (result.url) {
-        const link = document.createElement("a");
-        link.href = result.url;
-        link.target = "_blank";
-        link.rel = "noopener";
-        link.click();
-      }
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not open receipt");
-    }
   };
   const recordPayment = (claim: ExpenseClaim) =>
     confirm({
@@ -359,17 +344,14 @@ export function ManagerExpenseReview({
                       </td>
                       <td data-label="Receipts" className="finance-approval-receipts">
                         {c.attachment_ids.length ? (
-                          c.attachment_ids.map((id) => (
-                            <button
-                              key={id}
-                              className="finance-attachment"
-                              title={files.find((f) => f.id === id)?.filename ?? "Receipt"}
-                              onClick={() => void openFile(id)}
-                            >
-                              <Paperclip size={13} />
-                              <span>{files.find((f) => f.id === id)?.filename ?? "Receipt"}</span>
-                            </button>
-                          ))
+                          c.attachment_ids.map((id) => {
+                            const file = files.find((f) => f.id === id);
+                            return file ? (
+                              <ExpenseReceipt key={id} file={file} />
+                            ) : (
+                              <small key={id}>Attachment unavailable</small>
+                            );
+                          })
                         ) : (
                           <small>No receipt</small>
                         )}

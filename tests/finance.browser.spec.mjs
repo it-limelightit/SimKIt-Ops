@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { unzipSync, strFromU8 } from "fflate";
+import { jsPDF } from "jspdf";
 
 const staff = "00000000-0000-4000-8000-000000000003",
   employee = "00000000-0000-4000-8000-000000000006";
@@ -178,6 +179,7 @@ async function mock(page, financeRole = "hardik", workspaceRole) {
           "attendance_my_history",
           "attendance_my_leave_requests",
           "attendance_leave_review_queue",
+          "attendance_late_requests",
         ].includes(name)
       )
         result = [];
@@ -244,6 +246,282 @@ async function mock(page, financeRole = "hardik", workspaceRole) {
   });
   return { board, calls, errors };
 }
+test("calendar-month incentives use month-end keys and payment opens on the next month's 7th", async ({
+  page,
+}) => {
+  await page.clock.install({ time: new Date("2026-07-06T18:29:30Z") });
+  await page.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//, (route) => route.abort());
+  const { board, calls, errors } = await mock(page);
+  const fieldId = "00000000-0000-4000-8000-000000000009";
+  board.people.push({ id: fieldId, name: "Field Member", email: "field@test.io", field: true });
+  await page.route("**/rest/v1/rpc/finance_field_board", (route) =>
+    route.fulfill({
+      json: {
+        earnings: [
+          {
+            id: "field-work",
+            date: "2026-06-30",
+            phase: "assessment",
+            company: "Factory",
+            amount: 1200,
+            paid: false,
+          },
+        ],
+        review: {
+          revision: 2,
+          status: "approved",
+          hardik_at: "2026-07-01T06:00:00Z",
+          tarun_at: "2026-07-02T06:00:00Z",
+        },
+        rates: { assessment: 1200, commissioning: 2000 },
+        payments: [],
+        calendar: [],
+        leaves: [],
+      },
+    }),
+  );
+  await page.goto("/manager/salary-expense");
+  await page.getByLabel("Settlement month", { exact: true }).fill("2026-06");
+  await page.getByRole("button", { name: "Field associates", exact: true }).click();
+  await page.getByRole("button", { name: /Field Member.*Open details/ }).click();
+  await expect(page.getByText("2026-06-01 → 2026-06-30", { exact: true })).toBeVisible();
+  const pay = page.getByRole("button", { name: "Record incentive payment", exact: true });
+  await expect(pay).toBeDisabled();
+  await expect(pay).toHaveAttribute("title", /2026-07-07/);
+  await page.clock.setFixedTime(new Date("2026-07-06T18:30:30Z"));
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(pay).toBeEnabled();
+  await pay.click();
+  await page.getByLabel("Payment reference / method", { exact: true }).fill("BANK-MONTHLY");
+  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await expect
+    .poll(() =>
+      calls.some(
+        (call) =>
+          call.name === "finance_field_action" &&
+          call.input._end === "2026-06-30" &&
+          call.input._action === "pay",
+      ),
+    )
+    .toBeTruthy();
+  expect(errors).toEqual([]);
+});
+
+test("late arrival supports half-day requests and blocks today's application after the deadline", async ({
+  page,
+}) => {
+  await page.clock.install({ time: new Date("2026-10-22T02:29:00Z") });
+  await page.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//, (route) => route.abort());
+  const { errors } = await mock(page, null, "employee");
+  const submitted = [];
+  const lateRows = [];
+  await page.route("**/rest/v1/rpc/attendance_late_requests", (route) =>
+    route.fulfill({ json: lateRows }),
+  );
+  await page.route("**/rest/v1/rpc/attendance_submit_my_late_request", async (route) => {
+    const input = route.request().postDataJSON();
+    submitted.push(input);
+    lateRows.push({
+      id: "late-test",
+      request_type: "late",
+      is_half_day: input._half_day,
+      expected_arrival: input._expected_arrival,
+      start_date: input._date,
+      end_date: input._date,
+      reason: input._description,
+      status: "pending",
+      created_at: "2026-10-22T02:29:00Z",
+      approver_emails: ["kuldeepshrimali.limelight@gmail.com", "tarun@limelightit.io"],
+      days: [{ leave_date: input._date, status: "pending" }],
+    });
+    await route.fulfill({ json: "late-test" });
+  });
+  await page.goto("/employee");
+  await page.getByRole("button", { name: "New request", exact: true }).click();
+  await page.getByRole("button", { name: "Late / half-day arrival", exact: true }).click();
+  await page.getByLabel("Expected arrival time (IST)").fill("12:30");
+  await page.getByLabel("Arrival type", { exact: true }).selectOption("half");
+  await page.getByLabel("Reason category").selectOption("Other");
+  await page.getByLabel("Tell your manager more").fill("A medical appointment before work");
+  await page.getByRole("button", { name: "Submit half-day arrival request", exact: true }).click();
+  await expect.poll(() => submitted.length).toBe(1);
+  expect(submitted[0]).toMatchObject({
+    _date: "2026-10-22",
+    _expected_arrival: "12:30",
+    _half_day: true,
+    _category: "Other",
+  });
+  await expect(page.getByRole("row").filter({ hasText: "Half-day arrival" })).toBeVisible();
+  await page.getByRole("button", { name: "New request", exact: true }).click();
+  await page.clock.setFixedTime(new Date("2026-10-22T02:30:01Z"));
+  await page.clock.runFor(1000);
+  await expect(
+    page.getByRole("button", { name: "Deadline passed for this date", exact: true }),
+  ).toBeDisabled();
+  await expect(page.getByText(/Applications for this date are closed/)).toBeVisible();
+  expect(submitted).toHaveLength(1);
+  await page.getByLabel("Arrival date", { exact: true }).fill("2026-10-23");
+  await expect(
+    page.getByRole("button", { name: "Submit late arrival request", exact: true }),
+  ).toBeEnabled();
+  expect(errors).toEqual([]);
+});
+
+test("late arrival appears in the review counter and an authorized manager can reject it", async ({
+  page,
+}) => {
+  await page.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//, (route) => route.abort());
+  const { errors } = await mock(page, "tarun", "employee");
+  const row = {
+    id: "late-review",
+    request_type: "late",
+    start_date: "2026-10-23",
+    end_date: "2026-10-23",
+    expected_arrival: "11:30:00",
+    is_half_day: false,
+    employee_name: "Team Member",
+    department: "firmware",
+    reason: "Transport delay",
+    category: "Transport delay",
+    created_at: "2026-10-22T01:00:00Z",
+    status: "pending",
+    days: [{ leave_date: "2026-10-23", status: "pending" }],
+  };
+  const decisions = [];
+  await page.route("**/rest/v1/rpc/attendance_late_requests", (route) =>
+    route.fulfill({ json: row.status === "pending" ? [row] : [] }),
+  );
+  await page.route("**/rest/v1/rpc/attendance_decide_late_request", async (route) => {
+    const input = route.request().postDataJSON();
+    decisions.push(input);
+    row.status = input._decision;
+    await route.fulfill({ json: null });
+  });
+  await page.goto("/employee");
+  await expect(page.getByRole("button", { name: /Req Leave/ })).toContainText("1 pending");
+  await page.getByRole("button", { name: /Req Leave/ }).click();
+  await expect(page.getByText("Expected: 11:30 AM IST", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Review dates", exact: true }).click();
+  await page.getByRole("button", { name: "Select all reject", exact: true }).click();
+  await page.getByRole("button", { name: "Save decisions", exact: true }).click();
+  await expect.poll(() => decisions.length).toBe(1);
+  expect(decisions[0]).toMatchObject({ _request: "late-review", _decision: "rejected" });
+  await expect(page.getByText("Team Member", { exact: true })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test("receipt thumbnails stay compact and open images and PDFs in a dialog", async ({
+  page,
+  context,
+}) => {
+  test.setTimeout(90000);
+  await page.addInitScript(() => {
+    // Reproduce browsers without the newer typed-array hex helpers.
+    delete Uint8Array.prototype.toHex;
+    delete Uint8Array.fromHex;
+  });
+  await page.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//, (route) => route.abort());
+  const { board, errors } = await mock(page);
+  const requests = [];
+  const downloads = [];
+  page.on("download", (download) => downloads.push(download.suggestedFilename()));
+  const document = new jsPDF();
+  document.text("Receipt preview first page", 20, 30);
+  document.addPage();
+  document.text("Receipt preview second page", 20, 30);
+  board.files = [
+    {
+      id: "image-receipt",
+      claim_id: "expense-one",
+      filename: "travel-receipt.png",
+      mime_type: "image/png",
+      size_bytes: 12000,
+    },
+    {
+      id: "pdf-receipt",
+      claim_id: "expense-one",
+      filename: "invoice.pdf",
+      mime_type: "application/pdf",
+      size_bytes: 24000,
+    },
+  ];
+  board.claims[0].attachment_ids = board.files.map((file) => file.id);
+  await page.route("**/functions/v1/expense-files", async (route) => {
+    const input = route.request().postDataJSON();
+    requests.push(input);
+    if (input.id === "pdf-receipt" && input.download === true) {
+      return route.fulfill({
+        contentType: "application/octet-stream",
+        headers: { "Content-Disposition": 'attachment; filename="invoice.pdf"' },
+        body: Buffer.from(document.output("arraybuffer")),
+      });
+    }
+    await route.fulfill({ json: { url: `http://127.0.0.1:4181/receipt-preview/${input.id}` } });
+  });
+  await page.route("**/receipt-preview/image-receipt", (route) =>
+    route.fulfill({
+      contentType: "image/png",
+      body: Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aV1sAAAAASUVORK5CYII=",
+        "base64",
+      ),
+    }),
+  );
+  await page.goto("/manager/salary-expense");
+  await page.getByRole("button", { name: "All expense requests", exact: true }).click();
+  await page.getByRole("button", { name: "Review expenses for Staff Member", exact: true }).click();
+  const image = page.getByRole("button", { name: "Open receipt travel-receipt.png", exact: true });
+  await expect(image.getByRole("img")).toBeVisible();
+  await expect
+    .poll(() => image.getByRole("img").evaluate((img) => img.naturalWidth))
+    .toBeGreaterThan(0);
+  const pdf = page.getByRole("button", { name: "Open receipt invoice.pdf", exact: true });
+  await expect(pdf).toContainText("PDF");
+  await expect(pdf.getByRole("img")).toHaveCount(0);
+  expect(requests).toEqual([{ id: "image-receipt", preview: true }]);
+  await image.click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("img", { name: "travel-receipt.png", exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/manager\/salary-expense/);
+  expect(context.pages()).toHaveLength(1);
+  expect(requests.at(-1)).toEqual({ id: "image-receipt", preview: true });
+  await page.keyboard.press("Escape");
+  const thumbnail = await image.boundingBox();
+  expect(thumbnail.height).toBeLessThanOrEqual(65);
+  await pdf.click();
+  const pdfPage = dialog.getByRole("img", { name: "PDF page 1", exact: true });
+  await expect(pdfPage).toHaveAttribute("data-rendered", "true", { timeout: 30000 });
+  // Assert real page content was painted, rather than only checking a viewer URL.
+  expect(
+    await pdfPage.evaluate((canvas) => {
+      const pixels = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
+      let ink = 0;
+      for (let index = 0; index < pixels.length; index += 4) {
+        if (
+          pixels[index] < 100 &&
+          pixels[index + 1] < 100 &&
+          pixels[index + 2] < 100 &&
+          pixels[index + 3] > 0
+        )
+          ink++;
+      }
+      return ink;
+    }),
+  ).toBeGreaterThan(20);
+  await dialog.getByRole("button", { name: "Next PDF page", exact: true }).click();
+  await expect(dialog.getByRole("img", { name: "PDF page 2", exact: true })).toHaveAttribute(
+    "data-rendered",
+    "true",
+  );
+  await expect(dialog.getByText("Page 2 of 2", { exact: true })).toBeVisible();
+  expect(requests.at(-1)).toEqual({ id: "pdf-receipt", download: true });
+  expect(downloads).toEqual([]);
+  await expect(page).toHaveURL(/\/manager\/salary-expense/);
+  await page.screenshot({ path: ".tmp/finance-pdf-receipt-preview.png", fullPage: true });
+  await page.keyboard.press("Escape");
+  expect(errors).toEqual([]);
+});
+
 test("Overview adds an assessor from an empty dropdown, preserves metadata and reuses the contact", async ({
   page,
 }) => {
@@ -680,7 +958,9 @@ test("monthly backup downloads a ZIP containing records, manifest and profession
   expect(manifest.verified).toBe(true);
   expect(manifest.claims).toBe(1);
   expect(manifest.salaries).toBe(1);
-  expect(manifest.field_cycle_end).toBe("2026-06-15");
+  expect(manifest.field_cycle_start).toBe("2026-06-01");
+  expect(manifest.field_cycle_end).toBe("2026-06-30");
+  expect(manifest.field_payment_due).toBe("2026-07-07");
   expect(manifest.files).toHaveLength(1);
   expect(Buffer.from(entries[manifest.files[0].path])).toEqual(receipt);
   const pdf = entries[`statements/${staff}.pdf`];

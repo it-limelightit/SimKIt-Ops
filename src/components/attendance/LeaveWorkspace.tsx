@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   CalendarDays,
+  Clock3,
   Check,
   House,
   LoaderCircle,
@@ -17,7 +18,12 @@ import { LeaveReviewTable } from "./LeaveReviewTable";
 import { MyLeaveRequests } from "./MyLeaveRequests";
 import "./leave-workspace.css";
 import { toast } from "sonner";
-import { prepareLeaveSubmission } from "@/lib/leave-request";
+import {
+  prepareLeaveSubmission,
+  lateArrivalReasons,
+  lateArrivalClosed,
+  requestTypeLabel,
+} from "@/lib/leave-request";
 
 type DayDecision = { leave_date: string; status: "pending" | "approved" | "rejected" };
 export type LeaveRequest = {
@@ -25,7 +31,10 @@ export type LeaveRequest = {
   employee_id: string | null;
   employee_name?: string;
   department?: string;
-  request_type?: "leave" | "wfh";
+  request_type?: "leave" | "wfh" | "late";
+  expected_arrival?: string;
+  is_half_day?: boolean;
+  category?: string;
   start_date: string;
   end_date: string;
   reason: string;
@@ -43,7 +52,11 @@ function dayCount(from: string, to: string) {
     Math.floor((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1
   );
 }
-export function LeaveWorkspace(props: { embedded?: boolean; showHeader?: boolean }) {
+export function LeaveWorkspace(props: {
+  embedded?: boolean;
+  showHeader?: boolean;
+  initialTab?: "review";
+}) {
   const email = useAuth((state) => state.email);
   return canAccessLeave(email) ? <LeaveWorkspaceContent {...props} /> : null;
 }
@@ -51,9 +64,11 @@ export function LeaveWorkspace(props: { embedded?: boolean; showHeader?: boolean
 function LeaveWorkspaceContent({
   embedded = false,
   showHeader = true,
+  initialTab,
 }: {
   embedded?: boolean;
   showHeader?: boolean;
+  initialTab?: "review";
 }) {
   const { userId, email, profile } = useAuth();
   const reviewer = canReviewLeave(email);
@@ -65,7 +80,17 @@ function LeaveWorkspaceContent({
   const [to, setTo] = useState("");
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
-  const [requestType, setRequestType] = useState<"leave" | "wfh">("leave");
+  const [requestType, setRequestType] = useState<"leave" | "wfh" | "late">("leave");
+  const [expectedArrival, setExpectedArrival] = useState("");
+  const [halfDay, setHalfDay] = useState(false);
+  const [now, setNow] = useState(() => new Date());
+  const lateClosed = requestType === "late" && lateArrivalClosed(from, now);
+  useEffect(() => {
+    if (!formOpen || requestType !== "late") return;
+    setNow(new Date());
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, [formOpen, requestType]);
   const [wfhEligible, setWfhEligible] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -74,7 +99,13 @@ function LeaveWorkspaceContent({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
   const [reviewError, setReviewError] = useState<{ id: string; message: string } | null>(null);
-  const [tab, setTab] = useState<"my-requests" | "review">(reviewerOnly ? "review" : "my-requests");
+  const [tab, setTab] = useState<"my-requests" | "review">(
+    reviewerOnly || (reviewer && initialTab === "review") ? "review" : "my-requests",
+  );
+
+  useEffect(() => {
+    if (reviewer && initialTab === "review") setTab("review");
+  }, [reviewer, initialTab]);
   const [dayDecisions, setDayDecisions] = useState<
     Record<string, Record<string, "pending" | "approved" | "rejected">>
   >({});
@@ -86,17 +117,28 @@ function LeaveWorkspaceContent({
       const own = reviewerOnly
         ? []
         : await attendanceRpc<LeaveRequest[]>("attendance_my_leave_requests");
-      setMine(own ?? []);
+      const ownLate = reviewerOnly
+        ? []
+        : await attendanceRpc<LeaveRequest[]>("attendance_late_requests", { _review: false });
+      setMine(
+        [...(own ?? []), ...(ownLate ?? [])].sort((a, b) =>
+          b.created_at.localeCompare(a.created_at),
+        ),
+      );
       const eligible = reviewerOnly
         ? false
         : await attendanceRpc<boolean>("attendance_my_wfh_eligibility").catch(() => false);
       setWfhEligible(eligible);
       if (reviewer) {
         const pending = await attendanceRpc<LeaveRequest[]>("attendance_leave_review_queue");
-        setQueue(pending ?? []);
+        const late = await attendanceRpc<LeaveRequest[]>("attendance_late_requests", {
+          _review: true,
+        });
+        const combined = [...(pending ?? []), ...(late ?? [])];
+        setQueue(combined);
         setDayDecisions(
           Object.fromEntries(
-            (pending ?? []).map((request) => [
+            combined.map((request) => [
               request.id,
               Object.fromEntries((request.days ?? []).map((day) => [day.leave_date, day.status])),
             ]),
@@ -123,12 +165,12 @@ function LeaveWorkspaceContent({
     setSubmitSuccess(null);
     try {
       const submission = prepareLeaveSubmission(
-        { requestType, from, to, category, description },
+        { requestType, from, to, category, description, expectedArrival, halfDay },
         indiaDate(),
       );
       setSubmitting(true);
       await attendanceRpc(submission.name, submission.args);
-      const message = `${requestType === "wfh" ? "Work-from-home" : "Leave"} request sent for review. Track its status in Your requests.`;
+      const message = `${requestTypeLabel(requestType, halfDay)} request sent for review. Track its status in Your requests.`;
       setSubmitSuccess(message);
       setFormOpen(false);
       toast.success(message);
@@ -136,6 +178,8 @@ function LeaveWorkspaceContent({
       setTo("");
       setCategory("");
       setDescription("");
+      setExpectedArrival("");
+      setHalfDay(false);
       await reload();
     } catch (failure) {
       const message =
@@ -160,14 +204,21 @@ function LeaveWorkspaceContent({
     setBusyRequest(request.id);
     setReviewError(null);
     try {
-      await attendanceRpc("attendance_decide_employee_leave_days", {
-        _request: request.id,
-        _decisions: days.map((day) => ({
-          date: day.leave_date,
-          decision: decisions[day.leave_date],
-        })),
-        _comment: null,
-      });
+      if (request.request_type === "late") {
+        await attendanceRpc("attendance_decide_late_request", {
+          _request: request.id,
+          _decision: decisions[request.start_date],
+          _comment: null,
+        });
+      } else
+        await attendanceRpc("attendance_decide_employee_leave_days", {
+          _request: request.id,
+          _decisions: days.map((day) => ({
+            date: day.leave_date,
+            decision: decisions[day.leave_date],
+          })),
+          _comment: null,
+        });
       toast.success("Daily leave decisions saved.");
       await reload();
     } catch (failure) {
@@ -271,6 +322,7 @@ function LeaveWorkspaceContent({
             onCreate={() => {
               setSubmitSuccess(null);
               setSubmitError(null);
+              if (requestType === "late" && !from) setFrom(indiaDate());
               setFormOpen(true);
             }}
             onRefresh={() => void reload()}
@@ -287,7 +339,11 @@ function LeaveWorkspaceContent({
                   </div>
                   <div>
                     <h2 className="text-lg font-semibold leading-snug text-text-primary">
-                      {requestType === "wfh" ? "Request work from home" : "Request leave"}
+                      {requestType === "late"
+                        ? "Request late / half-day arrival"
+                        : requestType === "wfh"
+                          ? "Request work from home"
+                          : "Request leave"}
                     </h2>
                     <p className="mt-1 text-xs text-text-secondary">
                       Choose your dates and share a short reason.
@@ -317,43 +373,50 @@ function LeaveWorkspaceContent({
                   disabled={submitting}
                   className="grid min-w-0 gap-3 md:grid-cols-2 disabled:opacity-70"
                 >
-                  {wfhEligible && (
+                  {
                     <fieldset className="md:col-span-2">
                       <legend className="mb-2 text-xs font-semibold text-text-secondary">
                         Request type
                       </legend>
-                      <div className="grid max-w-sm grid-cols-2 gap-2">
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                         {(
                           [
                             { value: "leave", label: "Leave", icon: CalendarDays },
                             { value: "wfh", label: "Work from home", icon: House },
+                            { value: "late", label: "Late / half-day arrival", icon: Clock3 },
                           ] as const
-                        ).map(({ value, label, icon: Icon }) => (
-                          <button
-                            key={value}
-                            type="button"
-                            aria-pressed={requestType === value}
-                            onClick={() => {
-                              setRequestType(value);
-                              setSubmitError(null);
-                              setSubmitSuccess(null);
-                            }}
-                            className={`flex min-h-12 items-center justify-center gap-2 rounded-xl border px-2 py-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime sm:text-sm ${requestType === value ? "border-lime/60 bg-lime/10 text-text-primary" : "border-border bg-surface text-text-secondary hover:border-border-bright"}`}
-                          >
-                            <Icon size={16} className="shrink-0" />
-                            {label}
-                            {requestType === value && (
-                              <Check size={14} className="shrink-0 text-lime" />
-                            )}
-                          </button>
-                        ))}
+                        )
+                          .filter(({ value }) => value !== "wfh" || wfhEligible)
+                          .map(({ value, label, icon: Icon }) => (
+                            <button
+                              key={value}
+                              type="button"
+                              aria-pressed={requestType === value}
+                              onClick={() => {
+                                setRequestType(value);
+                                setCategory("");
+                                if (value === "late" && !from) setFrom(indiaDate());
+                                setSubmitError(null);
+                                setSubmitSuccess(null);
+                              }}
+                              className={`flex min-h-12 items-center justify-center gap-2 rounded-xl border px-2 py-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime sm:text-sm ${requestType === value ? "border-lime/60 bg-lime/10 text-text-primary" : "border-border bg-surface text-text-secondary hover:border-border-bright"}`}
+                            >
+                              <Icon size={16} className="shrink-0" />
+                              {label}
+                              {requestType === value && (
+                                <Check size={14} className="shrink-0 text-lime" />
+                              )}
+                            </button>
+                          ))}
                       </div>
                     </fieldset>
-                  )}
+                  }
                   <div className={requestType === "wfh" ? "md:col-span-2" : ""}>
                     <div className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2">
                       <div className="min-w-0">
-                        <Label htmlFor="leave-from">Start date</Label>
+                        <Label htmlFor="leave-from">
+                          {requestType === "late" ? "Arrival date" : "Start date"}
+                        </Label>
                         <Input
                           className="min-w-0"
                           id="leave-from"
@@ -368,23 +431,25 @@ function LeaveWorkspaceContent({
                           }}
                         />
                       </div>
-                      <div className="min-w-0">
-                        <Label htmlFor="leave-to">End date</Label>
-                        <Input
-                          className="min-w-0"
-                          id="leave-to"
-                          type="date"
-                          min={from || indiaDate()}
-                          required
-                          value={to}
-                          onChange={(event) => {
-                            setTo(event.target.value);
-                            setSubmitError(null);
-                          }}
-                        />
-                      </div>
+                      {requestType !== "late" && (
+                        <div className="min-w-0">
+                          <Label htmlFor="leave-to">End date</Label>
+                          <Input
+                            className="min-w-0"
+                            id="leave-to"
+                            type="date"
+                            min={from || indiaDate()}
+                            required
+                            value={to}
+                            onChange={(event) => {
+                              setTo(event.target.value);
+                              setSubmitError(null);
+                            }}
+                          />
+                        </div>
+                      )}
                     </div>
-                    {from && to && dayCount(from, to) > 0 && (
+                    {requestType !== "late" && from && to && dayCount(from, to) > 0 && (
                       <div className="mt-3 flex items-center gap-2 rounded-lg bg-surface-raised px-3 py-2 text-xs text-text-secondary">
                         <CalendarDays size={14} className="shrink-0" />
                         <span>
@@ -397,7 +462,44 @@ function LeaveWorkspaceContent({
                       </div>
                     )}
                   </div>
-                  {requestType === "leave" && (
+                  {requestType === "late" && (
+                    <>
+                      <div>
+                        <Label htmlFor="late-arrival-time">Expected arrival time (IST)</Label>
+                        <Input
+                          id="late-arrival-time"
+                          type="time"
+                          required
+                          min="10:01"
+                          value={expectedArrival}
+                          onChange={(event) => {
+                            setExpectedArrival(event.target.value);
+                            setSubmitError(null);
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="late-arrival-kind">Arrival type</Label>
+                        <Select
+                          id="late-arrival-kind"
+                          value={halfDay ? "half" : "late"}
+                          onChange={(event) => setHalfDay(event.target.value === "half")}
+                        >
+                          <option value="late">Late arrival</option>
+                          <option value="half">Half-day arrival</option>
+                        </Select>
+                      </div>
+                      <p
+                        role={lateClosed ? "alert" : undefined}
+                        className={`rounded-lg border p-3 text-xs md:col-span-2 ${lateClosed ? "border-coral/30 bg-coral/5 text-coral" : "border-border bg-surface-raised text-text-secondary"}`}
+                      >
+                        {lateClosed ? "Applications for this date are closed. " : ""}Submit by 8:00
+                        AM IST on the selected day, two hours before the 10:00 AM office start.
+                        Approval is required from your reporting manager.
+                      </p>
+                    </>
+                  )}
+                  {requestType !== "wfh" && (
                     <div>
                       <Label htmlFor="leave-category">Reason category</Label>
                       <Select
@@ -412,7 +514,7 @@ function LeaveWorkspaceContent({
                         <option value="" disabled>
                           Select a category
                         </option>
-                        {categories.map((item) => (
+                        {(requestType === "late" ? lateArrivalReasons : categories).map((item) => (
                           <option key={item}>{item}</option>
                         ))}
                       </Select>
@@ -426,7 +528,7 @@ function LeaveWorkspaceContent({
                     </Label>
                     <Textarea
                       id="leave-description"
-                      required
+                      required={requestType !== "late" || category === "Other"}
                       minLength={5}
                       maxLength={1800}
                       rows={3}
@@ -434,7 +536,9 @@ function LeaveWorkspaceContent({
                       placeholder={
                         requestType === "wfh"
                           ? "Explain why you need to work from home..."
-                          : "Add a short explanation for your leave..."
+                          : requestType === "late"
+                            ? "Explain your late or half-day arrival..."
+                            : "Add a short explanation for your leave..."
                       }
                       value={description}
                       onChange={(event) => {
@@ -446,7 +550,11 @@ function LeaveWorkspaceContent({
                       id="leave-description-help"
                       className="mt-2 flex justify-between gap-2 text-[11px] text-text-dim"
                     >
-                      <span>At least 5 characters</span>
+                      <span>
+                        {requestType === "late" && category !== "Other"
+                          ? "Additional details (optional)"
+                          : "At least 5 characters"}
+                      </span>
                       <span>{description.length}/1800</span>
                     </div>
                   </div>
@@ -475,7 +583,11 @@ function LeaveWorkspaceContent({
                     {submitSuccess}
                   </p>
                 )}
-                <Button type="submit" disabled={submitting} className="min-h-12 w-full rounded-xl">
+                <Button
+                  type="submit"
+                  disabled={submitting || lateClosed}
+                  className="min-h-12 w-full rounded-xl"
+                >
                   {submitting ? (
                     <LoaderCircle size={16} className="animate-spin" />
                   ) : (
@@ -483,7 +595,9 @@ function LeaveWorkspaceContent({
                   )}{" "}
                   {submitting
                     ? "Sending request…"
-                    : `Submit ${requestType === "wfh" ? "WFH" : "leave"} request`}
+                    : lateClosed
+                      ? "Deadline passed for this date"
+                      : `Submit ${requestTypeLabel(requestType, halfDay).toLowerCase()} request`}
                 </Button>
               </form>
             </Card>

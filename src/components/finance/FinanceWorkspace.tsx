@@ -51,6 +51,7 @@ import {
 } from "@/lib/finance";
 import { SalaryPanel, FieldFinancePanel } from "./SalaryPanel";
 import { ManagerExpenseReview } from "./ManagerExpenseReview";
+import { ExpenseReceipt } from "./ExpenseReceipt";
 import { downloadFinanceBackup, downloadStatement } from "./finance-export";
 import {
   Pill,
@@ -331,7 +332,9 @@ export function FinanceWorkspace({
           </div>
           <span className="finance-cycle-note">
             <Clock3 size={14} />{" "}
-            {personal ? "New claims follow submission month" : "Incentives: 16th–15th"}
+            {personal
+              ? "New claims follow submission month"
+              : "Incentives: calendar month · Payable next month on the 7th"}
           </span>
         </div>
       )}
@@ -623,14 +626,14 @@ export function FinanceWorkspace({
                                     <span>
                                       {section === "office"
                                         ? "Calculated salary"
-                                        : "Incentive cycle"}
+                                        : "Incentive month"}
                                     </span>
                                     <strong>
                                       {section === "office"
                                         ? salary
                                           ? money(Number(salary.amount))
                                           : "Not set"
-                                        : "16th – 15th"}
+                                        : "1st – month end"}
                                     </strong>
                                   </div>
                                   <div>
@@ -1242,28 +1245,7 @@ function ExpenseTable({
                     {c.attachment_ids.map((id) => {
                       const file = files.find((f) => f.id === id);
                       return file ? (
-                        <button
-                          key={id}
-                          className="finance-attachment"
-                          title={`${file.filename} · ${(file.size_bytes / 1e6).toFixed(2)} MB`}
-                          onClick={() => {
-                            void expenseFileRequest({ id })
-                              .then((result) => {
-                                if (result.url) {
-                                  const a = document.createElement("a");
-                                  a.href = result.url;
-                                  a.target = "_blank";
-                                  a.rel = "noopener";
-                                  a.click();
-                                }
-                              })
-                              .catch((e) => toast.error(e.message));
-                          }}
-                        >
-                          <Paperclip size={13} />
-                          <span>{file.filename}</span>
-                          <ArrowUpRight size={12} />
-                        </button>
+                        <ExpenseReceipt key={id} file={file} />
                       ) : (
                         <small key={id}>Attachment unavailable</small>
                       );

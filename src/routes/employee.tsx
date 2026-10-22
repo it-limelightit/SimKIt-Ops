@@ -1,6 +1,16 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { CalendarCheck, Check, Clock3, House, LogOut, Receipt } from "lucide-react";
+import {
+  ArrowRight,
+  CalendarCheck,
+  Check,
+  Clock3,
+  House,
+  LayoutDashboard,
+  LogOut,
+  Receipt,
+  ShieldCheck,
+} from "lucide-react";
 import { FinanceWorkspace } from "@/components/finance/FinanceWorkspace";
 import { canManageFinance } from "@/lib/finance";
 import { useAuth } from "@/lib/auth-store";
@@ -9,6 +19,8 @@ import { attendanceRpc, dateLabel, indiaDate, timeLabel } from "@/lib/device-att
 import { Button } from "@/components/ui-kit";
 import { EmployeeCalendar } from "@/components/attendance/EmployeeCalendar";
 import { LeaveWorkspace } from "@/components/attendance/LeaveWorkspace";
+import { LeaveRequestsButton } from "@/components/attendance/LeaveRequestsButton";
+import { canReviewLeave } from "@/lib/attendance-access";
 import "@/components/attendance/employee-portal.css";
 
 export const Route = createFileRoute("/employee")({ ssr: false, component: EmployeePortal });
@@ -40,7 +52,11 @@ function EmployeePortal() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"leave" | "attendance" | "expense">("leave");
+  const reviewer = canReviewLeave(email);
+  const [selectedTab, setTab] = useState<
+    "overview" | "review" | "leave" | "attendance" | "expense" | null
+  >(null);
+  const tab = selectedTab ?? (reviewer ? "overview" : "leave");
 
   useEffect(() => {
     if (!ready) return;
@@ -108,7 +124,9 @@ function EmployeePortal() {
             </div>
             <div>
               <p className="text-sm font-bold tracking-wide text-text-primary">SIM-KIT OPS</p>
-              <p className="mt-0.5 text-xs text-text-secondary">Employee portal</p>
+              <p className="mt-0.5 text-xs text-text-secondary">
+                {reviewer ? "Team approvals & employee portal" : "Employee portal"}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-2 sm:gap-4">
@@ -147,34 +165,45 @@ function EmployeePortal() {
             </p>
             <h1>Welcome, {name.split(" ")[0]}</h1>
             <p className="mt-2 text-sm text-text-secondary">
-              Your leave requests and office attendance, in one place.
+              {reviewer
+                ? "Your team approvals, personal requests and attendance at a glance."
+                : "Your leave requests and office attendance, in one place."}
             </p>
           </div>
-          {!loading && !error && (
-            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3">
-              <Clock3 size={18} className="text-lime" />
-              <div>
-                <p className="text-xs text-text-secondary">Today’s face scan</p>
-                <p className="mt-1 text-sm font-semibold">
-                  {todayEntry ? timeLabel(todayEntry.entry_at) : "No scan recorded yet"}
-                </p>
+          <div className="flex flex-col gap-3 sm:items-end">
+            {reviewer && <LeaveRequestsButton onOpen={() => setTab("review")} />}
+            {!loading && !error && (
+              <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3">
+                <Clock3 size={18} className="text-lime" />
+                <div>
+                  <p className="text-xs text-text-secondary">Today’s face scan</p>
+                  <p className="mt-1 text-sm font-semibold">
+                    {todayEntry ? timeLabel(todayEntry.entry_at) : "No scan recorded yet"}
+                  </p>
+                </div>
+                {todayEntry && <EntryStatus entry={todayEntry} />}
               </div>
-              {todayEntry && <EntryStatus entry={todayEntry} />}
-            </div>
-          )}
+            )}
+          </div>
         </section>
         <nav
-          className="mb-4 inline-flex max-w-full gap-1 rounded-xl border border-border bg-surface p-1"
+          className="mb-5 flex w-fit max-w-full flex-wrap gap-1 rounded-xl border border-border bg-surface p-1"
           aria-label="Employee sections"
         >
           {(
             [
+              { key: "overview", label: "Overview", icon: LayoutDashboard },
+              { key: "review", label: "Team approvals", icon: ShieldCheck },
               { key: "leave", label: "Leave & WFH", icon: House },
               { key: "attendance", label: "My attendance", icon: Clock3 },
               { key: "expense", label: "Expense", icon: Receipt },
             ] as const
           )
-            .filter(({ key }) => key !== "expense" || !canManageFinance(email))
+            .filter(
+              ({ key }) =>
+                ((key !== "overview" && key !== "review") || reviewer) &&
+                (key !== "expense" || !canManageFinance(email)),
+            )
             .map(({ key, label, icon: Icon }) => (
               <button
                 key={key}
@@ -189,13 +218,71 @@ function EmployeePortal() {
               </button>
             ))}
         </nav>
-        {tab === "expense" ? (
+        {tab === "overview" && reviewer ? (
+          <section id="employee-overview" aria-label="Your overview" className="space-y-4">
+            <div>
+              <h2>Your overview</h2>
+              <p className="mt-1 text-sm text-text-secondary">
+                Stay on top of team requests and your working day.
+              </p>
+            </div>
+            <div className="grid gap-4 md:grid-cols-3">
+              <LeaveRequestsButton card onOpen={() => setTab("review")} />
+              <div className="rounded-2xl border border-border bg-surface p-5 sm:p-6">
+                <Clock3 size={22} className="text-lime" />
+                <h3 className="mt-5">Today’s attendance</h3>
+                <p className="mt-2 text-sm text-text-secondary" role="status">
+                  {loading
+                    ? "Loading attendance..."
+                    : error
+                      ? "Attendance unavailable"
+                      : todayEntry
+                        ? `Face scan at ${timeLabel(todayEntry.entry_at)}`
+                        : "No scan recorded yet"}
+                </p>
+                {!loading && !error && todayEntry && (
+                  <div className="mt-3">
+                    <EntryStatus entry={todayEntry} />
+                  </div>
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mt-5"
+                  onClick={() => setTab("attendance")}
+                >
+                  View my attendance <ArrowRight size={15} />
+                </Button>
+              </div>
+              <div className="rounded-2xl border border-border bg-surface p-5 sm:p-6">
+                <House size={22} className="text-lime" />
+                <h3 className="mt-5">My leave & WFH</h3>
+                <p className="mt-2 text-sm text-text-secondary">
+                  Apply for time off or work from home, and track your own requests.
+                </p>
+                <Button variant="ghost" size="sm" className="mt-5" onClick={() => setTab("leave")}>
+                  Open my requests <ArrowRight size={15} />
+                </Button>
+              </div>
+            </div>
+          </section>
+        ) : tab === "review" && reviewer ? (
+          <section id="employee-review" aria-label="Team leave approvals">
+            <div className="mb-4">
+              <h2>Team approvals</h2>
+              <p className="mt-1 text-sm text-text-secondary">
+                Review leave and work-from-home requests assigned to you.
+              </p>
+            </div>
+            <LeaveWorkspace key="review" embedded showHeader={false} initialTab="review" />
+          </section>
+        ) : tab === "expense" ? (
           <section id="employee-expense" aria-label="My expenses">
             <FinanceWorkspace personal embedded />
           </section>
         ) : tab === "leave" ? (
           <section id="employee-leave" aria-label="Leave and work-from-home requests">
-            <LeaveWorkspace embedded showHeader={false} />
+            <LeaveWorkspace key="personal" embedded showHeader={false} />
           </section>
         ) : (
           <EmployeeCalendar />

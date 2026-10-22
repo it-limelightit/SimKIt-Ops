@@ -1030,6 +1030,44 @@ export function FactoryDataPanel() {
     toast.success(`Copied ${label} to clipboard!`);
   };
 
+  const copyBusinessProfile = async () => {
+    if (!selectedSite || !selectedAssessment) return;
+    const data = isEditing ? editData : selectedAssessment.data;
+    const fields: Array<[string, unknown]> = [
+      ["Company", data.factory_op_name || selectedSite.company_name || selectedSite.name],
+      ["Electricity Board", data.factory_op_electricity_board],
+      ["Surveyed Machine Names", Array.isArray(data.factory_op_machines) ? data.factory_op_machines.join(", ") : data.factory_op_machine],
+      ["Company / Machine Tracking Type", data.company_type],
+    ];
+    if (data.company_type) {
+      fields.push(["Machine Classification", data.machine_usage_type ?? "Production"]);
+    }
+    if (data.company_type === "Runtime Machine") {
+      fields.push(
+        ["Expected daily run (hours)", data.expected_daily_run_hours],
+        ["Expected runtime / day (min)", data.expected_runtime_day_min],
+        ["Minimum stop duration (min)", data.minimum_stop_duration_min],
+        ["Production count is meaningful", data.production_count_meaningful ? "Yes" : "No"],
+        ["Vibration monitoring relevant", data.vibration_monitoring_relevant ? "Yes" : "No"],
+      );
+    } else if (data.company_type === "Length-based Machine") {
+      fields.push(
+        ["Expected meters / shift (m)", data.expected_meters_shift],
+        ["Target line speed (mpm)", data.target_line_speed],
+        ["Minimum acceptable speed (mpm)", data.minimum_acceptable_speed],
+      );
+    }
+    const text = ["Business Profile & Machinery Details", ...fields.map(([label, value]) =>
+      `${label}: ${value === undefined || value === null || value === "" ? "N/A" : value}`,
+    )].join("\n");
+    try {
+      if (!await copyTextToClipboard(text)) throw new Error("Copy command failed");
+      toast.success("Business profile copied to clipboard!");
+    } catch {
+      toast.error("Could not copy business profile. Your browser blocked clipboard access.");
+    }
+  };
+
   const copyFullSummary = () => {
     if (!selectedSite || !selectedAssessment) return;
     const d = selectedAssessment.data || {};
@@ -2248,10 +2286,15 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
 
                     {/* SECTION 5: Business Profile & Machinery Details */}
                     <div className="space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
                       <h3 className="font-syne font-extrabold text-base uppercase tracking-wider text-text-primary flex items-center gap-2">
                         <span className="flex h-5 w-5 items-center justify-center rounded bg-lime/10 text-lime text-xs font-mono font-bold">5</span>
                         Business Profile &amp; Machinery Details
                       </h3>
+                      <Button type="button" variant="ghost" onClick={copyBusinessProfile} title="Copy Business Profile" className="text-xs gap-1.5 shrink-0">
+                        <Copy size={13} /> Copy Business Profile
+                      </Button>
+                      </div>
                       <Card className="p-4 bg-surface/40 border border-border/60 space-y-4 text-xs">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div>
@@ -2967,9 +3010,14 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                     {/* Detail Metrics depending on Type */}
                       {selectedAssessment.data.company_type && (
                         <Card className="p-4 bg-surface/40 border border-border/60 text-xs">
-                          <span className="text-[10px] font-mono uppercase text-text-secondary block mb-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                          <span className="text-[10px] font-mono uppercase text-text-secondary">
                             {selectedAssessment.data.company_type} Specifics
                           </span>
+                          <Button type="button" variant="ghost" onClick={copyBusinessProfile} title="Copy Business Profile" className="text-xs gap-1.5 shrink-0">
+                            <Copy size={13} /> Copy Business Profile
+                          </Button>
+                          </div>
 
                           {selectedAssessment.data.company_type === "Runtime Machine" ? (
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

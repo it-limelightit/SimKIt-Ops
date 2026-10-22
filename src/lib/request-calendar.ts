@@ -2,7 +2,7 @@ export function requestCalendarStyle(
   type: string | null | undefined,
   decision: string | null | undefined,
 ) {
-  const kind = type === "wfh" ? "WFH" : "Leave";
+  const kind = type === "late" ? "Late arrival" : type === "wfh" ? "WFH" : "Leave";
   if (decision === "approved")
     return {
       label: `${kind} approved`,

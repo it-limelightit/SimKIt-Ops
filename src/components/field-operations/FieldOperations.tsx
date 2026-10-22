@@ -820,7 +820,7 @@ function EarningsView({
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [paidOn, setPaidOn] = useState(board.today);
   const [reference, setReference] = useState("");
-  const fullPeriod = paymentPeriod(`${month}-15`);
+  const fullPeriod = paymentPeriod(`${month}-01`);
   const joiningDate = indiaDate(new Date(associate.joined));
   const selectedPeriod = {
     ...fullPeriod,
@@ -828,7 +828,7 @@ function EarningsView({
   };
   let start = `${month}-01`,
     end = monthDays(month).at(-1)!;
-  if (mode === "cycle") {
+  if (mode === "month") {
     start = selectedPeriod.start;
     end = selectedPeriod.end;
   }
@@ -869,11 +869,11 @@ function EarningsView({
     (p) => p.associate_id === associate.id && p.period_end === selectedPeriod.end,
   );
   const paymentDisabledReason = settled
-    ? "Payment has already been recorded for this cycle."
-    : selectedPeriod.end >= board.today
-      ? `Available after the cycle ends on ${selectedPeriod.end}.`
-      : earningsTotal(eligible) <= 0
-        ? "This cycle has no payable assessment or commissioning earnings."
+    ? "Payment has already been recorded for this month."
+    : selectedPeriod.due > board.today
+      ? `Payment clearance opens on ${selectedPeriod.due}.`
+      : earningsTotal(eligible.filter((entry) => !entry.paid)) <= 0
+        ? "This month has no unpaid assessment or commissioning earnings."
         : null;
   const editDate = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -923,7 +923,6 @@ function EarningsView({
             <option value="day">Daily</option>
             <option value="week">Weekly</option>
             <option value="month">Monthly</option>
-            <option value="cycle">Payment cycle (16th–15th)</option>
           </Select>
         </div>
         {mode === "day" || mode === "week" ? (
@@ -938,7 +937,7 @@ function EarningsView({
           </div>
         ) : (
           <div>
-            <Label>{mode === "cycle" ? "Cycle ending month" : "Month"}</Label>
+            <Label>Month</Label>
             <Input
               type="month"
               required
@@ -955,7 +954,7 @@ function EarningsView({
             void downloadStatement(
               associate,
               rows,
-              `${start} to ${end}${mode === "cycle" ? ` · Due ${selectedPeriod.due}` : ""}`,
+              `${start} to ${end}${mode === "month" ? ` · Due ${selectedPeriod.due}` : ""}`,
               payments,
               workedDates,
             )
@@ -965,24 +964,24 @@ function EarningsView({
         >
           <Download size={16} /> PDF statement
         </Button>
-        {manager && mode === "cycle" && (
+        {manager && mode === "month" && (
           <Button
             disabled={!!paymentDisabledReason}
-            title={paymentDisabledReason || "Record payment already made for this cycle"}
+            title={paymentDisabledReason || "Record payment already made for this month"}
             onClick={() => setPaymentOpen(true)}
           >
             {settled ? "Payment recorded" : "Record payment"}
           </Button>
         )}
       </div>
-      {manager && mode === "cycle" && paymentDisabledReason && (
+      {manager && mode === "month" && paymentDisabledReason && (
         <p className="text-xs text-text-secondary">{paymentDisabledReason}</p>
       )}
       <p className="text-xs text-text-secondary">
         {start} to {end}
-        {mode === "cycle"
+        {mode === "month"
           ? ` · Payment due ${selectedPeriod.due}`
-          : " · Calendar reporting is separate from the 16th–15th payment cycle."}
+          : " · Monthly earnings are payable on the 7th of the following month."}
       </p>
       <div className="grid gap-3 sm:grid-cols-3">
         <Metric label="Work earnings" value={money(earningsTotal(eligible))} />
@@ -1283,12 +1282,13 @@ function EarningsView({
             <Input
               required
               type="date"
+              min={selectedPeriod.due}
               max={board.today}
               value={paidOn}
               onChange={(e) => setPaidOn(e.target.value)}
             />
-            <Label>Payment reference (optional)</Label>
-            <Input value={reference} onChange={(e) => setReference(e.target.value)} />
+            <Label>Payment reference</Label>
+            <Input required value={reference} onChange={(e) => setReference(e.target.value)} />
             <Button type="submit" disabled={busy}>
               Confirm payment record
             </Button>

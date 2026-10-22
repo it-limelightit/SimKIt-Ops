@@ -24,6 +24,7 @@ import { Skeleton, Button, ProgressBar, Select, Label, Input, Card } from "@/com
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth-store";
 import { ManagerAttendanceBox } from "@/components/field-operations/FieldOperations";
+import { LeaveRequestsButton } from "@/components/attendance/LeaveRequestsButton";
 import { AssessmentTab } from "@/components/business-consultant/AssessmentTab";
 import { notifyAfterNewFactoryFormSubmission } from "@/lib/factory-form-notification";
 import { InstallationTab } from "@/components/business-consultant/InstallationTab";
@@ -2236,17 +2237,20 @@ export function Overview() {
           <p className="font-mono text-[10px] uppercase tracking-widest text-text-secondary">Dashboard</p>
           <h1 className="mt-1 text-3xl text-text-primary font-syne uppercase tracking-tight font-extrabold">Overview</h1>
         </div>
-        {canReviewCommissioningRequests && (
-          <Button
-            onClick={async () => {
-              await loadData();
-              setShowCommissioningRequests(true);
-            }}
-            className="w-full sm:w-auto"
-          >
-            View Commissioning Requests ({pendingCommissioningRequests.length})
-          </Button>
-        )}
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <LeaveRequestsButton />
+          {canReviewCommissioningRequests && (
+            <Button
+              onClick={async () => {
+                await loadData();
+                setShowCommissioningRequests(true);
+              }}
+              className="w-full sm:w-auto"
+            >
+              View Commissioning Requests ({pendingCommissioningRequests.length})
+            </Button>
+          )}
+        </div>
       </header>
 
       {/* Main semantic variables-based analytics dashboard */}

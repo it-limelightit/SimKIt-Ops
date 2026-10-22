@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { ChevronDown, FileText, Plus, RefreshCw } from "lucide-react";
 import { Button, Card, Input, Select } from "@/components/ui-kit";
 import { dateLabel } from "@/lib/device-attendance";
+import { requestTypeLabel, arrivalTimeLabel } from "@/lib/leave-request";
 import type { LeaveRequest } from "./LeaveWorkspace";
 import { requestCalendarStyle } from "@/lib/request-calendar";
 
@@ -114,9 +115,10 @@ export function MyLeaveRequests({
             onChange={(event) => setKind(event.target.value)}
             className="min-h-9 text-sm sm:w-40"
           >
-            <option value="all">Leave & WFH</option>
+            <option value="all">All request types</option>
             <option value="leave">Leave</option>
             <option value="wfh">Work from home</option>
+            <option value="late">Late / half-day arrival</option>
           </Select>
         </div>
         {filtered.length ? (
@@ -144,7 +146,7 @@ export function MyLeaveRequests({
                   {filtered.map((request) => (
                     <tr key={request.id} className="align-top hover:bg-surface-raised/30">
                       <td className="px-4 py-3 font-medium">
-                        {request.request_type === "wfh" ? "WFH" : "Leave"}
+                        {requestTypeLabel(request.request_type, request.is_half_day)}
                         <p className="mt-1 whitespace-nowrap text-[10px] font-normal text-text-secondary">
                           {new Date(request.created_at).toLocaleDateString("en-IN", {
                             day: "numeric",
@@ -155,6 +157,11 @@ export function MyLeaveRequests({
                       </td>
                       <td className="px-4 py-3">
                         <p className="whitespace-nowrap">{dateLabel(request.start_date)}</p>
+                        {request.request_type === "late" && (
+                          <p className="mt-1 text-xs text-text-secondary">
+                            Expected: {arrivalTimeLabel(request.expected_arrival)}
+                          </p>
+                        )}
                         {request.end_date !== request.start_date && (
                           <p className="mt-1 whitespace-nowrap text-text-secondary">
                             to {dateLabel(request.end_date)}
@@ -204,7 +211,7 @@ export function MyLeaveRequests({
                 <article key={request.id} className="space-y-2 p-3">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-medium">
-                      {request.request_type === "wfh" ? "Work from home" : "Leave"}
+                      {requestTypeLabel(request.request_type, request.is_half_day)}
                     </p>
                     <span
                       className={`rounded-full px-2 py-1 text-[11px] capitalize ${tone(request.status)}`}
@@ -215,6 +222,11 @@ export function MyLeaveRequests({
                   <p className="text-xs text-text-secondary">
                     {dateLabel(request.start_date)} – {dateLabel(request.end_date)}
                   </p>
+                  {request.request_type === "late" && (
+                    <p className="text-xs font-medium text-text-primary">
+                      Expected arrival: {arrivalTimeLabel(request.expected_arrival)}
+                    </p>
+                  )}
                   <p className="break-words text-xs leading-5 text-text-secondary">
                     {request.reason}
                   </p>

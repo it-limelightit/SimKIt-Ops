@@ -197,6 +197,41 @@ test("file downloads enforce owner/reviewer access and sign only recorded keys",
   state.file.claim_id = null;
   assert.equal((await request({ id: "a" })).status, 404);
 });
+test("receipt previews open inline with the stored image or PDF type while downloads stay attachments", async () => {
+  state.file = {
+    owner_id: "user-one",
+    claim_id: "claim",
+    object_key: "expenses/user-one/saved",
+    filename: "receipt.png",
+    mime_type: "image/png",
+  };
+  for (const type of ["image/png", "image/jpeg", "application/pdf"]) {
+    state.file.mime_type = type;
+    const response = await request({ id: "a", preview: true });
+    assert.equal(response.status, 200);
+    const url = new URL((await response.json()).url);
+    assert.equal(
+      url.searchParams.get("response-content-disposition"),
+      'inline; filename="receipt.png"',
+    );
+    assert.equal(url.searchParams.get("response-content-type"), type);
+  }
+  const download = new URL((await (await request({ id: "a" })).json()).url);
+  assert.equal(
+    download.searchParams.get("response-content-disposition"),
+    'attachment; filename="receipt.png"',
+  );
+  state.file.mime_type = "text/html";
+  const unsupported = new URL((await (await request({ id: "a", preview: true })).json()).url);
+  assert.equal(
+    unsupported.searchParams.get("response-content-disposition"),
+    'attachment; filename="receipt.png"',
+  );
+  assert.equal(unsupported.searchParams.has("response-content-type"), false);
+  state.file.owner_id = "another";
+  assert.equal((await request({ id: "a", preview: true })).status, 404);
+});
+
 test("missing storage configuration returns a controlled failure", async () => {
   state.missing = "EXPENSE_R2_BUCKET";
   assert.equal((await request({ id: "a" })).status, 503);

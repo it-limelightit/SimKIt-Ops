@@ -191,10 +191,14 @@ Deno.serve(async (req: Request) => {
     }
     const url = new URL(endpoint + file.object_key);
     url.searchParams.set("X-Amz-Expires", "60");
+    const inline =
+      input.preview === true &&
+      ["image/jpeg", "image/png", "application/pdf"].includes(file.mime_type);
     url.searchParams.set(
       "response-content-disposition",
-      `attachment; filename="${file.filename.replace(/[^a-zA-Z0-9._ -]/g, "_")}"`,
+      `${inline ? "inline" : "attachment"}; filename="${file.filename.replace(/[^a-zA-Z0-9._ -]/g, "_")}"`,
     );
+    if (inline) url.searchParams.set("response-content-type", file.mime_type);
     const signed = await r2.sign(new Request(url), { aws: { signQuery: true } });
     return json({ url: signed.url });
   } catch {
