@@ -19,3 +19,7 @@ verify_jwt = false
 # Validates JWTs and attachment ownership inside the handler.
 [functions.expense-files]
 verify_jwt = false
+
+# HR validates the session and the dedicated HR permission inside the handler.
+[functions.hr-employee-account]
+verify_jwt = false

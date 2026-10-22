@@ -4,6 +4,7 @@ import { useAuth } from "@/lib/auth-store";
 import { canAccessManagerPath, isRestrictedManager, managerHomePath } from "@/lib/manager-access";
 import { canManageAttendance } from "@/lib/attendance-access";
 import { canManageFinance, isSalaryManager } from "@/lib/finance";
+import { canManageHr } from "@/lib/hr-access";
 import { FinanceWorkspace } from "@/components/finance/FinanceWorkspace";
 import { canAccessLeave, canReviewLeave, isTarunLeaveReviewer } from "@/lib/attendance-access";
 import {
@@ -85,6 +86,7 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
     { to: `${base}/field-visit-tracker`, label: "Field Visit Tracker", icon: CalendarDays },
     { to: `${base}/attendance`, label: "Attendance", icon: Clock3 },
     ...(canManageFinance(email) ? [{ to: `${base}/salary-expense`, label: "Salary / Expense", icon: BarChart3 }] : []),
+    ...(canManageHr(email) ? [{ to: `${base}/hr-hiring`, label: "HR / Hiring", icon: Users }] : []),
     ...(!canManageFinance(email) ? [{ to: "/expenses", label: "Expense", icon: Folder }] : []),
     ...(!canAccessLeave(email) || isTarunLeaveReviewer(email)
       ? []
@@ -318,6 +320,7 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
             path === "/manager/leave" ||
             path === "/manager/leave/"
             || path === "/manager/salary-expense"
+            || path === "/manager/hr-hiring"
               ? "w-full"
               : "mx-auto max-w-6xl px-6 py-10 md:px-10 md:py-12"
           }

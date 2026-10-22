@@ -4,6 +4,7 @@ import { useAuth } from "@/lib/auth-store";
 import { canAccessManagerPath, isRestrictedManager, managerHomePath } from "@/lib/manager-access";
 import { canAccessLeave, canManageAttendance, canReviewLeave } from "@/lib/attendance-access";
 import { canManageFinance } from "@/lib/finance";
+import { canManageHr } from "@/lib/hr-access";
 import { StaffShell } from "@/components/staff/StaffShell";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -26,6 +27,8 @@ function ManagerLayout() {
   const attendanceAllowed = canManageAttendance(email);
   const financeRoute = path === "/manager/salary-expense" || path.startsWith("/manager/salary-expense/");
   const financeAllowed = canManageFinance(email);
+  const hrRoute = path === "/manager/hr-hiring" || path.startsWith("/manager/hr-hiring/");
+  const hrAllowed = canManageHr(email);
   const leaveRoute = path === "/manager/leave" || path.startsWith("/manager/leave/");
   const leaveAllowed = canAccessLeave(email) && (scopedAccess || role === "supervisor" || canReviewLeave(email));
   const knownFactorySubmissionKeys = useRef<Map<string, string>>(new Map());
@@ -35,13 +38,14 @@ function ManagerLayout() {
     if (!userId) navigate({ to: "/auth" });
     else if (!moduleAllowed) navigate({ to: managerHomePath(email) });
     else if (financeRoute && !financeAllowed) navigate({ to: managerHomePath(email) });
+    else if (hrRoute && !hrAllowed) navigate({ to: managerHomePath(email) });
     else if (attendanceRoute && !attendanceAllowed)
       navigate({ to: role === "supervisor" ? "/manager" : role === "employee" ? "/employee" : "/business-consultant" });
     else if (leaveRoute && !leaveAllowed)
       navigate({ to: role === "employee" ? "/employee" : role === "supervisor" ? "/manager" : "/business-consultant" });
     else if (role && role !== "supervisor" && !scopedAccess && !(attendanceRoute && attendanceAllowed) && !(leaveRoute && leaveAllowed) && !(financeRoute && financeAllowed))
       navigate({ to: role === "employee" ? "/employee" : "/business-consultant" });
-  }, [ready, userId, role, email, navigate, moduleAllowed, scopedAccess, attendanceRoute, attendanceAllowed, leaveRoute, leaveAllowed, financeRoute, financeAllowed]);
+  }, [ready, userId, role, email, navigate, moduleAllowed, scopedAccess, attendanceRoute, attendanceAllowed, leaveRoute, leaveAllowed, financeRoute, financeAllowed, hrRoute, hrAllowed]);
 
   useEffect(() => {
     if (!ready || !userId || role !== "supervisor" || !factoryDataAllowed) return;
@@ -163,6 +167,7 @@ function ManagerLayout() {
     !moduleAllowed ||
     (attendanceRoute && !attendanceAllowed) ||
     (financeRoute && !financeAllowed) ||
+    (hrRoute && !hrAllowed) ||
     (leaveRoute && !leaveAllowed) ||
     (role !== "supervisor" && !scopedAccess && !(attendanceRoute && attendanceAllowed) && !(leaveRoute && leaveAllowed) && !(financeRoute && financeAllowed))
   )

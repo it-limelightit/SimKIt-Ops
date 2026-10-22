@@ -30,6 +30,7 @@ import { InstallationTab } from "@/components/business-consultant/InstallationTa
 import { CommissioningTab } from "@/components/business-consultant/CommissioningTab";
 import { OrderTab } from "@/components/business-consultant/OrderTab";
 import { parseTaskNotes } from "./TasksPanel";
+import { AddAssessorDialog, type AssessorDetails } from "./AddAssessorDialog";
 import logoUrl from "../../../image copy.png";
 import {
   Building,
@@ -97,6 +98,7 @@ type SiteRow = {
     assessor_company: string;
     assessor_name: string;
     assessor_phone: string;
+    assessor_email: string;
   };
   logisticsStatus: string;
   hasLogisticsOrder: boolean;
@@ -207,6 +209,7 @@ export function Overview() {
   const [loadError, setLoadError] = useState(false);
   const [savingAssessorIds, setSavingAssessorIds] = useState<Set<string>>(new Set());
   const [editingAssessorId, setEditingAssessorId] = useState<string | null>(null);
+  const [addingAssessorSite, setAddingAssessorSite] = useState<SiteRow | null>(null);
 
   // Filter States
   const [selectedKpi, setSelectedKpi] = useState<string>("assigned");
@@ -663,9 +666,8 @@ export function Overview() {
     assessorOptions.map((assessor) => [assessor.assessor_company.toLowerCase(), assessor.assessor_company]),
   ), ([value, label]) => ({ value, label }));
 
-  const handleAssessorChange = async (row: SiteRow, assessorId: string) => {
-    const assessor = assessorOptions.find((option) => option.id === assessorId);
-    if (!assessor || savingAssessorIds.has(row.id)) return;
+  const saveAssessor = async (row: SiteRow, assessorDetails: AssessorDetails): Promise<boolean> => {
+    if (savingAssessorIds.has(row.id)) return false;
     setSavingAssessorIds((current) => new Set(current).add(row.id));
     try {
       // Read the current metadata so assigning an assessor preserves other site changes.
@@ -678,7 +680,6 @@ export function Overview() {
       if (assessorFields.some((field) => (meta[field]?.trim() || "") !== (originalMeta[field]?.trim() || ""))) {
         throw new Error("The assessor has changed. Refresh to see the latest details before editing.");
       }
-      const { id: _sourceSiteId, ...assessorDetails } = assessor;
       const taskNotes = serializeSiteMetadata(currentSite.task_notes, { ...meta, ...assessorDetails });
       let update = supabase.from("sites").update({ task_notes: taskNotes }).eq("id", row.id);
       update = currentSite.task_notes === null
@@ -690,14 +691,28 @@ export function Overview() {
       setRawSites((sites) => sites.map((site) => site.id === row.id ? { ...site, task_notes: updatedSite.task_notes } : site));
       setEditingAssessorId((current) => current === row.id ? null : current);
       toast.success(row.meta.assessor_company ? "Assessor updated successfully" : "Assessor assigned successfully");
+      return true;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not assign assessor. Please try again.");
+      return false;
     } finally {
       setSavingAssessorIds((current) => {
         const next = new Set(current);
         next.delete(row.id);
         return next;
       });
+    }
+  };
+
+  const handleAssessorChange = async (row: SiteRow, assessorId: string) => {
+    if (assessorId === "add-assessor") {
+      setAddingAssessorSite(row);
+      return;
+    }
+    const assessor = assessorOptions.find((option) => option.id === assessorId);
+    if (assessor) {
+      const { id: _sourceSiteId, ...details } = assessor;
+      await saveAssessor(row, details);
     }
   };
 
@@ -994,6 +1009,7 @@ export function Overview() {
         assessor_company: meta.assessor_company?.trim() || "",
         assessor_name: meta.assessor_name?.trim() || "",
         assessor_phone: meta.assessor_phone?.trim() || "",
+        assessor_email: meta.assessor_email?.trim() || "",
       },
       status: canonicalStatus,
       logisticsStatus,
@@ -2204,6 +2220,17 @@ export function Overview() {
 
   return (
     <div className="manager-overview space-y-5 md:-mt-8">
+      {addingAssessorSite && (
+        <AddAssessorDialog
+          siteName={addingAssessorSite.name}
+          onClose={() => setAddingAssessorSite(null)}
+          onSave={async (details) => {
+            const saved = await saveAssessor(addingAssessorSite, details);
+            if (saved) setAddingAssessorSite(null);
+            return saved;
+          }}
+        />
+      )}
       <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <p className="font-mono text-[10px] uppercase tracking-widest text-text-secondary">Dashboard</p>
@@ -2897,6 +2924,12 @@ export function Overview() {
                                       <dd className="mt-1 break-words font-medium">{r.meta.assessor_name || "-"}</dd>
                                     </div>
                                     <div className="py-3">
+                                      <dt className="text-xs text-text-secondary">Email</dt>
+                                      <dd className="mt-1 break-words font-medium">
+                                        {r.meta.assessor_email ? <a href={`mailto:${r.meta.assessor_email}`} className="underline-offset-4 hover:underline">{r.meta.assessor_email}</a> : "-"}
+                                      </dd>
+                                    </div>
+                                    <div className="py-3">
                                       <dt className="text-xs text-text-secondary">Mobile Number</dt>
                                       <dd className="mt-1 font-medium tabular-nums">
                                         {r.meta.assessor_phone ? (
@@ -2923,13 +2956,14 @@ export function Overview() {
                               <select
                                 value=""
                                 aria-label={`Select assessor for ${r.name}`}
-                                disabled={savingAssessorIds.has(r.id) || assessorOptions.length === 0}
+                                disabled={savingAssessorIds.has(r.id)}
                                 onChange={(event) => void handleAssessorChange(r, event.target.value)}
                                 className="w-full max-w-[240px] cursor-pointer truncate rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-text-secondary outline-none transition-colors hover:border-border-bright focus-visible:ring-2 focus-visible:ring-lime disabled:cursor-default disabled:opacity-60"
                               >
                                 <option value="">
-                                  {savingAssessorIds.has(r.id) ? "Saving assessor..." : assessorOptions.length ? r.meta.assessor_company ? "Select replacement" : "Select assessor" : "No saved assessors"}
+                                  {savingAssessorIds.has(r.id) ? "Saving assessor..." : r.meta.assessor_company ? "Select replacement" : "Select or add assessor"}
                                 </option>
+                                <option value="add-assessor">+ Add assessor</option>
                                 {assessorOptions.map((assessor) => (
                                   <option key={assessor.id} value={assessor.id}>
                                     {assessor.assessor_company}

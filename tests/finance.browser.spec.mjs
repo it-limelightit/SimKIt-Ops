@@ -244,6 +244,79 @@ async function mock(page, financeRole = "hardik", workspaceRole) {
   });
   return { board, calls, errors };
 }
+test("Overview adds an assessor from an empty dropdown, preserves metadata and reuses the contact", async ({
+  page,
+}) => {
+  const { errors } = await mock(page, null, "supervisor");
+  const original = {
+    status: "Not Started Yet",
+    worker_ids: [staff],
+    c1_name: "Existing client",
+    custom_note: "Keep this value",
+  };
+  const sites = ["Acme Factory", "Beta Factory"].map((name, index) => ({
+    id: `site-${index}`,
+    name,
+    company_name: name,
+    city: "Ahmedabad",
+    assigned_worker_id: staff,
+    assigned_at: "2026-10-01T08:00:00Z",
+    created_at: "2026-10-01T08:00:00Z",
+    task_notes: `[METADATA:${JSON.stringify(original)}]Keep these notes`,
+  }));
+  const writes = [];
+  await page.route("**/rest/v1/*?*", async (route) => {
+    const url = new URL(route.request().url());
+    const name = url.pathname.split("/").pop();
+    if (name === "user_roles" && url.searchParams.get("select") === "role") return route.fallback();
+    if (name === "profiles" && url.searchParams.get("select")?.includes("whatsapp"))
+      return route.fallback();
+    let result = [];
+    if (name === "sites") {
+      const id = url.searchParams.get("id")?.replace(/^eq\./, "");
+      const site = sites.find((entry) => entry.id === id);
+      if (route.request().method() === "PATCH") {
+        const body = route.request().postDataJSON();
+        writes.push(body);
+        Object.assign(site, body);
+        result = [{ id: site.id, task_notes: site.task_notes }];
+      } else result = id ? site : sites;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(result),
+    });
+  });
+  await page.goto("/manager");
+  const dropdown = page.getByLabel("Select assessor for Acme Factory", { exact: true });
+  await expect(dropdown).toBeEnabled({ timeout: 15000 });
+  await dropdown.selectOption("add-assessor");
+  const dialog = page.getByRole("dialog", { name: "Add assessor", exact: true });
+  await dialog.getByLabel("Company name", { exact: true }).fill("New Assessment Co");
+  await dialog.getByLabel("Person name", { exact: true }).fill("New Assessor");
+  await dialog.getByLabel("Email", { exact: true }).fill("assessor@example.com");
+  await dialog.getByLabel("Mobile number", { exact: true }).fill("9876543210");
+  await dialog.getByRole("button", { name: "Save & assign", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "View assessor details for Acme Factory" }),
+  ).toContainText("New Assessment Co");
+  expect(writes).toHaveLength(1);
+  expect(writes[0].task_notes).toContain('"custom_note":"Keep this value"');
+  expect(writes[0].task_notes).toContain("Keep these notes");
+  expect(writes[0].task_notes).toContain('"assessor_email":"assessor@example.com"');
+  await page.getByRole("button", { name: "View assessor details for Acme Factory" }).click();
+  await expect(page.getByRole("dialog")).toContainText("assessor@example.com");
+  await page.keyboard.press("Escape");
+  await page.getByLabel("Select assessor for Beta Factory", { exact: true }).selectOption("site-0");
+  await expect(
+    page.getByRole("button", { name: "View assessor details for Beta Factory" }),
+  ).toContainText("New Assessment Co");
+  expect(writes).toHaveLength(2);
+  expect(errors).toEqual([]);
+});
+
 test("Employee expense dialog stays light and keeps submit controls visible on small screens", async ({
   page,
 }) => {
