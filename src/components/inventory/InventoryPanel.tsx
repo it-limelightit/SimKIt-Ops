@@ -1514,18 +1514,14 @@ export function OrderCard({
       const checklistStartY = infoY + 12;
       const columnWidth = 43;
       const rowHeight = 10;
-      sensorItems.forEach(([label, checked], index) => {
+      sensorItems.forEach(([label], index) => {
         const column = index < 6 ? 0 : 1;
         const row = index < 6 ? index : index - 6;
         const itemX = panelX + 6 + column * columnWidth;
         const itemY = checklistStartY + row * rowHeight;
         doc.setDrawColor(0, 0, 0);
         doc.rect(itemX, itemY - 4.5, 4.5, 4.5);
-        if (checked) {
-          doc.setLineWidth(0.6);
-          doc.line(itemX + 0.8, itemY - 2.2, itemX + 2, itemY - 1);
-          doc.line(itemX + 2, itemY - 1, itemX + 4, itemY - 4);
-        }
+        // Leave printed boxes empty for manual confirmation after packing.
         doc.setFont("Helvetica", "normal");
         doc.setFontSize(8);
         doc.text(label, itemX + 7, itemY - 1);

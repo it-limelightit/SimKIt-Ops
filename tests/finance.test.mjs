@@ -33,6 +33,7 @@ const revision = async (id) => scalar("select revision from expense_claims where
 const action = async (id, what, reason = null) =>
   db.query("select expense_action($1,$2,$3,$4)", [id, await revision(id), what, reason]);
 let salaryId;
+let legacyPayment, legacyItems;
 before(async () => {
   await db.exec(`
  CREATE ROLE anon;CREATE ROLE authenticated;CREATE ROLE service_role;CREATE SCHEMA auth;
@@ -50,7 +51,7 @@ before(async () => {
  CREATE TABLE field_attendance_events(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),associate_id uuid,work_date date,online boolean,occurred_at timestamptz DEFAULT now());
  CREATE TABLE field_work_rates(associate_id uuid PRIMARY KEY,assessment numeric,installation numeric,commissioning numeric,updated_by uuid,updated_at timestamptz DEFAULT now());
  CREATE TABLE field_earnings(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),site_id uuid,company_name text,associate_id uuid,associate_name text DEFAULT 'Field Associate',phase text,earning_date date,amount numeric,eligible boolean DEFAULT true);
- CREATE TABLE field_payment_records(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),associate_id uuid,period_end date,amount numeric,paid_on date,reference text,recorded_by uuid,UNIQUE(associate_id,period_end));
+ CREATE TABLE field_payment_records(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),associate_id uuid,period_end date CHECK(extract(day FROM period_end)=15),amount numeric,paid_on date,reference text,recorded_by uuid,UNIQUE(associate_id,period_end));
  CREATE TABLE field_payment_items(payment_id uuid,earning_id uuid PRIMARY KEY,amount numeric);
  CREATE FUNCTION field_ops_associate(_id uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT has_role(_id,'worker') $$;
  CREATE FUNCTION field_ops_phase_ready(_id uuid,_phase text) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT true $$;
@@ -72,6 +73,35 @@ before(async () => {
     await db.exec(
       readFileSync(new URL(`../supabase/migrations/${migration}`, import.meta.url), "utf8"),
     );
+  await db.query(
+    "insert into field_earnings(associate_id,company_name,phase,earning_date,amount) values($1,'Legacy May','assessment','2020-05-20',400),($1,'Legacy June','assessment','2020-06-10',600)",
+    [associate],
+  );
+  const payment = await scalar(
+    "insert into field_payment_records(associate_id,period_end,amount,paid_on,reference,recorded_by) values($1,'2020-06-15',1000,'2020-07-07','LEGACY',$2) returning id",
+    [associate, hardik],
+  );
+  await db.query(
+    "insert into field_payment_items select $1,id,amount from field_earnings where company_name like 'Legacy %'",
+    [payment],
+  );
+  legacyPayment = await scalar("select to_jsonb(p) from field_payment_records p where id=$1", [
+    payment,
+  ]);
+  legacyItems = (
+    await db.query("select * from field_payment_items where payment_id=$1 order by earning_id", [
+      payment,
+    ])
+  ).rows;
+  await db.exec(
+    readFileSync(
+      new URL(
+        "../supabase/migrations/20261022170000_field_calendar_month_payments.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
 });
 after(() => db.close());
 
@@ -459,7 +489,7 @@ test("salary approval resets on either reviewer edit and locks after payment", a
     /Paid salary is locked/,
   );
 });
-test("field incentives keep 16th–15th, require final approval and reuse existing payments", async () => {
+test("field incentives use calendar months, require final approval and reuse existing payments", async () => {
   await db.query(
     "insert into field_earnings(associate_id,company_name,phase,earning_date,amount) values($1,'Company','assessment','2020-06-16',1000),($1,'Company','commissioning','2020-07-15',2000),($1,'Next','assessment','2020-07-16',3000)",
     [associate],
@@ -468,19 +498,35 @@ test("field incentives keep 16th–15th, require final approval and reuse existi
   const board = await scalar("select finance_field_board($1,'2020-07-01')", [associate]);
   assert.equal(board.earnings.length, 2);
   await assert.rejects(
-    db.query("select field_ops_record_payment($1,'2020-07-15',current_date,'BANK')", [associate]),
+    db.query("select field_ops_record_payment($1,'2020-07-31',current_date,'BANK')", [associate]),
     /Tarun approval/,
   );
-  await db.query("select finance_field_action($1,'2020-07-15',0,'forward')", [associate]);
+  await assert.rejects(
+    db.query("select finance_field_action($1,'2020-07-15',0,'forward')", [associate]),
+    /finished calendar month/,
+  );
+  await db.query("select finance_field_action($1,'2020-07-31',0,'forward')", [associate]);
   await as(tarun);
-  await db.query("select finance_field_action($1,'2020-07-15',1,'approve')", [associate]);
-  await db.query("select finance_field_action($1,'2020-07-15',2,'pay','BANK-789')", [associate]);
-  assert.equal(await scalar("select count(*)::int from field_payment_items"), 2);
+  await db.query("select finance_field_action($1,'2020-07-31',1,'approve')", [associate]);
+  await assert.rejects(
+    db.query("select field_ops_record_payment($1,'2020-07-31','2020-08-06','BANK')", [associate]),
+    /following month's 7th/,
+  );
+  await db.query("select finance_field_action($1,'2020-07-31',2,'pay','BANK-789')", [associate]);
+  assert.equal(
+    await scalar(
+      "select count(*)::int from field_payment_items i join field_payment_records p on p.id=i.payment_id where p.period_end='2020-07-31'",
+    ),
+    2,
+  );
   assert.equal(
     Number(
-      await scalar("select amount from field_payment_records where associate_id=$1", [associate]),
+      await scalar(
+        "select amount from field_payment_records where associate_id=$1 and period_end='2020-07-31'",
+        [associate],
+      ),
     ),
-    3000,
+    5000,
   );
   await assert.rejects(
     db.query("select finance_field_earning($1,50,'Change paid')", [board.earnings[0].id]),
@@ -489,6 +535,59 @@ test("field incentives keep 16th–15th, require final approval and reuse existi
   await db.query("update field_earnings set eligible=false where id=$1", [board.earnings[0].id]);
   const paidHistory = await scalar("select finance_field_board($1,'2020-07-01')", [associate]);
   assert.equal(paidHistory.earnings.length, 2, "Paid work remains visible if the site is reopened");
+});
+
+test("calendar migration preserves legacy payments and only clears unpaid work on or after the 7th", async () => {
+  assert.deepEqual(
+    await scalar("select to_jsonb(p) from field_payment_records p where id=$1", [legacyPayment.id]),
+    legacyPayment,
+  );
+  assert.deepEqual(
+    (
+      await db.query("select * from field_payment_items where payment_id=$1 order by earning_id", [
+        legacyPayment.id,
+      ])
+    ).rows,
+    legacyItems,
+  );
+  for (const [date, end, due] of [
+    ["2026-08-15", "2026-08-31", "2026-09-07"],
+    ["2026-08-16", "2026-08-31", "2026-09-07"],
+    ["2028-02-29", "2028-02-29", "2028-03-07"],
+    ["2026-12-31", "2026-12-31", "2027-01-07"],
+  ]) {
+    assert.equal(await scalar("select field_ops_period_end($1)::text", [date]), end);
+    assert.equal(await scalar("select field_ops_payment_due($1)::text", [end]), due);
+  }
+  await as(hardik);
+  const june = await scalar("select finance_field_board($1,'2020-06-01')", [associate]);
+  assert.equal(june.earnings.length, 2);
+  assert.equal(june.earnings.filter((earning) => earning.paid).length, 1);
+  await db.query("select finance_field_action($1,'2020-06-30',0,'forward')", [associate]);
+  await as(tarun);
+  await db.query("select finance_field_action($1,'2020-06-30',1,'approve')", [associate]);
+  await db.query("select field_ops_record_payment($1,'2020-06-30','2020-07-07','MONTHLY')", [
+    associate,
+  ]);
+  assert.equal(
+    Number(
+      await scalar(
+        "select amount from field_payment_records where associate_id=$1 and period_end='2020-06-30'",
+        [associate],
+      ),
+    ),
+    1000,
+  );
+  assert.equal(
+    await scalar("select count(*)::int from field_payment_items where payment_id=$1", [
+      legacyPayment.id,
+    ]),
+    2,
+  );
+  await assert.rejects(
+    db.query("select finance_field_action($1,'2020-06-30',2,'pay','DUPLICATE')", [associate]),
+    /already paid/,
+  );
 });
 test("financial tables reject direct client writes and hide other owners' records", async () => {
   await db.exec("GRANT USAGE ON SCHEMA auth TO authenticated");

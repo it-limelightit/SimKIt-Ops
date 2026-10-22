@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Button, Card, Input, Select } from "@/components/ui-kit";
 import { dateLabel } from "@/lib/device-attendance";
+import { requestTypeLabel, arrivalTimeLabel } from "@/lib/leave-request";
 import type { LeaveRequest } from "./LeaveWorkspace";
 
 type Decision = "pending" | "approved" | "rejected";
@@ -87,6 +88,7 @@ export function LeaveReviewTable({
               <option value="all">All request types</option>
               <option value="leave">Leave</option>
               <option value="wfh">Work from home</option>
+              <option value="late">Late / half-day arrival</option>
             </Select>
           </div>
           <div className="flex items-center gap-2 text-xs text-text-secondary">
@@ -164,7 +166,7 @@ export function LeaveReviewTable({
                           <span
                             className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-medium ${request.request_type === "wfh" ? "bg-violet/10 text-violet" : "bg-lime/10 text-lime"}`}
                           >
-                            {request.request_type === "wfh" ? "WFH" : "Leave"}
+                            {requestTypeLabel(request.request_type, request.is_half_day)}
                           </span>
                         </td>
                         <td className="px-4 py-3">
@@ -175,7 +177,9 @@ export function LeaveReviewTable({
                             )}
                           </p>
                           <p className="mt-1 text-xs text-text-secondary">
-                            {days.length} {days.length === 1 ? "day" : "days"}
+                            {request.request_type === "late"
+                              ? `Expected: ${arrivalTimeLabel(request.expected_arrival)}`
+                              : `${days.length} ${days.length === 1 ? "day" : "days"}`}
                           </p>
                         </td>
                         <td className="max-w-64 px-4 py-3">
@@ -185,6 +189,11 @@ export function LeaveReviewTable({
                           >
                             {request.reason}
                           </p>
+                          {request.request_type === "late" && (
+                            <p className="mt-1 text-xs font-medium text-text-primary">
+                              {request.category}
+                            </p>
+                          )}
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 text-xs text-text-secondary">
                           {new Date(request.created_at).toLocaleDateString("en-IN", {

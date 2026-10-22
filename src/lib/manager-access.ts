@@ -3,6 +3,7 @@ export const restrictedEmployeeEmail = "aryankadiya2005@gmail.com";
 
 export const operationsManagerPaths = [
   "/manager/salary-expense",
+  "/manager/hr-hiring",
 ] as const;
 
 export function isRestrictedManager(email: string | null | undefined) {

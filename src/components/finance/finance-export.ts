@@ -1,6 +1,7 @@
 import { jsPDF } from "jspdf";
 import { zipSync, strToU8 } from "fflate";
 import { attendanceReportLogo } from "@/lib/attendance-report-logo";
+import { paymentPeriod } from "@/lib/field-operations";
 import {
   categories,
   expenseFileDownload,
@@ -46,11 +47,15 @@ export function statementBytes(
   const incentiveAmount =
     field?.review?.status === "approved"
       ? field.earnings.reduce((s, e) => s + Number(e.amount ?? 0), 0)
-      : (field?.payments.reduce((s, p) => s + Number(p.amount), 0) ?? 0);
+      : (field?.earnings
+          .filter((earning) => earning.paid)
+          .reduce((s, earning) => s + Number(earning.amount ?? 0), 0) ?? 0);
   const paid =
     expensesPaid +
     (salary?.paid_at ? Number(salary.amount) : 0) +
-    (field?.payments.reduce((s, p) => s + Number(p.amount), 0) ?? 0);
+    (field?.earnings
+      .filter((earning) => earning.paid)
+      .reduce((s, earning) => s + Number(earning.amount ?? 0), 0) ?? 0);
   const payable = expenses + salaryAmount + incentiveAmount;
   const doc = new jsPDF();
   doc.setProperties({
@@ -342,7 +347,9 @@ export async function downloadFinanceBackup(board: FinanceBoard, month: string) 
           salaries: board.salaries.length,
           files: manifest,
           events: board.events.length,
-          field_cycle_end: `${month}-15`,
+          field_cycle_start: paymentPeriod(`${month}-01`).start,
+          field_cycle_end: paymentPeriod(`${month}-01`).end,
+          field_payment_due: paymentPeriod(`${month}-01`).due,
           verified: true,
         },
         null,

@@ -7,8 +7,8 @@ import { PGlite } from "@electric-sql/pglite";
 const source = readFileSync(new URL("../src/lib/manager-access.ts", import.meta.url), "utf8");
 const js = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
 const { canAccessManagerPath, managerHomePath } = await import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
-const allowed = ["salary-expense"];
-test("Hardik can open only salary/expense and its child pages", () => {
+const allowed = ["salary-expense", "hr-hiring"];
+test("Hardik can open salary/expense, HR/hiring and their child pages", () => {
   for (const email of ["admin@limelightit.io", " ADMIN@LIMELIGHTIT.IO "]) {
     for (const module of allowed) {
       assert.equal(canAccessManagerPath(email, `/manager/${module}`), true);

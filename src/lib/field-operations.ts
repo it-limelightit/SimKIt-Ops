@@ -132,10 +132,10 @@ export const indiaTime = (stamp: string) =>
   });
 const key = (date: Date) => date.toISOString().slice(0, 10);
 export function paymentPeriod(date: string) {
-  const [year, month, day] = date.split("-").map(Number);
-  const end = new Date(Date.UTC(year, month - 1 + (day > 15 ? 1 : 0), 15));
+  const [year, month] = date.split("-").map(Number);
+  const end = new Date(Date.UTC(year, month, 0));
   return {
-    start: key(new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth() - 1, 16))),
+    start: key(new Date(Date.UTC(year, month - 1, 1))),
     end: key(end),
     due: key(new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth() + 1, 7))),
   };

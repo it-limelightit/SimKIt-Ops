@@ -463,14 +463,24 @@ test("frontend payment dates, India midnight and five-day warning follow the sam
   }).outputText;
   const utils = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
   assert.deepEqual(utils.paymentPeriod("2026-08-15"), {
-    start: "2026-07-16",
-    end: "2026-08-15",
+    start: "2026-08-01",
+    end: "2026-08-31",
     due: "2026-09-07",
   });
   assert.deepEqual(utils.paymentPeriod("2026-08-16"), {
-    start: "2026-08-16",
-    end: "2026-09-15",
-    due: "2026-10-07",
+    start: "2026-08-01",
+    end: "2026-08-31",
+    due: "2026-09-07",
+  });
+  assert.deepEqual(utils.paymentPeriod("2028-02-29"), {
+    start: "2028-02-01",
+    end: "2028-02-29",
+    due: "2028-03-07",
+  });
+  assert.deepEqual(utils.paymentPeriod("2026-12-31"), {
+    start: "2026-12-01",
+    end: "2026-12-31",
+    due: "2027-01-07",
   });
   assert.equal(utils.indiaDate(new Date("2026-08-15T19:00:00Z")), "2026-08-16");
   assert.equal(utils.monthDays("2028-02").length, 29);

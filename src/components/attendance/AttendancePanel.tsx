@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import {
   CalendarDays,
   Clock3,
@@ -118,6 +118,7 @@ function enrollmentNotice(result: EnrollResponse) {
 
 export function AttendancePanel() {
   const navigate = useNavigate();
+  const requestedTab = useSearch({ strict: false, select: (search) => search.tab });
   const { email } = useAuth();
   const tarunReviewer = isTarunLeaveReviewer(email);
   const leaveAllowed = canAccessLeave(email);
@@ -132,6 +133,9 @@ export function AttendancePanel() {
   });
   const { board, error, loading, reload } = useDeviceAttendance(date);
   const [tab, setTab] = useState<"daily" | "users" | "leave">("daily");
+  useEffect(() => {
+    if (requestedTab === "leave" && leaveAllowed) setTab("leave");
+  }, [requestedTab, leaveAllowed]);
   const [showOtherLeaveRecords, setShowOtherLeaveRecords] = useState(false);
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("all");
