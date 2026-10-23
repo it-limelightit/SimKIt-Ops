@@ -49,7 +49,7 @@ const admin = {
     admin: {
       async createUser(input) {
         state.created.push(input);
-        return { data: { user: { id: accountId } }, error: null };
+        return { data: { user: { id: accountId, app_metadata: state.omitOfficeMetadata ? {} : input.app_metadata } }, error: null };
       },
       async deleteUser(id) {
         state.deleted.push(id);
@@ -57,12 +57,16 @@ const admin = {
       },
     },
   },
-  from() {
+  from(table) {
     return {
       select() {
         return this;
       },
       eq() {
+        if (table === "user_roles") return Promise.resolve({
+          data: (state.assignedRoles || []).map(role => ({ role })),
+          error: state.roleReadFails ? { message: "unavailable" } : null,
+        });
         return this;
       },
       async single() {
@@ -98,7 +102,7 @@ const user = {
       };
     if (name === "hr_attach_login")
       return state.linkFails
-        ? { error: { message: "Link failed" } }
+        ? { error: { message: state.linkError || "Link failed" } }
         : { data: accountId, error: null };
     return { data: "pending", error: null };
   },
@@ -171,6 +175,33 @@ test("field account creation uses field signup and does not add office metadata"
   assert.deepEqual(state.created[0].app_metadata, {});
   assert.equal(state.created[0].user_metadata.role, "worker");
   assert.equal(state.published, 0);
+});
+
+test("missing or unexpected provisioning workspace never creates a login", async () => {
+  for (const workspace of [undefined, "office", "manager", ""]) {
+    reset({ workspace });
+    const response = await request({});
+    assert.equal(response.status, 503);
+    assert.match((await response.json()).error, /invalid workspace/);
+    assert.equal(state.created.length, 0);
+  }
+});
+
+test("new-account role failure reports expected role, actual roles and office metadata before cleanup", async () => {
+  reset({ linkFails: true, linkError: "Existing login has different workspace permissions. Its roles have not been changed", assignedRoles: ["worker"] });
+  const response = await request({});
+  assert.equal(response.status, 409);
+  const message = (await response.json()).error;
+  assert.match(message, /expected employee; received worker; office metadata present/);
+  assert.doesNotMatch(message, /employee@example.com|Temporary-password/);
+  assert.deepEqual(state.deleted, [accountId]);
+
+  reset({ linkFails: true, linkError: "Existing login has different workspace permissions", assignedRoles: [], omitOfficeMetadata: true });
+  assert.match((await (await request({})).json()).error, /received none; office metadata missing/);
+
+  reset({ linkFails: true, linkError: "Existing login has different workspace permissions", roleReadFails: true });
+  assert.match((await (await request({})).json()).error, /received could not verify/);
+  assert.deepEqual(state.deleted, [accountId]);
 });
 test("failed linking removes only a provably unlinked new login", async () => {
   reset({ linkFails: true });

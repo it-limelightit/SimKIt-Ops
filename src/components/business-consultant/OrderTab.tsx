@@ -16,9 +16,12 @@ interface OrderTabProps {
   };
   workerId: string;
   onOrderReady?: () => void;
+  createOrder?: (selection: Record<string, unknown>) => Promise<any>;
+  initiallyExpanded?: boolean;
+  submitLabel?: string;
 }
 
-export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
+export function OrderTab({ site, workerId, onOrderReady, createOrder, initiallyExpanded = false, submitLabel = "Submit Device Order" }: OrderTabProps) {
   const { userId, email, profile } = useAuth();
   const [dm, setDm] = useState(true);
   const [withoutCavli, setWithoutCavli] = useState(false);
@@ -38,7 +41,7 @@ export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
   const [submittedOrder, setSubmittedOrder] = useState<any | null>(null);
   const [existingOrder, setExistingOrder] = useState<any | null>(null);
   const [loadingOrder, setLoadingOrder] = useState(true);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(initiallyExpanded);
 
   const companyName = site.company_name || site.name;
   const address = site.address?.trim() || site.city?.trim() || "Address not specified";
@@ -84,6 +87,7 @@ export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
 
     setSubmitting(true);
     try {
@@ -103,9 +107,7 @@ export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
         return;
       }
 
-      const { data: inserted, error } = await supabase
-        .from("inventory_materials")
-        .insert({
+      const payload = {
           material_name: companyName,
           location: address,
           device_id: null,
@@ -137,9 +139,10 @@ export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
             courier_id: "",
             logistics_status: "Pending" // Storing actual logistics status in JSON notes to bypass RLS constraint check
           })
-        })
-        .select()
-        .single();
+        };
+      const { data: inserted, error } = createOrder
+        ? { data: await createOrder(payload), error: null }
+        : await supabase.from("inventory_materials").insert(payload).select().single();
 
       if (error) throw error;
 
@@ -467,7 +470,7 @@ export function OrderTab({ site, workerId, onOrderReady }: OrderTabProps) {
         <div className="pt-4 border-t border-border flex justify-end">
           <Button type="submit" disabled={submitting} className="px-8">
             {submitting && <RefreshCw className="animate-spin mr-1.5" size={14} />}
-            Submit Device Order
+            {submitLabel}
           </Button>
         </div>
       </form>

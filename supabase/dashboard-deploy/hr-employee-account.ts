@@ -486,6 +486,11 @@ serve(async (req) => {
   const context = checked(
     await user.rpc("hr_provision_context", { _employee: employee, _revision: revision })
   );
+  if (!context || !["employee", "field_associate"].includes(context.app_access))
+    throw new HttpError(
+      503,
+      "HR login setup returned an invalid workspace. Check the deployed hr_provision_context function; no login was created."
+    );
   const office = context.app_access === "employee";
   const created = await admin.auth.admin.createUser({
     email: context.email,
@@ -511,12 +516,20 @@ serve(async (req) => {
       );
     if (saved.data?.auth_user_id === accountId)
       return json({ employee_id: employee, linked: true });
+    let roleFailure = null;
+    if (error instanceof Error && error.message.includes("different workspace permissions")) {
+      const roles = await admin.from("user_roles").select("role").eq("user_id", accountId);
+      const actual = roles.error ? "could not verify" : (roles.data || []).map((row) => row.role).sort().join(", ") || "none";
+      const officeFlag = created.data.user.app_metadata?.office_employee;
+      roleFailure = `New login role setup failed: expected ${office ? "employee" : "worker"}; received ${actual}; office metadata ${officeFlag === true || officeFlag === "true" ? "present" : "missing"}.`;
+    }
     const cleanup = await admin.auth.admin.deleteUser(accountId);
     if (cleanup.error)
       throw new HttpError(
         503,
         "Login was created but could not be linked or cleaned up. Refresh and use Link existing login."
       );
+    if (roleFailure) throw new HttpError(409, `${roleFailure} The unlinked new login was removed; existing account permissions were not changed.`);
     throw error;
   }
   return json({ employee_id: employee, linked: true });

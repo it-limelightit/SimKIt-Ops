@@ -75,7 +75,7 @@ before(async () => {
       [category],
     );
   }
-  for (const category of ["2 CORE WIRE", "4 CORE WIRE"]) {
+  for (const category of ["2 CORE WIRE", "3 CORE WIRE", "4 CORE WIRE"]) {
     await db.query(
       "INSERT INTO inventory_stock(category,actual_quantity,unit_price,notes) VALUES($1,100,30,$2)",
       [category, JSON.stringify({ inventory_unit: "Meter" })],
@@ -120,6 +120,97 @@ const quantity = async (category) =>
 
 const activatePacking = () => db.exec(migration("20261021120000_inventory_packing_consumption.sql").replace(/^BEGIN;\s*/m, "").replace(/COMMIT;\s*$/, ""));
 const packingOrder = (options = {}) => order({ uplink: "LTE", ...options });
+const activateProxyWire = () => db.exec(migration("20261023100000_proxy_three_core_wire.sql").replace(/^BEGIN;\s*/m, "").replace(/COMMIT;\s*$/, ""));
+
+test("proxy wire adds exactly 3 meters once per order for either or both proxy inputs, changing no other requirement", async () => {
+  await activatePacking();
+  const cases = [];
+  for (const dm of [true, false]) {
+    for (let mask = 0; mask < 4; mask++) {
+      const id = await packingOrder({ proxy1: mask & 1 ? "TRUE" : "FALSE", proxy2: mask & 2 ? "TRUE" : "FALSE", proxy_model: "Inductive", notes: JSON.stringify({dm_selected:dm}) });
+      const previous = await scalar("SELECT inventory_dispatch_requirements(m) FROM inventory_materials m WHERE id=$1",[id]);
+      cases.push({id,mask,previous});
+    }
+  }
+  await activateProxyWire();
+  for (const {id,mask,previous} of cases) {
+    await db.exec("SAVEPOINT proxy_wire_case");
+    const next = await scalar("SELECT inventory_dispatch_requirements(m) FROM inventory_materials m WHERE id=$1",[id]);
+    assert.deepEqual(next.filter(item => item.key !== "3corewire"),previous,"all existing requirements must remain identical");
+    assert.deepEqual(next.filter(item => item.key === "3corewire").map(item=>({quantity:item.quantity,unit:item.unit})),mask ? [{quantity:3,unit:"Meter"}] : []);
+    await dispatch(id,"Packing");
+    assert.equal(await quantity("3 CORE WIRE"),mask ? 97 : 100);
+    assert.equal(await quantity("PROXIMITRY SENSOR"),100 - ((mask & 1 ? 1 : 0) + (mask & 2 ? 1 : 0)));
+    for (const state of ["Packing","Transit","Delivered"]) await dispatch(id,state);
+    assert.equal(await quantity("3 CORE WIRE"),mask ? 97 : 100,"later status changes cannot deduct wire again");
+    await db.exec("ROLLBACK TO SAVEPOINT proxy_wire_case");
+  }
+});
+
+test("proxy wiring shortage rolls back packing without deducting any other item", async () => {
+  await activatePacking();
+  await activateProxyWire();
+  const id=await packingOrder({proxy1:"TRUE",proxy_model:"Inductive"});
+  await db.exec("UPDATE inventory_stock SET actual_quantity=2 WHERE category='3 CORE WIRE'");
+  await db.exec("SAVEPOINT short_proxy_wire");
+  await assert.rejects(dispatch(id,"Packing"),/Insufficient stock/);
+  await db.exec("ROLLBACK TO SAVEPOINT short_proxy_wire");
+  assert.equal(await quantity("3 CORE WIRE"),2);
+  assert.equal(await quantity("SIM CARD"),100);
+  assert.equal(await quantity("PROXIMITRY SENSOR"),100);
+  assert.equal(await scalar("SELECT count(*)::int FROM inventory_dispatch_deductions WHERE order_id=$1",[id]),0);
+});
+
+test("proxy wire migration never backfills an already deducted order and can be applied repeatedly", async () => {
+  await activatePacking();
+  const id=await packingOrder({proxy2:"TRUE",proxy_model:"Inductive"});
+  await dispatch(id,"Packing");
+  const before=await scalar("SELECT to_jsonb(d) FROM inventory_dispatch_deductions d WHERE order_id=$1",[id]);
+  await activateProxyWire();
+  await activateProxyWire();
+  await dispatch(id,"Transit");
+  assert.equal(await quantity("3 CORE WIRE"),100);
+  assert.deepEqual(await scalar("SELECT to_jsonb(d) FROM inventory_dispatch_deductions d WHERE order_id=$1",[id]),before);
+});
+
+test("3-core wire configured in a Data Meter kit still deducts only for proxy orders", async () => {
+  await activatePacking();
+  await activateProxyWire();
+  await db.exec(`UPDATE inventory_bom_items SET notes='{"inventory_group":"Data Meter"}' WHERE category='3 CORE WIRE'`);
+  const withoutProxy=await packingOrder();
+  await dispatch(withoutProxy,"Packing");
+  assert.equal(await quantity("3 CORE WIRE"),100);
+  const withProxy=await packingOrder({proxy1:"TRUE",proxy2:"TRUE",proxy_model:"Inductive"});
+  await dispatch(withProxy,"Packing");
+  assert.equal(await quantity("3 CORE WIRE"),97,"configured Qty/Kit must not add an unconditional or second wire deduction");
+});
+
+test("existing 3 CORE stock matches 3 CORE WIRE without renaming items or changing quantities during migration", async () => {
+  await activatePacking();
+  await activateProxyWire();
+  await db.exec(`UPDATE inventory_stock SET category='3 CORE',actual_quantity=200 WHERE category='3 CORE WIRE';
+    UPDATE inventory_bom_items SET category='3 CORE' WHERE category='3 CORE WIRE';`);
+  const id=await packingOrder({proxy1:"TRUE",proxy2:"TRUE",proxy_model:"Inductive"});
+  await db.exec("SAVEPOINT unmatched_wire_name");
+  await assert.rejects(dispatch(id,"Packing"),/Insufficient stock: 3 CORE WIRE/);
+  await db.exec("ROLLBACK TO SAVEPOINT unmatched_wire_name");
+  const fix=migration("20261023103000_three_core_wire_stock_name.sql").replace(/^BEGIN;\s*/m, "").replace(/COMMIT;\s*$/, "");
+  await db.exec(fix);
+  await db.exec(fix);
+  assert.equal(await quantity("3 CORE"),200,"name matching migration must not modify physical stock");
+  const source=readFileSync(new URL("../src/lib/inventory-components.ts",import.meta.url),"utf8");
+  const {inventoryComponentKey,inventoryDispatchHint}=await import(`data:text/javascript;base64,${Buffer.from(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ES2022}}).outputText).toString("base64")}`);
+  for(const name of ["3 CORE","3 core","3-core","3 CORE WIRE"]) {
+    assert.equal(inventoryComponentKey(name),"3corewire");
+    assert.equal(await scalar("SELECT inventory_component_key($1)",[name]),"3corewire");
+    assert.match(inventoryDispatchHint(name),/3 meters once per order/);
+  }
+  await dispatch(id,"Packing");
+  assert.equal(await quantity("3 CORE"),197);
+  await dispatch(id,"Transit");
+  assert.equal(await quantity("3 CORE"),197);
+  assert.equal(await quantity("PROXIMITRY SENSOR"),98,"both proxy sensors still deduct independently");
+});
 
 test("deployment wrapper verifies real table keys and preserves existing business data transactionally", async () => {
   const id = await packingOrder();
