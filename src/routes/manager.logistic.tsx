@@ -2,8 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { InventoryPanel } from "@/components/inventory/InventoryPanel";
 import { UpscaleLogisticsPanel } from "@/components/inventory/UpscaleLogisticsPanel";
 import { UpscaleDeviceInfoPanel } from "@/components/inventory/UpscaleDeviceInfoPanel";
+import { AdvanceOrderPanel } from "@/components/inventory/AdvanceOrderPanel";
 import { useState } from "react";
-import { Truck, Table2 } from "lucide-react";
+import { Truck, Table2, PackagePlus } from "lucide-react";
 
 export const Route = createFileRoute("/manager/logistic")({
   ssr: false,
@@ -12,13 +13,13 @@ export const Route = createFileRoute("/manager/logistic")({
 });
 
 function LogisticPage() {
-  const [activeTab, setActiveTab] = useState<"dispatch" | "deviceInfo">("dispatch");
+  const [activeTab, setActiveTab] = useState<"dispatch" | "deviceInfo" | "advance">("dispatch");
   const [selectedSource, setSelectedSource] = useState<"simkit" | "upscale" | null>(null);
 
   return (
     <div className="space-y-6">
       {/* Navigation Sub-Tabs */}
-      <div className="flex items-center gap-2 border-b border-border/80 pb-3">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border/80 pb-3">
         <button
           onClick={() => setActiveTab("dispatch")}
           className={`px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-2 ${
@@ -41,9 +42,12 @@ function LogisticPage() {
           <Table2 size={15} />
           Device Info
         </button>
+        <button type="button" onClick={() => setActiveTab("advance")} className={`px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-2 ${activeTab === "advance" ? "bg-violet text-white shadow-md" : "bg-surface-raised/40 text-text-secondary hover:text-text-primary"}`}>
+          <PackagePlus size={15} /> Advance Order
+        </button>
       </div>
 
-      {activeTab === "dispatch" ? (
+      {activeTab === "advance" ? <AdvanceOrderPanel /> : activeTab === "dispatch" ? (
         <div className="space-y-7">
           <section aria-labelledby="simkit-orders-heading" className="space-y-4">
             <div className="border-b border-border/80 pb-3">

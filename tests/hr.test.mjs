@@ -74,6 +74,7 @@ before(async () => {
     "20261022120000_hr_existing_employee_directory.sql",
     "20261022140000_hr_reporting_directory_delete.sql",
     "20261022140000_hr_reporting_directory_delete.sql",
+    "20261022180000_office_account_metadata_role_assignment.sql",
   ]) {
     try {
       await db.exec(migration(name));

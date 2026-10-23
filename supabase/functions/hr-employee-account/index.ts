@@ -48,6 +48,11 @@ serve(async (req) => {
     app_access: string;
     attendance_employee_id: string;
   };
+  if (!context || !["employee", "field_associate"].includes(context.app_access))
+    throw new HttpError(
+      503,
+      "HR login setup returned an invalid workspace. Check the deployed hr_provision_context function; no login was created.",
+    );
   const office = context.app_access === "employee";
   const created = await admin.auth.admin.createUser({
     email: context.email,
@@ -80,12 +85,24 @@ serve(async (req) => {
       );
     if (saved.data?.auth_user_id === accountId)
       return json({ employee_id: employee, linked: true });
+    // Capture only role names and the office flag before removing this unlinked account.
+    // Never include the password, email, token or complete metadata in the error.
+    let roleFailure: string | null = null;
+    if (error instanceof Error && error.message.includes("different workspace permissions")) {
+      const roles = await admin.from("user_roles").select("role").eq("user_id", accountId);
+      const actual = roles.error
+        ? "could not verify"
+        : (roles.data || []).map((row: { role: string }) => row.role).sort().join(", ") || "none";
+      const officeFlag = created.data.user.app_metadata?.office_employee;
+      roleFailure = `New login role setup failed: expected ${office ? "employee" : "worker"}; received ${actual}; office metadata ${officeFlag === true || officeFlag === "true" ? "present" : "missing"}.`;
+    }
     const cleanup = await admin.auth.admin.deleteUser(accountId);
     if (cleanup.error)
       throw new HttpError(
         503,
         "Login was created but could not be linked or cleaned up. Refresh and use Link existing login.",
       );
+    if (roleFailure) throw new HttpError(409, `${roleFailure} The unlinked new login was removed; existing account permissions were not changed.`);
     throw error;
   }
   // Account creation never starts face enrollment. No webcam is required.

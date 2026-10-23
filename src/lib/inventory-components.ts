@@ -28,6 +28,7 @@ export function inventoryComponentKey(name: string) {
     proxysensor: "proximitysensor",
     proxy1: "proximitysensor",
     proxy2: "proximitysensor",
+    "3core": "3corewire",
     encoder: "rotaryencoder",
     packingbox: "box",
     ziptie: "zip ties",
@@ -66,6 +67,8 @@ export function inventoryDispatchHint(category: string) {
     return "Managed manually. Device dispatch does not deduct this item.";
   if (key === "2corewire")
     return "Normal YHDC CT orders deduct a fixed 12 meters. Energy-meter CTs do not use this wire rule.";
+  if (key === "3corewire")
+    return "Orders with Proxy 1 or Proxy 2 deduct 3 meters once per order, even when both are selected.";
   if (key === "4corewire") return "Vibration sensor orders deduct a fixed 5 meters.";
   if (key === "cablegland") return "Each new device order deducts 3 cable glands when it enters In Packing.";
   if (["box", "powercordcable", "panelboxdoorlock", "uvprinting"].includes(key))

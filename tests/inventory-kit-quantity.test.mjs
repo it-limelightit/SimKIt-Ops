@@ -253,7 +253,7 @@ function findSubmit(node) {
 }
 findSubmit(orderParsed);
 assert.ok(submitHandler);
-const orderKeys = ["dm", "withoutCavli", "ct1", "ct2", "ct3", "proxy1", "proxy2", "encoder", "vibration", "vibrationModel", "antenna", "towerLight", "energyMeter", "companyName", "address", "workerId", "userId", "email", "profile", "site", "onOrderReady", "supabase", "toast", "actorName", "recordActivityLog", "setSubmitting", "setExistingOrder", "setSubmittedOrder", "setDm", "setWithoutCavli", "setCt1", "setCt2", "setCt3", "setProxy1", "setProxy2", "setEncoder", "setVibration", "setVibrationModel", "setAntenna", "setTowerLight", "setEnergyMeter"];
+const orderKeys = ["dm", "withoutCavli", "ct1", "ct2", "ct3", "proxy1", "proxy2", "encoder", "vibration", "vibrationModel", "antenna", "towerLight", "energyMeter", "companyName", "address", "workerId", "userId", "email", "profile", "site", "onOrderReady", "supabase", "toast", "actorName", "recordActivityLog", "setSubmitting", "setExistingOrder", "setSubmittedOrder", "setDm", "setWithoutCavli", "setCt1", "setCt2", "setCt3", "setProxy1", "setProxy2", "setEncoder", "setVibration", "setVibrationModel", "setAntenna", "setTowerLight", "setEnergyMeter", "submitting", "createOrder"];
 const orderCompiled = ts.transpileModule(`export function createSubmit(state) { const { ${orderKeys.join(",")} } = state; return ${submitHandler}; }`, {
   compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
 }).outputText;
@@ -328,6 +328,29 @@ test("component selections retain duplicate-order protection", async () => {
   await form.submit();
   assert.equal(form.payloads.length, 0);
   assert.match(form.errors[0], /Already ordered/);
+});
+
+test("manager advance orders reuse field associate selections through the server creation callback", async () => {
+  const submitted = [];
+  const form = orderForm({ ct3: true, antenna: true, createOrder: async payload => {
+    submitted.push(payload);
+    return { id: "advance", ...payload };
+  } });
+  await form.submit();
+  assert.deepEqual(form.errors, []);
+  assert.equal(form.payloads.length, 0, "manager flow must not directly insert an order");
+  assert.equal(submitted.length, 1);
+  assert.equal(submitted[0].ct3, "TRUE");
+  assert.equal(submitted[0].antenna, "TRUE");
+  assert.equal(JSON.parse(submitted[0].notes).logistics_status, "Pending");
+});
+
+test("a failed advance-order request keeps the form selections for retry", async () => {
+  const form = orderForm({ createOrder: async () => { throw new Error("Company assignment changed"); } });
+  await form.submit();
+  assert.match(form.errors[0], /Company assignment changed/);
+  assert.deepEqual(form.resets, {});
+  assert.equal(form.payloads.length, 0);
 });
 
 const packingSource = readFileSync(new URL("../src/components/inventory/InventoryPanel.tsx", import.meta.url), "utf8");

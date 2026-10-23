@@ -56,7 +56,7 @@ import {
   serializeSiteMetadata,
 } from "@/lib/site-metadata";
 import { toast } from "sonner";
-import { InventoryPanel } from "@/components/inventory/InventoryPanel";
+import { AssociateExtraInventory } from "@/components/inventory/AssociateExtraInventory";
 import { CompanyTracker } from "@/components/company-tracker/CompanyTracker";
 import { AssociateEntryGate, AssociateEarnings, AssociateSchedule } from "@/components/field-operations/FieldOperations";
 import { useFieldOperations } from "@/hooks/use-field-operations";
@@ -678,8 +678,8 @@ function BusinessConsultantPage() {
         onGoToLeave={() => setView("leave")}
         inventoryActive
       >
-        <div className="py-9">
-          <InventoryPanel />
+        <div className="py-9 space-y-6">
+          <AssociateExtraInventory />
         </div>
       </Shell>
     );
@@ -1625,6 +1625,8 @@ function Shell({
   profileName,
   showDashboardBtn,
   onGoToDashboard,
+  onGoToInventory,
+  inventoryActive,
   onGoToTracker,
   trackerActive,
   onGoToSchedule,
@@ -1692,6 +1694,7 @@ function Shell({
       active: assignmentsActive || showDashboardBtn,
     },
     { label: "Company Tracker", icon: KanbanSquare, action: onGoToTracker, active: trackerActive },
+    { label: "My Inventory", icon: Boxes, action: onGoToInventory, active: inventoryActive },
     { label: "My Schedule", icon: Calendar, action: onGoToSchedule, active: scheduleActive },
     { label: "My Earnings", icon: TrendingUp, action: onGoToEarnings, active: earningsActive },
     ...(!canManageFinance(attendanceEmail) ? [{ label: "Expense", icon: BookOpen, active: expenseOpen, action: () => setExpenseOpen(true) }] : []),

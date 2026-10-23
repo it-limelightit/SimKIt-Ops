@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Button,
@@ -15,10 +15,13 @@ import { toast } from "sonner";
 import { MediaUploader } from "@/components/MediaUploader";
 import { usePhaseData } from "@/lib/use-phase-data";
 import { advanceSiteVisitStatus } from "@/lib/site-metadata";
+import { InstallationOrderChecklist, type InstallationChecklistHandle } from "./InstallationOrderChecklist";
 
 type Props = { siteId: string; workerId: string; hiddenSections?: string[]; onSubmit?: () => void | Promise<void> };
 
 export function InstallationTab({ siteId, workerId, hiddenSections, onSubmit }: Props) {
+  const equipmentConfirmation = useRef<InstallationChecklistHandle>(null);
+  const [submitting, setSubmitting] = useState(false);
   const { data, patch, save, loaded, lastSaved, saving } = usePhaseData<Record<string, any>>(
     "installation",
     siteId,
@@ -177,6 +180,8 @@ export function InstallationTab({ siteId, workerId, hiddenSections, onSubmit }: 
         )}
       </div>
 
+      <InstallationOrderChecklist key={`${siteId}:${workerId}`} ref={equipmentConfirmation} siteId={siteId} workerId={workerId} />
+
       {shouldShow("Coordination") && (
         <Card className="border-l-[3px] border-lime relative">
           <div className="section-number-ghost">01</div>
@@ -208,7 +213,10 @@ export function InstallationTab({ siteId, workerId, hiddenSections, onSubmit }: 
                     coordination_at: !data.coordination_done ? data.coordination_at ?? nowIso() : null,
                   })
                 }
-                validate={() => validateSectionLinks("Coordination", [])}
+                validate={async () => {
+                  if (!data.coordination_done && data.photos_uploaded && !await equipmentConfirmation.current?.validate()) return false;
+                  return validateSectionLinks("Coordination", []);
+                }}
               />
             </div>
           )}
@@ -233,7 +241,11 @@ export function InstallationTab({ siteId, workerId, hiddenSections, onSubmit }: 
                   id="confirm-installation-photos-drive"
                   className="h-5 w-5 rounded border-gray-300 text-lime focus:ring-lime mt-0.5 cursor-pointer"
                   checked={!!data.photos_uploaded}
-                  onChange={(e) => patch({ photos_uploaded: e.target.checked })}
+                  onChange={async (e) => {
+                    const checked = e.target.checked;
+                    if (checked && data.coordination_done && !await equipmentConfirmation.current?.validate()) return;
+                    patch({ photos_uploaded: checked });
+                  }}
                 />
                 <label htmlFor="confirm-installation-photos-drive" className="text-sm text-text-primary select-none cursor-pointer">
                   Are you sure you have uploaded the installation photos to Google Drive?
@@ -247,7 +259,10 @@ export function InstallationTab({ siteId, workerId, hiddenSections, onSubmit }: 
                   patch({ photos_uploaded: next });
                   if (next) advanceSiteVisitStatus(siteId, "Installation Done");
                 }}
-                validate={() => validateSectionLinks("Photos", [])}
+                validate={async () => {
+                  if (!data.photos_uploaded && data.coordination_done && !await equipmentConfirmation.current?.validate()) return false;
+                  return validateSectionLinks("Photos", []);
+                }}
               />
             </div>
           )}
@@ -257,19 +272,27 @@ export function InstallationTab({ siteId, workerId, hiddenSections, onSubmit }: 
       <div className="mt-8 flex justify-end">
         <Button 
           onClick={async () => {
-            const saved = await save({
-              ...data,
-              installation_phase_submitted: true,
-              // Preserve the first completion time. Later edits must not make
-              // operational timeline reports show a false installation date.
-              installation_phase_submitted_at: data.installation_phase_submitted_at || nowIso(),
-            });
-            if (!saved) return;
-            if (onSubmit) await onSubmit();
+            if (submitting) return;
+            setSubmitting(true);
+            try {
+              if (!await equipmentConfirmation.current?.validate()) return;
+              const saved = await save({
+                ...data,
+                installation_phase_submitted: true,
+                // Preserve the first completion time. Later edits must not make
+                // operational timeline reports show a false installation date.
+                installation_phase_submitted_at: data.installation_phase_submitted_at || nowIso(),
+              });
+              if (!saved) return;
+              if (onSubmit) await onSubmit();
+            } catch (failure) {
+              toast.error(failure instanceof Error ? failure.message : "Could not submit Installation.");
+            } finally { setSubmitting(false); }
           }} 
+          disabled={submitting}
           className="w-full sm:w-auto text-base py-3 px-8"
         >
-          Submit Installation Phase
+          {submitting ? "Submitting…" : "Submit Installation Phase"}
         </Button>
       </div>
     </>
