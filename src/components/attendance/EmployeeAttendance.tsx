@@ -22,13 +22,8 @@ import {
   timeLabel,
   type AttendanceBoard,
   type Employee,
-  type History,
 } from "@/lib/device-attendance";
-import {
-  AttendanceEvidenceDialogs,
-  type AttendancePhoto,
-  type AttendanceRecordView,
-} from "./AttendanceEvidenceDialogs";
+import { AttendanceEvidenceDialogs, type AttendancePhoto } from "./AttendanceEvidenceDialogs";
 import { attendanceSummary, formatAttendanceDuration } from "@/lib/attendance-analytics";
 import { requestCalendarStyle } from "@/lib/request-calendar";
 import {
@@ -81,10 +76,9 @@ export function EmployeeAttendance({ employee, board, boardDate, onBack }: Props
     errors: string[];
   } | null>(null);
   const [loading, setLoading] = useState(false);
-  const [recordBusy, setRecordBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [recordView, setRecordView] = useState<AttendanceRecordView>(null);
   const [photo, setPhoto] = useState<AttendancePhoto | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
   const [revision, setRevision] = useState(0);
   const lastRevision = useRef(0);
   useEffect(() => {
@@ -173,27 +167,17 @@ export function EmployeeAttendance({ employee, board, boardDate, onBack }: Props
     setMonth(date.toISOString().slice(0, 7));
     setSelected(null);
   }
-  async function record(date: string) {
-    setRecordBusy(true);
-    try {
-      const data = await attendanceRpc<History>("attendance_history", {
-        _employee: employee.id,
-        _date: date,
-      });
-      setRecordView({ name: employee.name, date, data });
-    } catch (failure) {
-      toast.error(failure instanceof Error ? failure.message : "Could not load scan evidence.");
-    } finally {
-      setRecordBusy(false);
-    }
-  }
   async function viewPhoto(eventId: string) {
+    if (photoBusy) return;
+    setPhotoBusy(true);
     try {
       setPhoto(
         await attendanceFunction<AttendancePhoto>("attendance-photo-access", { event_id: eventId }),
       );
     } catch (failure) {
       toast.error(failure instanceof Error ? failure.message : "Could not load attendance photo.");
+    } finally {
+      setPhotoBusy(false);
     }
   }
   async function exportHistory(format: "xlsx" | "pdf" = "xlsx") {
@@ -540,7 +524,7 @@ export function EmployeeAttendance({ employee, board, boardDate, onBack }: Props
             </span>
           </div>
           <p className="mt-2 text-[11px] text-text-secondary">
-            Select a date to inspect its attendance and scan evidence.
+            Select a date to inspect its attendance.
           </p>
           {selectedDay?.row && (
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface-raised p-3 text-sm">
@@ -565,14 +549,6 @@ export function EmployeeAttendance({ employee, board, boardDate, onBack }: Props
                   {formatAttendanceDuration(selectedDay.row.late_minutes)}
                 </p>
               </div>
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={recordBusy}
-                onClick={() => void record(selectedDay.date)}
-              >
-                View record & scans
-              </Button>
             </div>
           )}
         </Card>
@@ -651,22 +627,20 @@ export function EmployeeAttendance({ employee, board, boardDate, onBack }: Props
                             {formatAttendanceDuration(day.row?.late_minutes)}
                           </td>
                           <td className="px-3 py-2">
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              disabled={!day.row || recordBusy}
-                              onClick={() => void record(day.date)}
-                            >
-                              Scans & evidence
-                            </Button>
-                            {day.row?.event_id && (
-                              <p className="mt-1 text-[11px] text-text-secondary">
-                                {day.row.photo_status === "available" &&
-                                day.row.photo_expires_at &&
-                                Date.parse(day.row.photo_expires_at) > Date.now()
-                                  ? "Photo available"
-                                  : "Photo expired / unavailable"}
-                              </p>
+                            {day.row?.event_id &&
+                            day.row.photo_status === "available" &&
+                            day.row.photo_expires_at &&
+                            Date.parse(day.row.photo_expires_at) > Date.now() ? (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                disabled={photoBusy}
+                                onClick={() => void viewPhoto(day.row!.event_id!)}
+                              >
+                                View photo
+                              </Button>
+                            ) : (
+                              <span className="text-xs text-text-secondary">Photo expired</span>
                             )}
                           </td>
                         </tr>
@@ -680,8 +654,8 @@ export function EmployeeAttendance({ employee, board, boardDate, onBack }: Props
         )}
       </div>
       <AttendanceEvidenceDialogs
-        record={recordView}
-        onCloseRecord={() => setRecordView(null)}
+        record={null}
+        onCloseRecord={() => {}}
         photo={photo}
         onClosePhoto={() => setPhoto(null)}
         onViewPhoto={(eventId) => void viewPhoto(eventId)}

@@ -1,6 +1,30 @@
 @import "tailwindcss" source(none);
 @source "../src";
 
+/* SimKit identity uses Limelight IT's blue / orange signature. */
+.simkit-logo { display: inline-flex; align-items: center; gap: 10px; flex-shrink: 0; text-align: left; vertical-align: middle; font-family: "Inter", system-ui, sans-serif; text-transform: none; letter-spacing: normal; }
+.simkit-logo__mark { width: 42px; height: 42px; flex-shrink: 0; transition: transform 200ms ease; }
+.simkit-logo__type { display: flex; flex-direction: column; gap: 7px; }
+.simkit-logo__name { display: flex; align-items: baseline; color: var(--text-primary); font-size: 28px; font-weight: 750; line-height: .95; letter-spacing: -1.2px; }
+.simkit-logo__ops { margin-left: 5px; color: var(--text-secondary); font-size: 18px; font-weight: 400; letter-spacing: -.6px; }
+.simkit-logo__endorsement { display: flex; align-items: baseline; gap: 4px; color: var(--text-secondary); font-size: 7px; font-weight: 600; line-height: 1; letter-spacing: 2.2px; }
+.simkit-logo__endorsement strong { color: #159fd0; font-weight: 800; }
+.simkit-logo--large { gap: 15px; }
+.simkit-logo--large .simkit-logo__mark { width: 60px; height: 60px; }
+.simkit-logo--large .simkit-logo__name { font-size: 42px; letter-spacing: -1.8px; }
+.simkit-logo--large .simkit-logo__type { gap: 10px; }
+.simkit-logo--large .simkit-logo__ops { font-size: 26px; margin-left: 7px; }
+.simkit-logo--large .simkit-logo__endorsement { font-size: 9px; letter-spacing: 3px; }
+.simkit-brand-link { display: inline-flex; border-radius: 8px; text-decoration: none; }
+.simkit-brand-link:focus-visible { outline: 2px solid var(--lime); outline-offset: 5px; }
+@media (prefers-reduced-motion: reduce) {
+  .simkit-logo__mark { transition: none; transform: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .simkit-brand-link:is(:hover, :focus-visible) .simkit-logo__mark { transform: translateY(-2px); }
+  .simkit-brand-link:active .simkit-logo__mark { transform: scale(.96); }
+}
+
 @theme inline {
   --color-background: var(--bg);
   --color-bg: var(--bg);

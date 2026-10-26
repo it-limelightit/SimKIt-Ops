@@ -36,6 +36,7 @@ export function OrderTab({ site, workerId, onOrderReady, createOrder, initiallyE
   const [antenna, setAntenna] = useState(false);
   const [towerLight, setTowerLight] = useState(false);
   const [energyMeter, setEnergyMeter] = useState(false);
+  const yhdcSelected = ct1 || ct2 || ct3;
 
   const [submitting, setSubmitting] = useState(false);
   const [submittedOrder, setSubmittedOrder] = useState<any | null>(null);
@@ -88,6 +89,10 @@ export function OrderTab({ site, workerId, onOrderReady, createOrder, initiallyE
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (submitting) return;
+    if (energyMeter && yhdcSelected) {
+      toast.error("Choose either YHDC CT sensors or the energy meter with its dedicated CT sensors.");
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -354,13 +359,18 @@ export function OrderTab({ site, workerId, onOrderReady, createOrder, initiallyE
               <div>
                 <Label className="text-text-primary font-bold flex items-center gap-1.5"><Cpu size={14} /> YHDC CT Sensors</Label>
                 <p className="text-[10px] text-text-secondary mt-1">Choose the supply phase: CT1 uses 1 sensor and CT3 uses 3 sensors.</p>
+                {energyMeter && (
+                  <p className="text-[10px] text-text-secondary mt-1">Deselect the energy meter to choose YHDC CT sensors.</p>
+                )}
               </div>
               <div className="flex flex-wrap gap-3 sm:gap-4">
                 <Checkbox
                   id="order-ct-single-phase"
                   label="Single-phase — 1 CT sensor"
                   checked={ct1}
+                  disabled={energyMeter}
                   onCheckedChange={(checked) => {
+                    if (checked && energyMeter) return;
                     setCt1(checked);
                     setCt2(false);
                     setCt3(false);
@@ -370,7 +380,9 @@ export function OrderTab({ site, workerId, onOrderReady, createOrder, initiallyE
                   id="order-ct-three-phase"
                   label="Three-phase — 3 CT sensors"
                   checked={ct3}
+                  disabled={energyMeter}
                   onCheckedChange={(checked) => {
+                    if (checked && energyMeter) return;
                     setCt1(false);
                     setCt2(false);
                     setCt3(checked);
@@ -458,11 +470,18 @@ export function OrderTab({ site, workerId, onOrderReady, createOrder, initiallyE
               />
               <Checkbox
                 checked={energyMeter}
-                onCheckedChange={setEnergyMeter}
+                disabled={yhdcSelected}
+                onCheckedChange={(checked) => {
+                  if (checked && yhdcSelected) return;
+                  setEnergyMeter(checked);
+                }}
                 label="Energy Meter + 3 dedicated CTs"
                 id="order-energymeter"
               />
             </div>
+            {yhdcSelected && (
+              <p className="text-[10px] text-text-secondary mt-3">Deselect YHDC CT sensors to choose the energy meter and its 3 dedicated CT sensors.</p>
+            )}
           </div>
         </div>
 

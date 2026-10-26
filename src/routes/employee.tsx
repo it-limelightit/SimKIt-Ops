@@ -1,8 +1,8 @@
+import { SimKitLogo } from "@/components/SimKitLogo";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import {
   ArrowRight,
-  CalendarCheck,
   Check,
   Clock3,
   House,
@@ -119,11 +119,8 @@ function EmployeePortal() {
       <header className="border-b border-border bg-surface">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-lime text-primary-foreground">
-              <CalendarCheck size={19} />
-            </div>
             <div>
-              <p className="text-sm font-bold tracking-wide text-text-primary">SIM-KIT OPS</p>
+              <a href="/employee" className="simkit-brand-link" aria-label="SimKit employee home"><SimKitLogo /></a>
               <p className="mt-0.5 text-xs text-text-secondary">
                 {reviewer ? "Team approvals & employee portal" : "Employee portal"}
               </p>
