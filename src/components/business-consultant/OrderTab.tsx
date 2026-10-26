@@ -32,7 +32,7 @@ export function OrderTab({ site, workerId, onOrderReady, createOrder, initiallyE
   const [proxy2, setProxy2] = useState(false);
   const [encoder, setEncoder] = useState(false);
   const [vibration, setVibration] = useState(false);
-  const [vibrationModel, setVibrationModel] = useState("");
+  const [vibrationModel, setVibrationModel] = useState("vibe-q");
   const [antenna, setAntenna] = useState(false);
   const [towerLight, setTowerLight] = useState(false);
   const [energyMeter, setEnergyMeter] = useState(false);
@@ -121,7 +121,7 @@ export function OrderTab({ site, workerId, onOrderReady, createOrder, initiallyE
           proxy2: proxy2 ? "TRUE" : "FALSE",
           encoder: encoder ? "TRUE" : "FALSE",
           vibration: vibration ? "TRUE" : "FALSE",
-          vibration_model: vibrationModel || null,
+          vibration_model: vibration ? vibrationModel || null : null,
           antenna: antenna ? "TRUE" : "FALSE",
           tower_light: towerLight ? "TRUE" : "FALSE",
           energy_meter: energyMeter ? "TRUE" : "FALSE",
@@ -171,7 +171,7 @@ export function OrderTab({ site, workerId, onOrderReady, createOrder, initiallyE
       setProxy2(false);
       setEncoder(false);
       setVibration(false);
-      setVibrationModel("");
+      setVibrationModel("vibe-q");
       setAntenna(false);
       setTowerLight(false);
       setEnergyMeter(false);

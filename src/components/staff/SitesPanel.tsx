@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { COMPANY_SOURCES, companySource, type CompanySource } from "@/lib/company-source";
 import { useRouterState } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { Button, Card, Input, Label, Select, Badge, Textarea } from "@/components/ui-kit";
@@ -332,6 +333,7 @@ export function SitesPanel() {
   const [locationBusy, setLocationBusy] = useState(false);
 
   const [form, setForm] = useState({
+    company_source: "npc" as CompanySource,
     name: "",
     company_name: "",
     city: "",
@@ -377,7 +379,7 @@ export function SitesPanel() {
       supabase
         .from("sites")
         .select(
-          "id,name,company_name,city,district_id,locality_id,address,assigned_worker_id,assigned_at,task_notes,consultant_stage,created_at",
+          "id,name,company_name,company_source,city,district_id,locality_id,address,assigned_worker_id,assigned_at,task_notes,consultant_stage,created_at",
         )
         .order("created_at", { ascending: false }),
       supabase.from("profiles").select("id,name,mobile,is_active").order("created_at"),
@@ -653,6 +655,7 @@ export function SitesPanel() {
     const taskNotes = serializeSiteMetadata("", meta);
 
     const { data: createdSite, error } = await supabase.from("sites").insert({
+      company_source: form.company_source,
       name: form.name,
       company_name: form.company_name || form.name,
       city: form.city || null,
@@ -700,6 +703,7 @@ export function SitesPanel() {
     setEditingSite(s);
     setForm({
       name: s.name,
+      company_source: companySource(s),
       company_name: s.company_name ?? s.name,
       city: s.city ?? "",
       district_id: s.district_id ?? "",
@@ -791,6 +795,7 @@ export function SitesPanel() {
       .from("sites")
       .update({
         name: form.name,
+        company_source: form.company_source,
         company_name: form.company_name || form.name,
         city: form.city || null,
         district_id: form.district_id,
@@ -839,6 +844,7 @@ export function SitesPanel() {
     setNewLocalityName("");
     setForm({
       name: "",
+      company_source: "npc",
       company_name: "",
       city: "",
       district_id: "",
@@ -1812,7 +1818,7 @@ export function SitesPanel() {
                 {editingSite ? "Edit Site Details" : "New Site Details"}
               </h2>
               <div className="flex items-center gap-2">
-                {!editingSite && (
+                {!editingSite && form.company_source === "npc" && (
                   <>
                     <input
                       ref={emlInputRef}
@@ -1846,6 +1852,16 @@ export function SitesPanel() {
               </div>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
+              <div className="md:col-span-2 rounded-lg border border-border bg-surface-raised/40 p-4">
+                <Label htmlFor="site-company-source">Company source *</Label>
+                <Select id="site-company-source" value={form.company_source}
+                  onChange={(event) => setForm({ ...form, company_source: event.target.value as CompanySource })}>
+                  {COMPANY_SOURCES.map((source) => <option key={source.value} value={source.value}>{source.label}</option>)}
+                </Select>
+                <p className="mt-2 text-xs text-text-secondary">
+                  {COMPANY_SOURCES.find((source) => source.value === form.company_source)?.description}
+                </p>
+              </div>
               <div>
                 <Label>Factory Name</Label>
                 <Input
@@ -1976,9 +1992,9 @@ export function SitesPanel() {
                 </div>
               </div>
 
-              <div className="border-t border-border pt-4 md:col-span-2">
+              {form.company_source === "npc" && <div className="border-t border-border pt-4 md:col-span-2">
                 <h4 className="text-sm font-bold uppercase tracking-wider text-lime mb-3">
-                  Assessor
+                  NPC Assessor
                 </h4>
                 <div className="grid gap-4 md:grid-cols-2">
                   <div>
@@ -2014,7 +2030,7 @@ export function SitesPanel() {
                     />
                   </div>
                 </div>
-              </div>
+              </div>}
 
               <div className="border-t border-border pt-4 md:col-span-2 grid gap-4 md:grid-cols-2">
                 <div>
@@ -2667,7 +2683,12 @@ export function SitesPanel() {
                       className="border-b border-border last:border-0 hover:bg-surface-raised/30 transition-colors"
                     >
                       <td className="px-4 py-3">
-                        <div className="font-semibold text-text-primary">{s.name}</div>
+                        <div className="flex items-center gap-2 font-semibold text-text-primary">
+                          {s.name}
+                          <span className="rounded border border-border bg-surface-raised px-1.5 py-0.5 text-[10px] font-semibold text-text-secondary">
+                            {companySource(s) === "npc" ? "NPC" : "Lead"}
+                          </span>
+                        </div>
                         <div className="text-xs text-text-secondary mt-0.5 truncate max-w-[200px]">
                           {s.address || "—"}
                         </div>

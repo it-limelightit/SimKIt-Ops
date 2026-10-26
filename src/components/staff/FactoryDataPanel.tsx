@@ -1034,35 +1034,35 @@ export function FactoryDataPanel() {
     if (!selectedSite || !selectedAssessment) return;
     const data = isEditing ? editData : selectedAssessment.data;
     const fields: Array<[string, unknown]> = [
-      ["Company", data.factory_op_name || selectedSite.company_name || selectedSite.name],
-      ["Electricity Board", data.factory_op_electricity_board],
-      ["Surveyed Machine Names", Array.isArray(data.factory_op_machines) ? data.factory_op_machines.join(", ") : data.factory_op_machine],
-      ["Company / Machine Tracking Type", data.company_type],
+      ["factory_op_name", data.factory_op_name || selectedSite.company_name || selectedSite.name],
+      ["factory_op_electricity_board", data.factory_op_electricity_board],
+      ["factory_op_machines", Array.isArray(data.factory_op_machines) ? data.factory_op_machines : data.factory_op_machine ? [data.factory_op_machine] : []],
+      ["company_type", data.company_type],
     ];
     if (data.company_type) {
-      fields.push(["Machine Classification", data.machine_usage_type ?? "Production"]);
+      fields.push(["machine_usage_type", data.machine_usage_type ?? "Production"]);
     }
     if (data.company_type === "Runtime Machine") {
       fields.push(
-        ["Expected daily run (hours)", data.expected_daily_run_hours],
-        ["Expected runtime / day (min)", data.expected_runtime_day_min],
-        ["Minimum stop duration (min)", data.minimum_stop_duration_min],
-        ["Production count is meaningful", data.production_count_meaningful ? "Yes" : "No"],
-        ["Vibration monitoring relevant", data.vibration_monitoring_relevant ? "Yes" : "No"],
+        ["expected_daily_run_hours", data.expected_daily_run_hours],
+        ["expected_runtime_day_min", data.expected_runtime_day_min],
+        ["minimum_stop_duration_min", data.minimum_stop_duration_min],
+        ["production_count_meaningful", !!data.production_count_meaningful],
+        ["vibration_monitoring_relevant", !!data.vibration_monitoring_relevant],
       );
     } else if (data.company_type === "Length-based Machine") {
       fields.push(
-        ["Expected meters / shift (m)", data.expected_meters_shift],
-        ["Target line speed (mpm)", data.target_line_speed],
-        ["Minimum acceptable speed (mpm)", data.minimum_acceptable_speed],
+        ["expected_meters_shift", data.expected_meters_shift],
+        ["target_line_speed", data.target_line_speed],
+        ["minimum_acceptable_speed", data.minimum_acceptable_speed],
       );
     }
-    const text = ["Business Profile & Machinery Details", ...fields.map(([label, value]) =>
-      `${label}: ${value === undefined || value === null || value === "" ? "N/A" : value}`,
-    )].join("\n");
+    const text = JSON.stringify(Object.fromEntries(fields.map(([key, value]) =>
+      [key, value === undefined || value === "" ? null : value],
+    )), null, 2);
     try {
       if (!await copyTextToClipboard(text)) throw new Error("Copy command failed");
-      toast.success("Business profile copied to clipboard!");
+      toast.success("Business profile JSON copied to clipboard!");
     } catch {
       toast.error("Could not copy business profile. Your browser blocked clipboard access.");
     }
@@ -2291,8 +2291,8 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                         <span className="flex h-5 w-5 items-center justify-center rounded bg-lime/10 text-lime text-xs font-mono font-bold">5</span>
                         Business Profile &amp; Machinery Details
                       </h3>
-                      <Button type="button" variant="ghost" onClick={copyBusinessProfile} title="Copy Business Profile" className="text-xs gap-1.5 shrink-0">
-                        <Copy size={13} /> Copy Business Profile
+                      <Button type="button" variant="ghost" onClick={copyBusinessProfile} title="Copy Business Profile as JSON" className="text-xs gap-1.5 shrink-0">
+                        <Copy size={13} /> Copy Business Profile JSON
                       </Button>
                       </div>
                       <Card className="p-4 bg-surface/40 border border-border/60 space-y-4 text-xs">
@@ -3014,8 +3014,8 @@ Min Acceptable Speed: ${d.minimum_acceptable_speed ?? "N/A"}
                           <span className="text-[10px] font-mono uppercase text-text-secondary">
                             {selectedAssessment.data.company_type} Specifics
                           </span>
-                          <Button type="button" variant="ghost" onClick={copyBusinessProfile} title="Copy Business Profile" className="text-xs gap-1.5 shrink-0">
-                            <Copy size={13} /> Copy Business Profile
+                          <Button type="button" variant="ghost" onClick={copyBusinessProfile} title="Copy Business Profile as JSON" className="text-xs gap-1.5 shrink-0">
+                            <Copy size={13} /> Copy Business Profile JSON
                           </Button>
                           </div>
 

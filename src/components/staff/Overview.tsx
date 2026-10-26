@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { COMPANY_SOURCES, companySource, filterCompanySource, type CompanySource } from "@/lib/company-source";
 import { useCommissioningWorkDates } from "@/hooks/use-commissioning-work-dates";
 import { commissioningWorkTimestamp } from "@/utils/commissioning-work-date";
 import { matchesOverviewFilters, toLocalDateKey } from "@/utils/overview-filters";
@@ -71,6 +72,7 @@ type Appt = {
 
 type SiteRow = {
   id: string;
+  company_source: CompanySource;
   name: string;
   company_name: string | null;
   city: string | null;
@@ -213,6 +215,9 @@ export function Overview() {
   const [addingAssessorSite, setAddingAssessorSite] = useState<SiteRow | null>(null);
 
   // Filter States
+  const [selectedSource, setSelectedSource] = useState<CompanySource>("npc");
+  const sourceLabel = selectedSource === "npc" ? "NPC" : "Lead";
+  const sourceSites = filterCompanySource(rawSites, selectedSource);
   const [selectedKpi, setSelectedKpi] = useState<string>("assigned");
   const [cityFilter, setCityFilter] = useState("");
   const [districtFilter, setDistrictFilter] = useState("");
@@ -506,7 +511,7 @@ export function Overview() {
       const [sitesRes, assessmentsRes, installationsRes, commissioningsRes, approvalRequestsRes, profilesRes, materialsRes, rolesRes, activityLogsRes, districtRes] = await Promise.all([
         supabase
           .from("sites")
-          .select("id,name,company_name,city,district_id,address,assigned_worker_id,assigned_at,appt_date,appt_time,created_at,task_notes,consultant_stage")
+          .select("id,name,company_name,company_source,city,district_id,address,assigned_worker_id,assigned_at,appt_date,appt_time,created_at,task_notes,consultant_stage")
           .order("created_at", { ascending: false }),
         supabase.from("assessment").select("data,updated_at,site_id"),
         supabase.from("installation").select("data,updated_at,site_id"),
@@ -649,7 +654,7 @@ export function Overview() {
 
   // Keep each distinct contact together rather than combining people from the same company.
   const assessorMap = new Map<string, { id: string; assessor_company: string; assessor_name: string; assessor_phone: string; assessor_email: string }>();
-  rawSites.forEach((site) => {
+  sourceSites.forEach((site) => {
     const meta = parseSiteMetadata(site.task_notes);
     const assessor = {
       assessor_company: meta.assessor_company?.trim() || "",
@@ -869,7 +874,7 @@ export function Overview() {
   // Process data rows
   const executives = rawProfiles.filter((p) => workerIds.has(p.id));
   const cityNames = new Map<string, string>();
-  rawSites
+  sourceSites
     .filter((site) => !districtFilter || site.district_id === districtFilter)
     .forEach((site) => {
       if (!site.city) return;
@@ -931,7 +936,7 @@ export function Overview() {
   };
 
 
-  const allProcessedRows: SiteRow[] = rawSites.map((site) => {
+  const allProcessedRows: SiteRow[] = sourceSites.map((site) => {
     const ar = aMap.get(site.id);
     const ir = iMap.get(site.id);
     const cr = cMap.get(site.id);
@@ -982,6 +987,7 @@ export function Overview() {
 
     return {
       id: site.id,
+      company_source: companySource(site),
       name: site.name,
       city: site.city,
       district_id: site.district_id ?? null,
@@ -1188,7 +1194,7 @@ export function Overview() {
   // Reset page number on filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedKpi, districtFilter, cityFilter, executiveFilter, assessorCompanyFilter, searchQuery, updatedDateFilter, updatedDateStart, updatedDateEnd, sortField, sortOrder, showMyTasks]);
+  }, [selectedSource, selectedKpi, districtFilter, cityFilter, executiveFilter, assessorCompanyFilter, searchQuery, updatedDateFilter, updatedDateStart, updatedDateEnd, sortField, sortOrder, showMyTasks]);
 
   const handleSort = (field: "name" | "city" | "updated") => {
     if (sortField === field) {
@@ -1274,7 +1280,7 @@ export function Overview() {
       toast.error("No data available to export.");
       return;
     }
-    const kpiLabel = kpis.find((k) => k.id === selectedKpi)?.label || "Data";
+    const kpiLabel = `${sourceLabel} - ${kpis.find((k) => k.id === selectedKpi)?.label || "Data"}`;
     {
       const ExcelJS = await import("exceljs");
       const workbook = new ExcelJS.Workbook();
@@ -1644,7 +1650,7 @@ export function Overview() {
       const border: [number, number, number] = [214, 220, 232];
       const soft: [number, number, number] = [246, 248, 251];
 
-      const kpiLabel = kpis.find((k) => k.id === selectedKpi)?.label || "Data";
+      const kpiLabel = `${sourceLabel} - ${kpis.find((k) => k.id === selectedKpi)?.label || "Data"}`;
       const generatedAt = new Intl.DateTimeFormat("en-IN", {
         dateStyle: "medium",
         timeStyle: "short",
@@ -2089,7 +2095,7 @@ export function Overview() {
   const kpis = [
     {
       id: "assigned",
-      label: "Companies Assigned",
+      label: selectedSource === "npc" ? "Companies Assigned" : "Lead Companies",
       value: countTotal,
       desc: "Total registered companies",
       icon: Building,
@@ -2109,7 +2115,7 @@ export function Overview() {
       id: "unsubmitted",
       label: "Unsubmitted",
       value: countUnsubmitted,
-      desc: "Completed but pending on Portal",
+      desc: selectedSource === "npc" ? "Completed but pending on Portal" : "Completed but pending submission",
       icon: AlertCircle,
       badgeStyle: "text-orange-600 bg-orange-50 border-orange-200",
       dotStyle: "bg-orange-500",
@@ -2134,7 +2140,7 @@ export function Overview() {
     },
     {
       id: "pending_portal",
-      label: "Total Assignment Pending on Portal",
+      label: selectedSource === "npc" ? "Total Assignment Pending on Portal" : "Total Leads Pending Submission",
       value: countPendingPortal,
       desc: "Active companies pending submission",
       icon: AlertCircle,
@@ -2216,7 +2222,7 @@ export function Overview() {
   ];
 
   const pendingCommissioningRequests = canReviewCommissioningRequests
-    ? rawCommissioningApprovalRequests.filter((request) => request.status === "pending")
+    ? rawCommissioningApprovalRequests.filter((request) => request.status === "pending" && sourceSites.some((site) => site.id === request.site_id))
     : [];
 
   return (
@@ -2257,21 +2263,41 @@ export function Overview() {
       <div className="overview-analytics-dashboard bg-gradient-to-br from-surface via-surface to-indigo-500/[0.025] text-text-primary border border-border rounded-2xl p-4 shadow-sm space-y-4 font-sans">
 
         {/* Title / Sync Info */}
-        <div className="flex items-center justify-between border-b border-border/80 pb-3">
-          <div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/80 pb-3">
+          <div className="min-w-0">
             <h2 className="text-xl font-extrabold text-text-primary tracking-tight leading-none">
               Analytics Dashboard
             </h2>
             <p className="text-xs text-text-secondary mt-1 font-normal">
-              Interactive metrics overview and site verification trackers.
+              {sourceLabel} company counts, progress and site verification.
             </p>
           </div>
+          <div className="ml-auto flex shrink-0 items-center gap-3">
           {loading && (
             <div className="flex items-center gap-2 text-xs text-text-secondary font-mono">
               <span className="h-2 w-2 rounded-full bg-text-secondary animate-pulse" />
               Syncing...
             </div>
           )}
+          <div role="group" aria-label="Choose company source" className="inline-flex gap-1 rounded-xl border border-border bg-surface-raised p-1">
+            {COMPANY_SOURCES.map((source) => (
+              <button key={source.value} type="button" aria-pressed={selectedSource === source.value}
+                title={source.description}
+                onClick={() => {
+                  if (selectedSource === source.value) return;
+                  setSelectedSource(source.value);
+                  handleResetFilters();
+                  setSelectedKpi("assigned");
+                  setCurrentPage(1);
+                  setConsultantSiteId(null);
+                  setShowCommissioningRequests(false);
+                }}
+                className={`min-w-20 rounded-lg px-4 py-2 text-sm font-bold transition-colors ${selectedSource === source.value ? "bg-lime text-primary-foreground shadow-sm" : "text-text-secondary hover:bg-surface hover:text-text-primary"}`}>
+                {source.label}
+              </button>
+            ))}
+          </div>
+          </div>
         </div>
 
         {/* KPI Cards Grid */}
@@ -2669,7 +2695,7 @@ export function Overview() {
                     {kpis.find((k) => k.id === selectedKpi)?.label} Details
                   </h3>
                   <p className="text-xs text-text-secondary font-normal mt-0.5">
-                    Showing {sortedRows.length} of {allProcessedRows.length} total records.
+                    Showing {sortedRows.length} of {allProcessedRows.length} {sourceLabel} records.
                   </p>
                 </div>
                 <div className="flex items-center gap-2 ml-6 shrink-0">

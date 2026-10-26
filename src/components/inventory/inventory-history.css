@@ -1,0 +1,52 @@
+.inventory-history { min-width:0; font-family:Inter,"Segoe UI",Arial,sans-serif; font-size:12px; }
+.inventory-history .issue-heading h2 { font-family:inherit; font-size:17px; font-weight:650; line-height:1.4; }
+.inventory-history .issue-summary { display:flex; flex-wrap:wrap; align-items:center; gap:10px 22px; margin-top:12px; padding-top:11px; border-top:1px solid var(--border); color:var(--text-secondary); font-size:11px; }
+.inventory-history .issue-summary strong { color:var(--text-primary); font-size:14px; font-variant-numeric:tabular-nums; margin-right:3px; }
+.inventory-history .issue-recording { margin-left:auto; font-size:10.5px; }
+.inventory-history .issue-filter-card input,.inventory-history .issue-filter-card select { min-height:34px; height:34px; padding-top:5px; padding-bottom:5px; font-size:12px; font-family:inherit; }
+.inventory-history .issue-filter-card label { margin-bottom:5px; font:600 10px/1.4 Inter,"Segoe UI",Arial,sans-serif; letter-spacing:.025em; }
+.inventory-history .issue-table-shell { min-width:0; overflow:hidden; border:1px solid var(--border); border-radius:10px; background:var(--surface); }
+.inventory-history .issue-table-scroll { max-width:100%; max-height:580px; overflow:auto; scrollbar-width:thin; }
+.inventory-history .issue-table-scroll:focus-visible { outline:2px solid var(--violet); outline-offset:-2px; }
+.inventory-history .issue-table { width:100%; border-collapse:separate; border-spacing:0; text-align:left; font-size:12px; line-height:1.5; }
+.inventory-history .issue-company-table { min-width:800px; }
+.inventory-history .issue-movements-table { min-width:1020px; }
+.inventory-history .issue-table th { background:var(--surface-raised); color:var(--text-secondary); padding:10px 12px; font-size:10px; font-weight:650; letter-spacing:.035em; text-transform:uppercase; white-space:nowrap; border-bottom:1px solid var(--border); }
+.inventory-history .issue-table-scroll > .issue-table > thead th { position:sticky; top:0; z-index:3; }
+.inventory-history .issue-table td { padding:11px 12px; border-bottom:1px solid var(--border); vertical-align:middle; color:var(--text-primary); }
+.inventory-history .issue-table tbody tr:last-child > td { border-bottom:0; }
+.inventory-history .issue-table tbody tr:not(.issue-expanded-row):hover > td { background:color-mix(in srgb,var(--violet) 4%,var(--surface)); }
+.inventory-history .issue-selected > td { background:color-mix(in srgb,var(--violet) 5%,var(--surface)); }
+.inventory-history .issue-primary { display:block; font-size:12px; font-weight:600; }
+.inventory-history .issue-secondary { display:block; color:var(--text-secondary); font-size:10px; margin-top:2px; }
+.inventory-history .issue-date { max-width:155px; color:var(--text-secondary) !important; font-size:11px; }
+.inventory-history .issue-number { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.inventory-history .issue-table td.issue-issued { color:#b45309; font-weight:600; }
+.inventory-history .issue-table td.issue-current { color:var(--violet); font-weight:650; background:color-mix(in srgb,var(--violet) 3%,var(--surface)); }
+.inventory-history .issue-reference { color:var(--violet); font-size:11px; font-weight:600; white-space:nowrap; border-radius:3px; }
+.inventory-history .issue-reference:hover { text-decoration:underline; text-underline-offset:3px; }
+.inventory-history .issue-reference:focus-visible,.inventory-history .issue-expand-button:focus-visible { outline:2px solid var(--violet); outline-offset:3px; }
+.inventory-history .issue-table .issue-expand-cell { width:38px; padding-left:6px; padding-right:0; }
+.inventory-history .issue-expand-button { display:inline-flex; width:30px; height:32px; align-items:center; justify-content:center; border-radius:5px; color:var(--text-secondary); }
+.inventory-history .issue-expand-button:hover { color:var(--violet); background:color-mix(in srgb,var(--violet) 8%,transparent); }
+.inventory-history .issue-status { display:inline-block; white-space:nowrap; font-size:10px; font-weight:600; text-transform:capitalize; padding:3px 8px; border-radius:5px; background:var(--surface-raised); color:var(--text-secondary); }
+.inventory-history .issue-status-packing { background:#fffbeb; color:#92400e; }
+.inventory-history .issue-status-transit,.inventory-history .issue-status-in-transit { background:#eff6ff; color:#1d4ed8; }
+.inventory-history .issue-status-delivered { background:#ecfdf5; color:#047857; }
+.inventory-history .issue-table .issue-expanded-row > td { padding:0; background:color-mix(in srgb,var(--violet) 2%,var(--surface)); }
+.inventory-history .issue-detail { padding:12px 14px 14px 38px; }
+.inventory-history .issue-detail-heading { display:flex; justify-content:space-between; gap:16px; margin-bottom:9px; font-size:10.5px; color:var(--text-secondary); }
+.inventory-history .issue-detail-table { background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden; }
+.inventory-history .issue-detail-table td { padding:9px 12px; }
+.inventory-history .issue-detail-table th { padding:8px 12px; }
+.inventory-history .issue-table-hint { display:flex; flex-wrap:wrap; justify-content:space-between; gap:4px 12px; padding:9px 12px; border-top:1px solid var(--border); font-size:10.5px; color:var(--text-secondary); }
+.inventory-history .issue-swipe-hint { display:none; }
+@media(max-width:767px) {
+  .inventory-history .issue-recording { width:100%; margin-left:0; }
+  .inventory-history .issue-filter-card > div:first-child > div:last-child { flex-basis:100%; }
+  .inventory-history .issue-table-scroll { max-height:65vh; }
+  .inventory-history .issue-swipe-hint { display:block; }
+  .inventory-history .issue-detail { padding-left:12px; }
+  .inventory-history .issue-company-table > thead th:first-child,.inventory-history .issue-company-table > tbody > tr:not(.issue-expanded-row) > td:first-child { position:sticky; left:0; background:var(--surface); z-index:2; }
+  .inventory-history .issue-company-table > thead th:first-child { z-index:4; background:var(--surface-raised); }
+}

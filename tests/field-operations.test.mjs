@@ -87,6 +87,7 @@ before(async () => {
     ),
   );
   today = await scalar("SELECT (now() AT TIME ZONE 'Asia/Kolkata')::date::text");
+  await db.exec(readFileSync(new URL('../supabase/migrations/20261023130000_field_metadata_parse_fast_path.sql',import.meta.url),'utf8'));
 });
 after(async () => {
   await db.close();
