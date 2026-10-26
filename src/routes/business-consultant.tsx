@@ -1,3 +1,4 @@
+import { SimKitLogo } from "@/components/SimKitLogo";
 import { useEffect, useRef, useState } from "react";
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
@@ -1726,14 +1727,11 @@ function Shell({
               setExpenseOpen(false);
               setNavigationOpen(false);
             }}
-            className="flex items-center gap-3 text-left"
+            className="simkit-brand-link text-left"
           >
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-lime text-bg shadow-sm">
-              <Layers size={21} />
-            </span>
             <span>
-              <span className="block font-syne text-sm font-bold tracking-wide">SIM-KIT OPS</span>
-              <span className="text-xs text-text-secondary">Field associate</span>
+              <SimKitLogo />
+              <span className="mt-1 block text-xs text-text-secondary">Field associate</span>
             </span>
           </button>
           <button

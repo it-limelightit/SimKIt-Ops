@@ -1,3 +1,4 @@
+import { SimKitLogo } from "@/components/SimKitLogo";
 import { useState, useEffect } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useAuth } from "@/lib/auth-store";
@@ -115,12 +116,9 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
         <Link
           to={home}
           onClick={() => setExpenseOpen(false)}
-          className="flex items-center gap-2 font-syne font-bold uppercase tracking-wider text-lime"
+          className="simkit-brand-link"
         >
-          <span className="flex h-5 w-5 items-center justify-center rounded-[4px] bg-lime text-bg text-[10px] font-extrabold font-mono">
-            ⬡
-          </span>
-          <span>SIM-KIT OPS</span>
+          <SimKitLogo />
         </Link>
         <div className="flex items-center gap-1">
           <button
@@ -150,13 +148,10 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
           <div className="flex h-16 items-center justify-between border-b border-border px-6 bg-surface">
             <Link
               to={home}
-              className="flex items-center gap-2 font-syne font-bold uppercase tracking-wider text-lime"
+              className="simkit-brand-link"
               onClick={() => { setIsOpen(false); setExpenseOpen(false); }}
             >
-              <span className="flex h-5 w-5 items-center justify-center rounded-[4px] bg-lime text-bg text-[10px] font-extrabold font-mono">
-                ⬡
-              </span>
-              <span>SIM-KIT OPS</span>
+              <SimKitLogo />
             </Link>
             <button
               onClick={() => setIsOpen(false)}
@@ -224,14 +219,11 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
             <Link
               to={home}
               onClick={() => setExpenseOpen(false)}
-              className="flex items-center gap-2 font-syne font-bold uppercase tracking-wider text-lime"
+              className="simkit-brand-link"
             >
-              <span className="flex h-5 w-5 items-center justify-center rounded-[4px] bg-lime text-bg text-[10px] font-extrabold font-mono shrink-0">
-                ⬡
-              </span>
               <div>
-                <div>SIM-KIT OPS</div>
-                <div className="font-mono text-[9px] uppercase tracking-widest text-text-secondary font-bold">
+                <SimKitLogo />
+                <div className="text-center font-mono text-[9px] uppercase tracking-widest text-text-secondary font-bold">
                   {displayRole}
                 </div>
               </div>

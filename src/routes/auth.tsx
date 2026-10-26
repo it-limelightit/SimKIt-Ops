@@ -1,3 +1,4 @@
+import { SimKitLogo } from "@/components/SimKitLogo";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -222,7 +223,7 @@ function AuthPage() {
     <div className="min-h-screen bg-background">
       <div className="mx-auto flex min-h-screen max-w-md flex-col px-6 py-12">
         <div className="mb-12">
-          <h1 className="text-3xl">SIM-Kit Ops</h1>
+          <h1><SimKitLogo size="large" /></h1>
           <p className="mt-1 font-mono text-[11px] uppercase tracking-widest text-stone">
             Field Operations
           </p>
