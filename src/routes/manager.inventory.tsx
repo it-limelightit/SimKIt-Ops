@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { InventoryStockPanel } from "@/components/inventory/InventoryStockPanel";
 import { AssociateExtraInventory } from "@/components/inventory/AssociateExtraInventory";
+import { InventoryHistoryPanel } from "@/components/inventory/InventoryHistoryPanel";
 import { Button } from "@/components/ui-kit";
 import { useState } from "react";
 
@@ -11,7 +12,7 @@ export const Route = createFileRoute("/manager/inventory")({
 });
 
 function ManagerInventoryPage() {
-  const [tab, setTab] = useState<"stock" | "associates">("stock");
+  const [tab, setTab] = useState<"stock" | "history" | "associates">("stock");
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap gap-2 border-b border-border pb-3">
@@ -23,6 +24,13 @@ function ManagerInventoryPage() {
           Central Inventory
         </Button>
         <Button
+          variant={tab === "history" ? "primary" : "secondary"}
+          onClick={() => setTab("history")}
+          aria-pressed={tab === "history"}
+        >
+          Inventory History
+        </Button>
+        <Button
           variant={tab === "associates" ? "primary" : "secondary"}
           onClick={() => setTab("associates")}
           aria-pressed={tab === "associates"}
@@ -30,7 +38,7 @@ function ManagerInventoryPage() {
           Field Associate Inventory
         </Button>
       </div>
-      {tab === "stock" ? <InventoryStockPanel /> : <AssociateExtraInventory manager />}
+      {tab === "stock" ? <InventoryStockPanel /> : tab === "history" ? <InventoryHistoryPanel /> : <AssociateExtraInventory manager />}
     </div>
   );
 }

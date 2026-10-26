@@ -5,10 +5,11 @@ import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 const dir=path.dirname(fileURLToPath(import.meta.url));
 const pdf=new jsPDF({unit:'mm',format:'a4',compress:true});
-const C={navy:'#172B4D',blue:'#3656C9',body:'#33445C',muted:'#65758B',line:'#DCE3ED',pale:'#F2F5FC'};
+const logo=readFileSync(path.resolve(dir,'../../image copy.png'));
+const C={navy:'#1F3347',blue:'#3656C9',body:'#33445C',muted:'#65758B',line:'#DCE3ED',pale:'#F2F5FC'};
 let y=0;const pages=[];
 function text(s,size=11.5,bold=false,color=C.body,x=19,width=172){pdf.setFont('helvetica',bold?'bold':'normal');pdf.setFontSize(size);pdf.setTextColor(color);const lines=pdf.splitTextToSize(s,width);pdf.text(lines,x,y);y+=lines.length*size*.46+2.7;}
-function page(section,title,description){if(pages.length)pdf.addPage();pages.push({page:pages.length+1,title});pdf.setFillColor(C.navy);pdf.rect(0,0,210,15,'F');pdf.setFont('helvetica','bold');pdf.setFontSize(9);pdf.setTextColor('#FFFFFF');pdf.text('SIMKIT OPS',19,9.5);pdf.setFont('helvetica','normal');pdf.text('STAFF USER GUIDE',191,9.5,{align:'right'});y=27;text(section.toUpperCase(),9,true,C.blue);y+=1;text(title,25,true,C.navy);text(description,11.5,false,C.muted);y+=3;}
+function page(section,title,description){if(pages.length)pdf.addPage();pages.push({page:pages.length+1,title});pdf.setFillColor(C.navy);pdf.rect(0,0,210,24,'F');pdf.addImage(logo,'PNG',19,5,14,14,'limelight-logo','FAST');pdf.setFont('helvetica','bold');pdf.setFontSize(12);pdf.setTextColor('#FFFFFF');pdf.text('LimelightIT Research Pvt. Ltd.',38,10.5);pdf.setFont('helvetica','normal');pdf.setFontSize(8);pdf.text('SIM-Kit | Staff User Guide',38,17.2);y=32;text(section.toUpperCase(),9,true,C.blue);y+=1;text(title,25,true,C.navy);text(description,11.5,false,C.muted);y+=3;}
 function heading(s){y+=2;text(s,13.5,true,C.navy);}
 function step(n,title,body){pdf.setFillColor(C.pale);pdf.circle(23,y-1,4,'F');pdf.setFont('helvetica','bold');pdf.setFontSize(10);pdf.setTextColor(C.blue);pdf.text(String(n),23,y+.1,{align:'center'});text(title,11.5,true,C.navy,31,160);text(body,11,false,C.body,31,160);y+=1;}
 function note(title,body){pdf.setFont('helvetica','normal');pdf.setFontSize(10.8);const lines=pdf.splitTextToSize(body,158);const h=14+lines.length*4.95;pdf.setFillColor(C.pale);pdf.roundedRect(19,y,172,h,2,2,'F');pdf.setFillColor(C.blue);pdf.rect(19,y,1,h,'F');y+=6;text(title,10,true,C.blue,25,160);text(body,10.8,false,C.body,25,158);y+=3;}
@@ -93,8 +94,9 @@ note('SEND USEFUL DETAILS WHEN ASKING FOR HELP','Share your name, the date, the 
 text('WhatsApp or a call can communicate an urgent issue. Also keep the request and approval recorded in SimKit wherever the app allows it.',10.5);
 text('App rules checked against the project implementation on 23 October 2026. Salary, deductions and exceptional arrangements follow company policy. A request approval alone does not confirm a payroll adjustment.',9.5,false,C.muted);check();
 
-for(let i=1;i<=pages.length;i++){pdf.setPage(i);pdf.setDrawColor(C.line);pdf.line(19,281,191,281);pdf.setFont('helvetica','normal');pdf.setFontSize(8);pdf.setTextColor(C.muted);pdf.text('SIMKIT OPS  |  Internal staff guide  |  Version 1.1',19,287);pdf.text(`${i} / ${pages.length}`,191,287,{align:'right'});}
-pdf.setProperties({title:'SimKit Ops | Staff User Guide',subject:'Attendance, leave, WFH, late requests and expenses',author:'SimKit Ops',creator:'SimKit Ops'});
+for(let i=1;i<=pages.length;i++){pdf.setPage(i);pdf.saveGraphicsState();pdf.setGState(new pdf.GState({opacity:.045}));pdf.addImage(logo,'PNG',52,96,106,106,'limelight-logo','FAST');pdf.restoreGraphicsState();pdf.setDrawColor(C.line);pdf.line(19,281,191,281);pdf.setFont('helvetica','normal');pdf.setFontSize(8);pdf.setTextColor(C.muted);pdf.text('LimelightIT Research Pvt. Ltd.  |  Internal staff guide',19,287);pdf.text(`Page ${i} of ${pages.length}`,191,287,{align:'right'});}
+pdf.setProperties({title:'LimelightIT | SimKit Staff User Guide',subject:'Attendance, leave, WFH, late requests and expenses',author:'LimelightIT Research Pvt. Ltd.',creator:'LimelightIT Research Pvt. Ltd.'});
 pdf.save(path.join(dir,'SimKit-Ops-Staff-User-Guide.pdf'));
+pdf.save(path.join(dir,'Limelight-SimKit-Staff-Guide.pdf'));
 writeFileSync(path.join(dir,'guide-pages.json'),JSON.stringify(pages,null,2));
 console.log(`Created professional staff guide: ${pages.length} pages.`);

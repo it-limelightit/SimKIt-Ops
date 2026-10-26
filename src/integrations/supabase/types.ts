@@ -384,6 +384,7 @@ export type Database = {
       }
       sites: {
         Row: {
+          company_source: "npc" | "lead"
           address: string | null
           appt_date: string | null
           appt_time: string | null
@@ -405,6 +406,7 @@ export type Database = {
           task_notes: string | null
         }
         Insert: {
+          company_source?: "npc" | "lead"
           address?: string | null
           appt_date?: string | null
           appt_time?: string | null
@@ -426,6 +428,7 @@ export type Database = {
           task_notes?: string | null
         }
         Update: {
+          company_source?: "npc" | "lead"
           address?: string | null
           appt_date?: string | null
           appt_time?: string | null
