@@ -121,6 +121,79 @@ const quantity = async (category) =>
 const activatePacking = () => db.exec(migration("20261021120000_inventory_packing_consumption.sql").replace(/^BEGIN;\s*/m, "").replace(/COMMIT;\s*$/, ""));
 const packingOrder = (options = {}) => order({ uplink: "LTE", ...options });
 const activateProxyWire = () => db.exec(migration("20261023100000_proxy_three_core_wire.sql").replace(/^BEGIN;\s*/m, "").replace(/COMMIT;\s*$/, ""));
+const activateYhdcWire = () => db.exec(migration("20261026100000_yhdc_wire_quantity_per_kit.sql").replace(/^BEGIN;\s*/m, "").replace(/COMMIT;\s*$/, ""));
+
+test("YHDC wire follows configured Qty/Kit per phase and is deducted only once", async () => {
+  await activatePacking();
+  await activateProxyWire();
+  await activateYhdcWire();
+  await activateYhdcWire(); // Migration can be reapplied without changing stock.
+  assert.equal(await quantity("2 CORE WIRE"), 100);
+  for (const perKit of [3, 2.5]) {
+    for (let mask = 0; mask < 8; mask++) {
+      await db.exec("SAVEPOINT wire_phase_case");
+      await db.query("UPDATE inventory_bom_items SET quantity_per_kit=$1 WHERE category='2 CORE WIRE'", [perKit]);
+      const selection = Object.fromEntries(["ct1", "ct2", "ct3"].map((key, index) => [key, mask & (1 << index) ? "TRUE" : "FALSE"]));
+      const count = mask & 4 ? 3 : mask & 2 ? 2 : mask & 1 ? 1 : 0;
+      const id = await packingOrder(selection);
+      const expected = count * perKit;
+      for (const state of ["Packing", "Packing", "Transit", "Delivered"]) {
+        await dispatch(id, state);
+        assert.equal(await quantity("2 CORE WIRE"), 100 - expected);
+      }
+      assert.equal(await quantity("YHDC CT SENSOR"), 100 - count);
+      const logs = (await db.query("SELECT quantity_changed,consumed_value FROM inventory_logs JOIN inventory_stock ON inventory_stock.id=stock_id WHERE order_id=$1 AND category='2 CORE WIRE' AND change_type='DISPATCH_DEDUCTION'", [id])).rows;
+      assert.equal(logs.length, count ? 1 : 0);
+      if (count) {
+        assert.equal(Number(logs[0].quantity_changed), -expected);
+        assert.equal(Number(logs[0].consumed_value), expected * 30);
+      }
+      await db.exec("ROLLBACK TO SAVEPOINT wire_phase_case");
+    }
+  }
+});
+
+test("energy meter alone requires no 2-core wire definition or deduction", async () => {
+  await activatePacking();
+  await activateYhdcWire();
+  await db.exec("DELETE FROM inventory_bom_items WHERE category='2 CORE WIRE'");
+  const id = await packingOrder({ energy_meter: "TRUE" });
+  await dispatch(id, "Packing");
+  assert.equal(await quantity("2 CORE WIRE"), 100);
+  assert.equal(await quantity("ENERGY METER CT SENSOR"), 97);
+});
+
+test("YHDC wire rejects missing, duplicate, zero or non-meter Qty/Kit definitions", async () => {
+  await activatePacking();
+  await activateYhdcWire();
+  const id = await packingOrder({ ct1: "TRUE" });
+  for (const change of [
+    "DELETE FROM inventory_bom_items WHERE category='2 CORE WIRE'",
+    "INSERT INTO inventory_bom_items(category,quantity_per_kit,unit) VALUES('2 CORE WIRE',3,'Meter')",
+    "UPDATE inventory_bom_items SET quantity_per_kit=0 WHERE category='2 CORE WIRE'",
+    "UPDATE inventory_bom_items SET unit='Nos' WHERE category='2 CORE WIRE'",
+  ]) {
+    await db.exec("SAVEPOINT invalid_wire_definition");
+    await db.exec(change);
+    await assert.rejects(dispatch(id, "Packing"), /Configure .*2 CORE WIRE/);
+    await db.exec("ROLLBACK TO SAVEPOINT invalid_wire_definition");
+    assert.equal(await quantity("2 CORE WIRE"), 100);
+    assert.equal(await quantity("SIM CARD"), 100);
+  }
+});
+
+test("three-phase wire shortage rolls back packing using the configured requirement", async () => {
+  await activatePacking();
+  await activateYhdcWire();
+  await db.exec("UPDATE inventory_bom_items SET quantity_per_kit=3 WHERE category='2 CORE WIRE'; UPDATE inventory_stock SET actual_quantity=8 WHERE category='2 CORE WIRE'");
+  const id = await packingOrder({ ct3: "TRUE" });
+  await db.exec("SAVEPOINT wire_shortage");
+  await assert.rejects(dispatch(id, "Packing"), /Insufficient stock: 2 CORE WIRE.*Required 9(?:\.00)? Meter/);
+  await db.exec("ROLLBACK TO SAVEPOINT wire_shortage");
+  assert.equal(await quantity("2 CORE WIRE"), 8);
+  assert.equal(await quantity("YHDC CT SENSOR"), 100);
+  assert.equal(await quantity("SIM CARD"), 100);
+});
 
 test("proxy wire adds exactly 3 meters once per order for either or both proxy inputs, changing no other requirement", async () => {
   await activatePacking();
