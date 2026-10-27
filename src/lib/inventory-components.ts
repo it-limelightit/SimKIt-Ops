@@ -66,7 +66,7 @@ export function inventoryDispatchHint(category: string) {
   if (["zip ties", "tape roll", "formsheet"].includes(key))
     return "Managed manually. Device dispatch does not deduct this item.";
   if (key === "2corewire")
-    return "Normal YHDC CT orders deduct a fixed 12 meters. Energy-meter CTs do not use this wire rule.";
+    return "YHDC single-phase deducts 1 × Qty/Kit of wire; three-phase deducts 3 × Qty/Kit. Energy-meter CTs do not use this wire rule.";
   if (key === "3corewire")
     return "Orders with Proxy 1 or Proxy 2 deduct 3 meters once per order, even when both are selected.";
   if (key === "4corewire") return "Vibration sensor orders deduct a fixed 5 meters.";
