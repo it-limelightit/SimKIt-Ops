@@ -17,7 +17,7 @@
     "check:finance": "node tests/check-finance-types.mjs",
     "test:finance:browser": "playwright test --config playwright.finance.config.mjs",
     "test:logistics": "node --test tests/logistics-status.test.mjs tests/logistics-advance-order.test.mjs",
-    "test:inventory": "node --test tests/inventory-kit-quantity.test.mjs tests/inventory-dispatch.test.mjs tests/installation-inventory.test.mjs",
+    "test:inventory": "node --test tests/inventory-kit-quantity.test.mjs tests/inventory-dispatch.test.mjs tests/installation-inventory.test.mjs tests/firmware-inventory.test.mjs",
     "test:inventory:browser": "playwright test --config playwright.installation.config.mjs",
     "test:attendance": "node --test tests/device-attendance.test.mjs tests/attendance-edge.test.mjs tests/attendance-mqtt.test.mjs tests/attendance-analytics.test.mjs tests/attendance-excel.test.mjs tests/attendance-pdf.test.mjs tests/leave-request.test.mjs tests/late-arrival.test.mjs",
     "format": "prettier --write ."

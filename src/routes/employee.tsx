@@ -3,6 +3,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import {
   ArrowRight,
+  Boxes,
   Check,
   Clock3,
   House,
@@ -21,6 +22,8 @@ import { EmployeeCalendar } from "@/components/attendance/EmployeeCalendar";
 import { LeaveWorkspace } from "@/components/attendance/LeaveWorkspace";
 import { LeaveRequestsButton } from "@/components/attendance/LeaveRequestsButton";
 import { canReviewLeave } from "@/lib/attendance-access";
+import { FirmwareInventory } from "@/components/inventory/FirmwareInventory";
+import { firmwareInventoryRpc } from "@/lib/firmware-inventory";
 import "@/components/attendance/employee-portal.css";
 
 export const Route = createFileRoute("/employee")({ ssr: false, component: EmployeePortal });
@@ -52,9 +55,10 @@ function EmployeePortal() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [firmwareInventory, setFirmwareInventory] = useState(false);
   const reviewer = canReviewLeave(email);
   const [selectedTab, setTab] = useState<
-    "overview" | "review" | "leave" | "attendance" | "expense" | null
+    "overview" | "review" | "leave" | "attendance" | "expense" | "inventory" | null
   >(null);
   const tab = selectedTab ?? (reviewer ? "overview" : "leave");
 
@@ -74,6 +78,7 @@ function EmployeePortal() {
     }
     let cancelled = false;
     setAccount(null);
+    setFirmwareInventory(false);
     setEntries([]);
     setError(null);
     setLoading(true);
@@ -85,9 +90,11 @@ function EmployeePortal() {
             "Your office account is inactive or not linked. Contact your administrator.",
           );
         const history = await attendanceRpc<Entry[]>("attendance_my_history");
+        const inventoryAccess = await firmwareInventoryRpc<boolean>("firmware_inventory_access").catch(() => false);
         if (!cancelled) {
           setAccount(next);
           setEntries(history ?? []);
+          setFirmwareInventory(inventoryAccess);
         }
       } catch (failure) {
         if (!cancelled)
@@ -194,12 +201,14 @@ function EmployeePortal() {
               { key: "leave", label: "Leave & WFH", icon: House },
               { key: "attendance", label: "My attendance", icon: Clock3 },
               { key: "expense", label: "Expense", icon: Receipt },
+              { key: "inventory", label: "Inventory Own", icon: Boxes },
             ] as const
           )
             .filter(
               ({ key }) =>
                 ((key !== "overview" && key !== "review") || reviewer) &&
-                (key !== "expense" || !canManageFinance(email)),
+                (key !== "expense" || !canManageFinance(email)) &&
+                (key !== "inventory" || firmwareInventory),
             )
             .map(({ key, label, icon: Icon }) => (
               <button
@@ -272,6 +281,10 @@ function EmployeePortal() {
               </p>
             </div>
             <LeaveWorkspace key="review" embedded showHeader={false} initialTab="review" />
+          </section>
+        ) : tab === "inventory" && firmwareInventory ? (
+          <section id="employee-inventory" aria-label="My testing inventory">
+            <FirmwareInventory />
           </section>
         ) : tab === "expense" ? (
           <section id="employee-expense" aria-label="My expenses">
