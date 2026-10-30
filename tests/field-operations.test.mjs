@@ -87,7 +87,15 @@ before(async () => {
     ),
   );
   today = await scalar("SELECT (now() AT TIME ZONE 'Asia/Kolkata')::date::text");
-  await db.exec(readFileSync(new URL('../supabase/migrations/20261023130000_field_metadata_parse_fast_path.sql',import.meta.url),'utf8'));
+  await db.exec(
+    readFileSync(
+      new URL(
+        "../supabase/migrations/20261023130000_field_metadata_parse_fast_path.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
 });
 after(async () => {
   await db.close();
@@ -489,10 +497,40 @@ test("frontend payment dates, India midnight and five-day warning follow the sam
     utils.earningsTotal([
       { phase: "assessment", amount: 100, eligible: true },
       { phase: "installation", amount: 999, eligible: true, paid: true },
-      { phase: "commissioning", amount: 50, eligible: true },
+      { phase: "commissioning", site_id: "approved-site", amount: 50, eligible: true },
     ]),
-    150,
+    50,
   );
+  const commissioning = (id, date, extra = {}) => ({
+    id,
+    site_id: id,
+    associate_id: worker,
+    phase: "commissioning",
+    company_name: id,
+    earning_date: date,
+    amount: 2500,
+    eligible: true,
+    paid: false,
+    ...extra,
+  });
+  const work = [
+    commissioning("previous-month", "2026-09-30"),
+    commissioning("assigned-in-september", "2026-10-01"),
+    commissioning("last-day", "2026-10-31"),
+    commissioning("next-month", "2026-11-01"),
+    commissioning("another-worker", "2026-10-04", { associate_id: other }),
+    commissioning("not-approved", "2026-10-05", { eligible: false }),
+    commissioning("no-company", "2026-10-06", { site_id: null }),
+    commissioning("assessment", "2026-10-07", { phase: "assessment" }),
+    commissioning("paid-reopened", "2026-10-08", { eligible: false, paid: true }),
+    commissioning("rate-pending", "2026-10-09", { amount: null }),
+  ];
+  const october = utils.commissioningEarnings(work, worker, "2026-10-01", "2026-10-31");
+  assert.deepEqual(
+    october.map((entry) => entry.id),
+    ["assigned-in-september", "last-day", "paid-reopened", "rate-pending"],
+  );
+  assert.equal(utils.earningsTotal(october), 7500);
   const company = {
     assessment_ready: true,
     installation_ready: false,
@@ -535,6 +573,77 @@ test("frontend payment dates, India midnight and five-day warning follow the sam
   assert.equal(
     utils.installationOverdue({ ...company, installation_ready: true }, "2026-08-10"),
     false,
+  );
+});
+
+test("approved companies missing at rollout recover their work date once, without creating priced payroll", async () => {
+  const actor = "00000000-0000-4000-8000-000000000405";
+  const approved = "00000000-0000-4000-8000-000000000406";
+  const pending = "00000000-0000-4000-8000-000000000407";
+  const incomplete = "00000000-0000-4000-8000-000000000408";
+  await db.query("INSERT INTO auth.users VALUES($1)", [actor]);
+  await db.query(
+    "INSERT INTO profiles(id,name,email) VALUES($1,'Historical worker','historical@example.test')",
+    [actor],
+  );
+  await db.query("INSERT INTO user_roles VALUES($1,'worker')", [actor]);
+  for (const id of [approved, pending, incomplete]) {
+    await db.query(
+      "INSERT INTO sites(id,name,assigned_worker_id) VALUES($1::uuid,$1::uuid::text,$2)",
+      [id, actor],
+    );
+    await db.query(
+      "INSERT INTO field_existing_completions(site_id,phase) VALUES($1,'commissioning')",
+      [id],
+    );
+    await db.query(
+      "INSERT INTO commissioning_approval_requests(site_id,status,requested_by,reviewed_at) VALUES($1,$2,$3,'2026-09-30T19:00:00Z')",
+      [id, id === pending ? "pending" : "approved", actor],
+    );
+    await db.query("INSERT INTO commissioning(site_id,worker_id,data) VALUES($1,$2,$3)", [
+      id,
+      actor,
+      { commissioning_phase_submitted: id !== incomplete },
+    ]);
+  }
+  const existing = (await db.query("SELECT * FROM field_earnings ORDER BY id")).rows;
+  const migration = readFileSync(
+    new URL(
+      "../supabase/migrations/20261030130000_reconcile_approved_commissioning_work.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  await db.exec(migration);
+  const recovered = (await db.query("SELECT * FROM field_earnings WHERE site_id=$1", [approved]))
+    .rows;
+  assert.equal(recovered.length, 1);
+  assert.equal(recovered[0].associate_id, actor);
+  assert.equal(recovered[0].earning_date.toISOString().slice(0, 10), "2026-10-01");
+  assert.equal(
+    recovered[0].amount,
+    null,
+    "An approved company counts without an assumed incentive price",
+  );
+  assert.equal(
+    await scalar("SELECT count(*)::int FROM field_earnings WHERE site_id IN ($1,$2)", [
+      pending,
+      incomplete,
+    ]),
+    0,
+  );
+  assert.deepEqual(
+    (
+      await db.query("SELECT * FROM field_earnings WHERE site_id IS DISTINCT FROM $1 ORDER BY id", [
+        approved,
+      ])
+    ).rows.filter((entry) => existing.some((previous) => previous.id === entry.id)),
+    existing,
+  );
+  await db.exec(migration);
+  assert.equal(
+    await scalar("SELECT count(*)::int FROM field_earnings WHERE site_id=$1", [approved]),
+    1,
   );
 });
 
@@ -923,4 +1032,137 @@ test("follow-up completion retains attendance/access checks and creates no phase
       0,
     );
   }
+});
+
+test("manager Commissioned action creates one eligible work record, recognizes history, and cannot be forged by an associate", async () => {
+  const actor = "00000000-0000-4000-8000-000000000501";
+  const historical = "00000000-0000-4000-8000-000000000502";
+  const direct = "00000000-0000-4000-8000-000000000503";
+  const spoofed = "00000000-0000-4000-8000-000000000504";
+  await db.exec(
+    "CREATE TABLE activity_logs(site_id uuid,actor_id uuid,action text,to_value text,created_at timestamptz DEFAULT now())",
+  );
+  await db.query("INSERT INTO auth.users VALUES($1)", [actor]);
+  await db.query(
+    "INSERT INTO profiles(id,name,email) VALUES($1,'Manager-confirmed worker','confirmed@example.test')",
+    [actor],
+  );
+  await db.query("INSERT INTO user_roles VALUES($1,'worker')", [actor]);
+  await db.query(
+    "INSERT INTO field_work_rates(associate_id,assessment,installation,commissioning,updated_by) VALUES($1,0,0,2500,$2)",
+    [actor, manager],
+  );
+  await asUser(manager);
+  for (const id of [historical, direct, spoofed]) {
+    await db.query(
+      "INSERT INTO sites(id,name,assigned_worker_id) VALUES($1,'Manual commissioning',$2)",
+      [id, actor],
+    );
+  }
+  await db.query("UPDATE sites SET task_notes=$2 WHERE id=$1", [
+    historical,
+    '[METADATA:{"status":"Submitted","status_source":"manager"}]',
+  ]);
+  await db.query(
+    "INSERT INTO activity_logs VALUES($1,$2,'status_change','Commissioned','2026-10-12T13:26:39Z')",
+    [historical, manager],
+  );
+  const payments = (await db.query("SELECT * FROM field_payment_items ORDER BY earning_id")).rows;
+  const migration = readFileSync(
+    new URL(
+      "../supabase/migrations/20261030140000_manager_commissioning_confirmation.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  await db.exec(migration);
+  const historic = (await db.query("SELECT * FROM field_earnings WHERE site_id=$1", [historical]))
+    .rows[0];
+  assert.equal(historic.earning_date.toISOString().slice(0, 10), "2026-10-12");
+  assert.equal(historic.amount, null, "Historical prices need explicit review");
+  assert.equal(historic.associate_id, actor);
+  assert.equal(
+    await scalar("SELECT field_ops_phase_ready($1,'commissioning')", [historical]),
+    true,
+  );
+  assert.equal(
+    await scalar("SELECT count(*)::int FROM commissioning_approval_requests WHERE site_id=$1", [
+      historical,
+    ]),
+    0,
+    "Manager confirmation does not forge an associate approval request",
+  );
+  await db.query("UPDATE sites SET task_notes=$2 WHERE id=$1", [
+    direct,
+    '[METADATA:{"status":"Commissioned","status_source":"manager"}]',
+  ]);
+  let record = (await db.query("SELECT * FROM field_earnings WHERE site_id=$1", [direct])).rows[0];
+  assert.equal(record.associate_id, actor);
+  assert.equal(Number(record.amount), 2500);
+  assert.equal(record.eligible, true);
+  const original = record;
+  await db.query("UPDATE sites SET task_notes=$2 WHERE id=$1", [
+    direct,
+    '[METADATA:{"status":"Submitted","status_source":"manager"}]',
+  ]);
+  record = (await db.query("SELECT * FROM field_earnings WHERE site_id=$1", [direct])).rows[0];
+  assert.deepEqual(record, original, "Submitted retains commissioning date and entitlement");
+  await db.query("UPDATE sites SET task_notes=$2 WHERE id=$1", [
+    direct,
+    '[METADATA:{"status":"Installed","status_source":"manager"}]',
+  ]);
+  assert.equal(await scalar("SELECT field_ops_phase_ready($1,'commissioning')", [direct]), false);
+  await db.query("UPDATE sites SET task_notes=$2 WHERE id=$1", [
+    direct,
+    '[METADATA:{"status":"Commissioned","status_source":"manager"}]',
+  ]);
+  assert.equal(
+    await scalar("SELECT count(*)::int FROM field_earnings WHERE site_id=$1", [direct]),
+    1,
+  );
+  assert.equal(
+    await scalar("SELECT eligible FROM field_earnings WHERE site_id=$1", [direct]),
+    true,
+  );
+  await asUser(actor);
+  await db.query("UPDATE sites SET task_notes=$2 WHERE id=$1", [spoofed, JSON.stringify({})]);
+  await db.query("UPDATE sites SET task_notes=$2 WHERE id=$1", [
+    spoofed,
+    '[METADATA:{"status":"Commissioned","status_source":"manager"}]',
+  ]);
+  assert.equal(
+    await scalar("SELECT count(*)::int FROM field_manager_commissionings WHERE site_id=$1", [
+      spoofed,
+    ]),
+    0,
+  );
+  assert.equal(
+    await scalar("SELECT count(*)::int FROM field_earnings WHERE site_id=$1", [spoofed]),
+    0,
+  );
+  await db.exec("SET ROLE authenticated");
+  await assert.rejects(
+    db.query(
+      "SELECT field_ops_confirm_manager_commissioning(s,$2,now(),false) FROM sites s WHERE id=$1",
+      [spoofed, manager],
+    ),
+    /permission denied/,
+  );
+  await db.exec("RESET ROLE");
+  await asUser(manager);
+  await db.exec(migration);
+  assert.equal(
+    await scalar("SELECT count(*)::int FROM field_earnings WHERE site_id=$1", [historical]),
+    1,
+  );
+  assert.equal(
+    await scalar("SELECT count(*)::int FROM field_manager_commissionings WHERE site_id=$1", [
+      spoofed,
+    ]),
+    0,
+  );
+  assert.deepEqual(
+    (await db.query("SELECT * FROM field_payment_items ORDER BY earning_id")).rows,
+    payments,
+  );
 });

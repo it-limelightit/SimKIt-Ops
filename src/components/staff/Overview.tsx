@@ -34,6 +34,7 @@ import { OrderTab } from "@/components/business-consultant/OrderTab";
 import { parseTaskNotes } from "./TasksPanel";
 import { AddAssessorDialog, type AssessorDetails } from "./AddAssessorDialog";
 import logoUrl from "../../../image copy.png";
+import { createOverviewPdfHeader, getOverviewPdfRows } from "@/lib/overview-pdf";
 import {
   Building,
   CheckCircle2,
@@ -495,6 +496,8 @@ export function Overview() {
   const [currentPage, setCurrentPage] = useState(1);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [pdfColumnPickerOpen, setPdfColumnPickerOpen] = useState(false);
+  const [pdfExcludedCompanyIds, setPdfExcludedCompanyIds] = useState<Set<string>>(new Set());
+  const [pdfCompanySearch, setPdfCompanySearch] = useState("");
   const [pdfSelectedColumns, setPdfSelectedColumns] = useState<PdfColumnSelection>({
     company: true,
     assoc: true,
@@ -1186,6 +1189,13 @@ export function Overview() {
     return sortOrder === "asc" ? comp : -comp;
   });
 
+  const pdfReportRows = getOverviewPdfRows(sortedRows, pdfExcludedCompanyIds);
+  const pdfCompanyOptions = sortedRows.filter((row) =>
+    [row.company_name, row.name, row.city].some((value) =>
+      value?.toLowerCase().includes(pdfCompanySearch.trim().toLowerCase()),
+    ),
+  );
+
   // Apply Pagination
   const totalPages = Math.ceil(sortedRows.length / rowsPerPage);
   const startIndex = (currentPage - 1) * rowsPerPage;
@@ -1633,7 +1643,8 @@ export function Overview() {
   };
 
   const exportPdf = async (columns: PdfColumnSelection) => {
-    if (sortedRows.length === 0) {
+    const reportRows = getOverviewPdfRows(sortedRows, pdfExcludedCompanyIds);
+    if (reportRows.length === 0) {
       toast.error("No data available to export.");
       return;
     }
@@ -1654,7 +1665,8 @@ export function Overview() {
       const generatedAt = new Intl.DateTimeFormat("en-IN", {
         dateStyle: "medium",
         timeStyle: "short",
-      }).format(new Date());
+        timeZone: "Asia/Kolkata",
+      }).format(new Date()) + " IST";
       const clean = (value: string | null | undefined) => {
         const text = (value || "").trim();
         return text || "N/A";
@@ -1706,17 +1718,19 @@ export function Overview() {
         }
         return parts[0];
       };
+      // A missing logo should not prevent downloading the report.
       const logoDataUrl = await fetch(logoUrl)
-        .then((response) => response.blob())
-        .then(
-          (blob) =>
-            new Promise<string>((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onload = () => resolve(String(reader.result));
-              reader.onerror = reject;
-              reader.readAsDataURL(blob);
-            }),
-        );
+        .then((response) => {
+          if (!response.ok) throw new Error("Could not load report logo");
+          return response.blob();
+        })
+        .then((blob) => new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        }))
+        .catch(() => null);
       const teal: [number, number, number] = [13, 134, 154];
       const orange: [number, number, number] = [245, 146, 25];
       const green: [number, number, number] = [21, 140, 55];
@@ -1771,11 +1785,16 @@ export function Overview() {
 
       const pageMarginX = 12;
       const contentWidth = pageWidth - pageMarginX * 2;
-      const navyBarHeight = 22;
-      const accentHeight = 1;
-      const subheaderHeight = 8;
+      const reportHeader = createOverviewPdfHeader(doc, {
+        title: kpiLabel + " Report",
+        generatedAt,
+        dateRange: updatedDateRange.label,
+        companyCount: reportRows.length,
+        logo: logoDataUrl,
+      });
+      doc.setProperties({ title: kpiLabel + " Report", author: "LimelightIT Research Pvt. Ltd." });
       const colHeaderHeight = 7;
-      const headerHeight = navyBarHeight + accentHeight + subheaderHeight + colHeaderHeight;
+      const headerHeight = reportHeader.height + colHeaderHeight;
       const defaultRowHeight = 23;
 
       const activeColumns = PDF_COLUMN_OPTIONS.filter((c) => columns[c.key]);
@@ -1825,43 +1844,9 @@ export function Overview() {
         return row.progress;
       };
 
-      const generatedDateLabel = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-
       const drawPageHeader = () => {
-        doc.setFillColor(...navy);
-        doc.rect(0, 0, pageWidth, navyBarHeight, "F");
-        doc.setFillColor(...teal);
-        doc.rect(0, navyBarHeight, pageWidth, accentHeight, "F");
-
-        doc.addImage(logoDataUrl, "PNG", pageMarginX, (navyBarHeight - 12) / 2, 12, 12);
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(11);
-        doc.setTextColor(255, 255, 255);
-        doc.text("LimelightIT", pageMarginX + 16, 11);
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(7);
-        doc.setTextColor(198, 210, 224);
-        doc.text("Research Pvt. Ltd.", pageMarginX + 16, 16.5);
-
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(10.5);
-        doc.setTextColor(255, 255, 255);
-        doc.text(`${kpiLabel} Report`, pageWidth - pageMarginX, 10, { align: "right" });
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(7);
-        doc.setTextColor(198, 210, 224);
-        doc.text(`Generated: ${generatedDateLabel}`, pageWidth - pageMarginX, 16.5, { align: "right" });
-
-        const subY = navyBarHeight + accentHeight;
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(7.6);
-        doc.setTextColor(...teal);
-        doc.text(`FIELD ASSIGNMENT OVERVIEW • UPDATED DATE: ${updatedDateRange.label.toUpperCase()}`, pageMarginX, subY + 6);
-        doc.setDrawColor(...border);
-        doc.setLineWidth(0.2);
-        doc.line(pageMarginX, subY + subheaderHeight, pageWidth - pageMarginX, subY + subheaderHeight);
-
-        const colY = subY + subheaderHeight;
+        reportHeader.draw();
+        const colY = reportHeader.height;
         doc.setFillColor(233, 237, 244);
         doc.rect(pageMarginX, colY, contentWidth, colHeaderHeight, "F");
         doc.setFont("helvetica", "bold");
@@ -1987,7 +1972,7 @@ export function Overview() {
       let currentPage: { row: SiteRow; height: number; displayIndex: number }[] = [];
       let currentPageHeight = 0;
 
-      sortedRows.forEach((row, index) => {
+      reportRows.forEach((row, index) => {
         const height = getRowHeight(row);
         if (currentPage.length > 0 && currentPageHeight + height > availableRowsHeight) {
           reportPages.push(currentPage);
@@ -2708,7 +2693,11 @@ export function Overview() {
                     <span>Excel</span>
                   </button>
                   <button
-                    onClick={() => setPdfColumnPickerOpen(true)}
+                    onClick={() => {
+                      setPdfExcludedCompanyIds(new Set());
+                      setPdfCompanySearch("");
+                      setPdfColumnPickerOpen(true);
+                    }}
                     disabled={exportingPdf}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-[#FFEBEE] hover:bg-[#FFCDD2] text-[#C62828] border border-[#EF9A9A] rounded-md transition-colors shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                     title="Export to PDF"
@@ -3145,51 +3134,69 @@ export function Overview() {
           </div>
         )}
 
-        {pdfColumnPickerOpen && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-sm overflow-hidden rounded-xl border border-border bg-surface shadow-2xl">
-              <div className="flex items-center justify-between border-b border-border bg-surface-raised/40 px-5 py-3.5">
-                <h3 className="text-sm font-bold text-text-primary">Select PDF Columns</h3>
-                <button
-                  onClick={() => setPdfColumnPickerOpen(false)}
-                  className="rounded-md border border-border bg-surface p-1 text-text-secondary transition-colors hover:text-text-primary"
-                  aria-label="Close column picker"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-              <div className="p-5 space-y-2.5">
+        <Dialog open={pdfColumnPickerOpen} onOpenChange={setPdfColumnPickerOpen}>
+          <DialogContent className="max-h-[90dvh] w-[calc(100%_-_2rem)] max-w-2xl overflow-y-auto border-border bg-surface text-text-primary">
+            <DialogHeader>
+              <DialogTitle>PDF report options</DialogTitle>
+              <DialogDescription>Choose columns and exclude companies from this download.</DialogDescription>
+            </DialogHeader>
+            <fieldset className="space-y-2.5">
+              <legend className="mb-3 text-sm font-bold">Select PDF columns</legend>
+              <div className="grid gap-3 sm:grid-cols-2">
                 {PDF_COLUMN_OPTIONS.map((c) => (
                   <label key={c.key} className="flex items-center gap-2.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={pdfSelectedColumns[c.key]}
-                      onChange={(e) =>
-                        setPdfSelectedColumns((prev) => ({ ...prev, [c.key]: e.target.checked }))
-                      }
-                      className="h-4 w-4 rounded border-border text-lime focus:ring-lime"
-                    />
-                    <span className="text-sm text-text-primary">{c.label}</span>
+                    <input type="checkbox" checked={pdfSelectedColumns[c.key]}
+                      onChange={(e) => setPdfSelectedColumns((prev) => ({ ...prev, [c.key]: e.target.checked }))}
+                      className="h-4 w-4 shrink-0 rounded border-border accent-lime" />
+                    <span className="text-xs text-text-primary">{c.label}</span>
                   </label>
                 ))}
               </div>
-              <div className="flex justify-end gap-2 border-t border-border px-5 py-3.5">
-                <Button variant="secondary" onClick={() => setPdfColumnPickerOpen(false)}>
-                  Cancel
-                </Button>
-                <Button
-                  disabled={!PDF_COLUMN_OPTIONS.some((c) => pdfSelectedColumns[c.key])}
-                  onClick={() => {
-                    setPdfColumnPickerOpen(false);
-                    exportPdf(pdfSelectedColumns);
-                  }}
-                >
-                  Generate PDF
-                </Button>
+            </fieldset>
+            <fieldset className="min-w-0 space-y-3 border-t border-border pt-4">
+              <legend className="text-sm font-bold">Exclude companies</legend>
+              <p className="text-xs text-text-secondary">Check a company to hide it from the PDF. All companies are included by default. This list follows your current dashboard filters.</p>
+              <Input aria-label="Search companies to exclude" placeholder="Search company or city..."
+                value={pdfCompanySearch} onChange={(e) => setPdfCompanySearch(e.target.value)} />
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span role="status" className="text-text-secondary">{pdfReportRows.length} of {sortedRows.length} companies included</span>
+                <button type="button" onClick={() => setPdfExcludedCompanyIds(new Set())} className="cursor-pointer font-semibold text-text-primary underline">Include all</button>
               </div>
+              <div className="max-h-56 overflow-y-auto rounded-lg border border-border divide-y divide-border">
+                {pdfCompanyOptions.length === 0 ? (
+                  <p className="p-4 text-sm text-text-secondary">No companies found.</p>
+                ) : pdfCompanyOptions.map((row) => (
+                  <label key={row.id} className="flex cursor-pointer items-start gap-3 p-3 hover:bg-surface-raised">
+                    <input type="checkbox" checked={pdfExcludedCompanyIds.has(row.id)}
+                      onChange={(e) => {
+                        const excluded = e.target.checked;
+                        setPdfExcludedCompanyIds((previous) => {
+                          const next = new Set(previous);
+                          if (excluded) next.add(row.id);
+                          else next.delete(row.id);
+                          return next;
+                        });
+                      }}
+                      className="mt-0.5 h-4 w-4 shrink-0 rounded border-border accent-lime" />
+                    <span className="min-w-0 text-sm">
+                      <span className="block break-words font-medium">{row.company_name || row.name}</span>
+                      <span className="block text-xs text-text-secondary">{[row.company_name && row.name !== row.company_name ? row.name : null, row.city].filter(Boolean).join(" | ")}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              {pdfReportRows.length === 0 && <p className="text-xs text-red-500">Include at least one company to generate a report.</p>}
+            </fieldset>
+            <div className="flex justify-end gap-2 border-t border-border pt-4">
+              <Button variant="secondary" onClick={() => setPdfColumnPickerOpen(false)}>Cancel</Button>
+              <Button disabled={exportingPdf || pdfReportRows.length === 0 || !PDF_COLUMN_OPTIONS.some((c) => pdfSelectedColumns[c.key])}
+                onClick={() => {
+                  setPdfColumnPickerOpen(false);
+                  void exportPdf(pdfSelectedColumns);
+                }}>Generate PDF</Button>
             </div>
-          </div>
-        )}
+          </DialogContent>
+        </Dialog>
 
         {/* Hybrid Associate Consultant Portal Modal */}
         {consultantSiteId && (() => {

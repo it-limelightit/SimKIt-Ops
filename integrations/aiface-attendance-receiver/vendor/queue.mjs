@@ -5,6 +5,8 @@ export class EventQueue {
     this.db.exec(`PRAGMA secure_delete=ON;
       CREATE TABLE IF NOT EXISTS events(id TEXT PRIMARY KEY,body TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',attempts INTEGER NOT NULL DEFAULT 0,next_at INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS commands(id TEXT PRIMARY KEY,body TEXT NOT NULL,status TEXT NOT NULL,created_at INTEGER NOT NULL);`);
+    // Older releases stopped after 20 attempts. Resume those durable records too.
+    this.db.prepare("UPDATE events SET status='pending' WHERE status='dead'").run();
   }
   put(event) {
     const { photo_base64, photo_mime, ...metadata } = event;
@@ -13,6 +15,8 @@ export class EventQueue {
         ? `scan:${event.event_id}`
         : event.kind === "device_profile"
           ? `profile:${event.device_id}:${event.enroll_id}:${event.observed_at}`
+          : event.kind === "receiver_health"
+            ? `health:${event.event_id}`
           : event.kind === "enrollment_ack"
             ? `ack:${event.command_id}:${event.success}`
             : `heartbeat:${Date.now()}`;
@@ -43,7 +47,7 @@ export class EventQueue {
   retry(id) {
     this.db
       .prepare(
-        "UPDATE events SET attempts=attempts+1,status=CASE WHEN attempts>=19 THEN 'dead' ELSE 'pending' END,next_at=? WHERE id=?",
+        "UPDATE events SET attempts=attempts+1,status='pending',next_at=? WHERE id=?",
       )
       .run(Date.now() + 60000, id);
   }
@@ -51,6 +55,9 @@ export class EventQueue {
     this.db
       .prepare("DELETE FROM events WHERE status='delivered' AND created_at<?")
       .run(Date.now() - 7 * 86400000);
+  }
+  stats() {
+    return this.db.prepare("SELECT count(*) AS pending,min(created_at) AS oldest_at,max(attempts) AS max_attempts FROM events WHERE status='pending'").get();
   }
   close() {
     this.db.close();

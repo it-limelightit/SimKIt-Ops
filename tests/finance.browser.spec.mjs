@@ -246,6 +246,67 @@ async function mock(page, financeRole = "hardik", workspaceRole) {
   });
   return { board, calls, errors };
 }
+test("Tarun reviews incentives directly in the field associate list", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-10-30T06:00:00Z") });
+  const { board, errors } = await mock(page, "tarun");
+  const ids = ["00000000-0000-4000-8000-000000000009", "00000000-0000-4000-8000-000000000010"];
+  ids.forEach((id, index) => board.people.push({ id, name: `Associate ${index + 1}`, email: `field${index + 1}@test.io`, field: true }));
+  const reviews = Object.fromEntries(ids.map((id) => [id, { revision: 3, status: "tarun_pending", hardik_at: "2026-10-30T05:00:00Z", tarun_at: null, reason: null }]));
+  const decisions = [];
+  await page.route("**/rest/v1/rpc/finance_field_board", (route) => {
+    const { _associate, _month } = route.request().postDataJSON();
+    return route.fulfill({ json: {
+      earnings: _month === "2026-10-01" ? Array.from({ length: _associate === ids[1] ? 12 : 1 }, (_, index) => ({ id: `work-${_associate}-${index}`, date: "2026-10-30", phase: "commissioning", company: _associate === ids[1] ? `Factory ${index + 1} — Industrial Components Private Limited` : "Matrix Factory", amount: 2000, paid: false })) : [],
+      review: _month === "2026-10-01" ? reviews[_associate] : null,
+      rates: { commissioning: 2000 }, payments: [], calendar: [], leaves: [],
+    } });
+  });
+  await page.route("**/rest/v1/rpc/finance_field_action", async (route) => {
+    const input = route.request().postDataJSON();
+    decisions.push(input);
+    Object.assign(reviews[input._associate], { revision: 4, status: input._action === "approve" ? "approved" : "rejected", reason: input._reason });
+    await route.fulfill({ json: null });
+  });
+  await page.goto("/manager/salary-expense");
+  await page.getByRole("button", { name: "Field associates", exact: true }).click();
+  const directory = page.getByRole("region", { name: "Monthly incentive approvals" });
+  await expect(directory.locator("tbody > tr")).toHaveCount(2);
+  await expect(directory.getByRole("button", { name: /Open details/ })).toHaveCount(0);
+  const first = directory.getByRole("row").filter({ hasText: "Associate 1" });
+  const second = directory.getByRole("row").filter({ hasText: "Associate 2" });
+  await expect(first.getByRole("button", { name: "Approve incentives", exact: true })).toBeEnabled();
+
+  await expect(first.getByText("Matrix Factory", { exact: true })).toHaveCount(0);
+  const buttons = first.locator(".finance-incentive-actions button");
+  await expect(buttons).toHaveCount(4);
+  const positions = await buttons.evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().top));
+  expect(Math.max(...positions) - Math.min(...positions)).toBeLessThan(2);
+  expect((await second.boundingBox()).height).toBeLessThan(150);
+  await second.getByRole("button", { name: /Associate 2.*View details/ }).click();
+  const breakdown = page.getByRole("dialog", { name: "Incentive details", exact: true });
+  await expect(breakdown.getByRole("cell", { name: "Factory 12 — Industrial Components Private Limited", exact: true })).toBeVisible();
+  await breakdown.getByRole("button", { name: "Close details", exact: true }).click();
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.screenshot({ path: test.info().outputPath("incentive-review-compact.png"), fullPage: true });
+  await first.getByRole("button", { name: "Approve incentives", exact: true }).click();
+  await expect(page.getByRole("dialog")).toContainText("Associate 1");
+  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await expect(first.getByText("Approved", { exact: true })).toBeVisible();
+  expect(decisions[0]).toMatchObject({ _associate: ids[0], _end: "2026-10-31", _revision: 3, _action: "approve" });
+  await second.getByRole("button", { name: "Reject incentives", exact: true }).click();
+  await page.getByLabel("Rejection reason", { exact: true }).fill("Please correct the commissioning amount");
+  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await expect(second.getByText("Please correct the commissioning amount")).toBeVisible();
+  expect(decisions[1]).toMatchObject({ _associate: ids[1], _action: "reject", _reason: "Please correct the commissioning amount" });
+  await page.getByLabel("Filter incentives").selectOption("review");
+  await expect(directory.getByText("No field associates match this filter.")).toBeVisible();
+  await page.getByLabel("Filter incentives").selectOption("all");
+  await page.getByLabel("Settlement month", { exact: true }).fill("2026-09");
+  await expect(directory.getByText("No commissionings this month")).toHaveCount(2);
+  await expect(directory.getByRole("button", { name: "Approve incentives", exact: true })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test("calendar-month incentives use month-end keys and payment opens on the next month's 7th", async ({
   page,
 }) => {
@@ -253,20 +314,25 @@ test("calendar-month incentives use month-end keys and payment opens on the next
   await page.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//, (route) => route.abort());
   const { board, calls, errors } = await mock(page);
   const fieldId = "00000000-0000-4000-8000-000000000009";
+  await page.clock.setFixedTime(new Date("2026-06-30T06:00:00Z"));
+  board.salaries[0].status = "approved";
   board.people.push({ id: fieldId, name: "Field Member", email: "field@test.io", field: true });
   await page.route("**/rest/v1/rpc/finance_field_board", (route) =>
     route.fulfill({
       json: {
-        earnings: [
-          {
-            id: "field-work",
-            date: "2026-06-30",
-            phase: "assessment",
-            company: "Factory",
-            amount: 1200,
-            paid: false,
-          },
-        ],
+        earnings:
+          route.request().postDataJSON()._month === "2026-06-01"
+            ? [
+                {
+                  id: "field-work",
+                  date: "2026-06-30",
+                  phase: "commissioning",
+                  company: "Factory",
+                  amount: 1200,
+                  paid: false,
+                },
+              ]
+            : [],
         review: {
           revision: 2,
           status: "approved",
@@ -283,13 +349,92 @@ test("calendar-month incentives use month-end keys and payment opens on the next
   await page.goto("/manager/salary-expense");
   await page.getByLabel("Settlement month", { exact: true }).fill("2026-06");
   await page.getByRole("button", { name: "Field associates", exact: true }).click();
-  await page.getByRole("button", { name: /Field Member.*Open details/ }).click();
-  await expect(page.getByText("2026-06-01 → 2026-06-30", { exact: true })).toBeVisible();
-  const pay = page.getByRole("button", { name: "Record incentive payment", exact: true });
+  await page.getByRole("button", { name: /Field Member.*Edit incentives/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "Commissioning incentives", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("1 approved commissioning", { exact: true })).toBeVisible();
+  await expect(page.locator(".finance-incentive-summary").getByText("Incentives outstanding", { exact: true })).toBeVisible();
+  await expect(page.locator(".finance-incentive-summary .finance-metric")).toHaveCount(4);
+  const commissioningCount = page
+    .locator(".finance-incentive-summary .finance-metric")
+    .filter({
+      has: page.getByText("Commissionings this month", { exact: true }),
+    })
+    .locator("strong");
+  await expect(commissioningCount).toHaveText("1");
+  await expect(page.getByRole("dialog", { name: "Manage incentives", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Expense reimbursements", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Commissioning month", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Assessment rate (INR)", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Change reason", { exact: true })).toHaveCount(0);
+  const verify = page.getByRole("button", { name: "Verify & forward incentives", exact: true });
+  await expect(verify).toBeEnabled();
+  await verify.click();
+  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await expect
+    .poll(() =>
+      calls.some(
+        (call) =>
+          call.name === "finance_field_action" &&
+          call.input._action === "forward" &&
+          call.input._end === "2026-06-30",
+      ),
+    )
+    .toBeTruthy();
+  await expect(page.getByRole("region", { name: "Field Member details", exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Manage incentives", exact: true })).toBeVisible();
+  await page.screenshot({
+    path: test.info().outputPath("field-finance-desktop.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator(".finance-incentive-summary").getByText("Incentives outstanding", { exact: true })).toBeVisible();
+  await page.screenshot({
+    path: test.info().outputPath("field-finance-mobile.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.getByLabel("Commissioning rate (INR)", { exact: true }).fill("2500");
+  await page.getByRole("button", { name: "Save rates", exact: true }).click();
+  await expect
+    .poll(() =>
+      calls.some(
+        (call) =>
+          call.name === "finance_field_rates" &&
+          call.input._associate === fieldId &&
+          call.input._commissioning === 2500 &&
+          !!call.input._reason,
+      ),
+    )
+    .toBeTruthy();
+  await expect(page.getByRole("cell", { name: "Factory", exact: true })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "Remaining", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Close details", exact: true }).click();
+  await page.getByLabel("Settlement month", { exact: true }).fill("2026-05");
+  await expect(page.getByLabel("Settlement month", { exact: true })).toHaveValue("2026-05");
+  await page.getByRole("button", { name: /Field Member.*Edit incentives/ }).click();
+  await expect(commissioningCount).toHaveText("0");
+  await expect(
+    page.getByText("No approved commissioning for this field associate in this month.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(page.getByRole("cell", { name: "Factory", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Close details", exact: true }).click();
+  await page.getByLabel("Settlement month", { exact: true }).fill("2026-06");
+  await page.getByRole("button", { name: /Field Member.*Edit incentives/ }).click();
+  await expect(page.getByRole("cell", { name: "Factory", exact: true })).toBeVisible();
+  await expect(page.getByText(/Monthly incentives:/)).toHaveCount(0);
+  const pay = page.getByRole("region", { name: "Field Member details", exact: true }).getByRole("button", { name: "Record incentive payment", exact: true });
   await expect(pay).toBeDisabled();
   await expect(pay).toHaveAttribute("title", /2026-07-07/);
   await page.clock.setFixedTime(new Date("2026-07-06T18:30:30Z"));
+  await page.getByRole("button", { name: "Close details", exact: true }).click();
   await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await page.getByRole("button", { name: /Field Member.*Edit incentives/ }).click();
   await expect(pay).toBeEnabled();
   await pay.click();
   await page.getByLabel("Payment reference / method", { exact: true }).fill("BANK-MONTHLY");
@@ -656,6 +801,256 @@ test("Employee opens expenses within the employee portal and switches tabs on mo
   await expect(page).toHaveURL(/\/employee$/);
   expect(errors).toEqual([]);
 });
+
+test("associate commissioning month uses work dates and excludes overdue assessment companies", async ({
+  page,
+}) => {
+  const { errors } = await mock(page, null, "worker");
+  const october = "10000000-0000-4000-8000-000000000011";
+  const overdue = "10000000-0000-4000-8000-000000000012";
+  const november = "10000000-0000-4000-8000-000000000013";
+  const reassigned = "10000000-0000-4000-8000-000000000014";
+  const legacy = "10000000-0000-4000-8000-000000000015";
+  const august = [
+    "10000000-0000-4000-8000-000000000016",
+    "10000000-0000-4000-8000-000000000017",
+    "10000000-0000-4000-8000-000000000018",
+  ];
+  const earning = (site, date, name, extra = {}) => ({
+    id: `earning-${site}`,
+    site_id: site,
+    associate_id: staff,
+    phase: "commissioning",
+    company_name: name,
+    earning_date: date,
+    completed_at: `${date}T10:00:00Z`,
+    eligible: true,
+    paid: false,
+    amount: 2500,
+    ...extra,
+  });
+  const earnings = [
+    earning(october, "2026-10-01", "Assigned September, commissioned October"),
+    earning(november, "2026-11-01", "Assigned October, commissioned November"),
+    earning(reassigned, "2026-10-31", "Completed before reassignment"),
+    earning(overdue, "2026-10-05", "Overdue assessment", { phase: "assessment" }),
+  ];
+  await page.route("**/rest/v1/rpc/field_ops_board", (route) =>
+    route.fulfill({
+      json: {
+        today: "2026-10-30",
+        tracking_started: "2026-01-01",
+        users: [{ id: staff, name: "Staff Member", joined: "2026-01-01", online: true }],
+        earnings,
+        attendance: [],
+        rates: [],
+        visits: [],
+        payments: [],
+        date_changes: [],
+        sites: [
+          {
+            site_id: overdue,
+            phase: "installation",
+            assessment_ready: true,
+            installation_ready: false,
+            commissioning_ready: false,
+            assessment_completed_at: "2026-10-01T12:00:00Z",
+          },
+        ],
+      },
+    }),
+  );
+  await page.route(/\/rest\/v1\/sites(?:\?|$)/, (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: october,
+          name: "Assigned September, commissioned October",
+          assigned_at: "2026-09-01T12:00:00Z",
+        },
+        { id: overdue, name: "Overdue assessment", assigned_at: "2026-10-01T12:00:00Z" },
+        {
+          id: legacy,
+          name: "Submitted without approval",
+          assigned_at: "2026-09-01T12:00:00Z",
+          task_notes:
+            '[METADATA:{"status":"Submitted","activity_logs":[{"type":"status_change","to_status":"Submitted","at":"2026-10-05T12:00:00Z"}]}]',
+        },
+        {
+          id: november,
+          name: "Assigned October, commissioned November",
+          assigned_at: "2026-10-01T12:00:00Z",
+        },
+        ...august.map((id, index) => ({
+          id,
+          name: `Legacy August company ${index + 1}`,
+          assigned_at: "2026-07-01T12:00:00Z",
+          task_notes: '[METADATA:{"status":"Submitted"}]',
+        })),
+      ],
+    }),
+  );
+  await page.route(
+    /\/rest\/v1\/(assessment|installation|commissioning|inventory_materials)(?:\?|$)/,
+    (route) => route.fulfill({ json: [] }),
+  );
+  await page.route(/\/rest\/v1\/commissioning(?:\?|$)/, (route) =>
+    route.fulfill({
+      json: august.map((site_id) => ({
+        site_id,
+        data: { commissioning_phase_submitted: true },
+        updated_at: "2026-08-22T07:26:28.223+00:00",
+      })),
+    }),
+  );
+  await page.goto("/business-consultant");
+  await expect(page.getByRole("button", { name: /8 Total/ })).toBeVisible();
+  await expect(page.getByRole("option", { name: "Commissioned (7)", exact: true })).toHaveCount(1);
+  await expect(page.getByRole("button", { name: /Not credited/ })).toHaveCount(0);
+  await expect(page.getByRole("option", { name: /^Submitted|^Certification Pending/ })).toHaveCount(
+    0,
+  );
+  await page.getByRole("button", { name: /7 Commissioned/ }).click();
+  await expect(page.getByText("Submitted without approval", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /8 Total/ })).toBeVisible();
+  await page.getByLabel("Work month", { exact: true }).fill("2026-08");
+  await expect(page.getByRole("option", { name: "Commissioned (3)", exact: true })).toHaveCount(1);
+  for (let index = 1; index <= 3; index++)
+    await expect(page.getByText(`Legacy August company ${index}`, { exact: true })).toBeVisible();
+  await expect(page.getByText("Legacy record date: 22 Aug 2026", { exact: true })).toHaveCount(3);
+  await page.getByLabel("Work month", { exact: true }).fill("2026-10");
+  await page.getByRole("button", { name: /3 Commissioned/ }).click();
+  await expect(page.getByRole("option", { name: "Commissioned (3)", exact: true })).toHaveCount(1);
+  await expect(page.locator("span").filter({ hasText: /^Commissioned \(3\)$/ })).toBeVisible();
+  await expect(
+    page.getByText("Assigned September, commissioned October", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Completed before reassignment", { exact: true })).toBeVisible();
+  await expect(page.getByText("Overdue assessment", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Submitted without approval", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Assigned October, commissioned November", { exact: true }),
+  ).toHaveCount(0);
+  await page.getByLabel("Work month", { exact: true }).fill("2026-11");
+  await page.getByRole("button", { name: /1 Commissioned/ }).click();
+  await expect(
+    page.getByText("Assigned October, commissioned November", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Assigned September, commissioned October", { exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "My Earnings", exact: true }).click();
+  await expect(
+    page.getByText("Approved commissionings", { exact: true }).locator(".."),
+  ).toContainText("2");
+  await expect(
+    page.getByText("Commissioning incentives", { exact: true }).locator(".."),
+  ).toContainText("5,000.00");
+  await expect(page.getByRole("img", { name: /Daily earnings chart.*5,000.00/ })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+for (const manager of [false, true]) {
+  test(`${manager ? "manager tracker" : "associate portal"} earnings show commissioning only without price controls`, async ({
+    page,
+  }) => {
+    await page.clock.install({ time: new Date("2026-10-30T06:00:00Z") });
+    await page.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//, (route) => route.abort());
+    const { errors } = await mock(
+      page,
+      manager ? "tarun" : null,
+      manager ? "supervisor" : "worker",
+    );
+    await page.route("**/rest/v1/rpc/field_ops_leave_calendar", (route) =>
+      route.fulfill({ json: [] }),
+    );
+    await page.route(/\/rest\/v1\/assessment(?:\?|$)/, (route) => route.fulfill({ json: [] }));
+    const earning = (id, phase, amount, extra = {}) => ({
+      id,
+      site_id: id,
+      associate_id: staff,
+      phase,
+      company_name: id,
+      earning_date: "2026-10-20",
+      completed_at: "2026-10-20T06:00:00Z",
+      eligible: true,
+      paid: false,
+      amount,
+      ...extra,
+    });
+    await page.route("**/rest/v1/rpc/field_ops_board", (route) =>
+      route.fulfill({
+        json: {
+          today: "2026-10-30",
+          tracking_started: "2026-01-01",
+          users: [
+            { id: staff, name: "Staff Member", joined: "2026-01-01", online: true, active: true },
+          ],
+          attendance: [],
+          rates: [],
+          sites: [],
+          visits: [],
+          payments: [],
+          date_changes: [],
+          earnings: [
+            earning("Paid commissioning", "commissioning", 2500, { paid: true }),
+            earning("Unpaid commissioning", "commissioning", 1000),
+            earning("Unpriced commissioning", "commissioning", null),
+            earning("Legacy assessment", "assessment", 9000),
+            earning("Legacy installation", "installation", 8000, { paid: true }),
+            earning("Unapproved commissioning", "commissioning", 7000, { eligible: false }),
+          ],
+        },
+      }),
+    );
+    if (manager) {
+      await page.goto("/manager/field-visit-tracker");
+      await page.getByRole("button", { name: /Staff Member.*Online/ }).click();
+      await expect(page.getByRole("tab", { name: "Work prices", exact: true })).toHaveCount(0);
+      await expect(
+        page.getByRole("img", { name: /Commissioning incentives:.*3,500.00 payable/ }),
+      ).toBeVisible();
+      await expect(
+        page.getByText("Assessment and commissioning income", { exact: true }),
+      ).toHaveCount(0);
+      await page.getByRole("tab", { name: "Earnings", exact: true }).click();
+    } else {
+      await page.goto("/business-consultant");
+      await page.getByRole("button", { name: "My Earnings", exact: true }).click();
+    }
+    await expect(page.getByRole("button", { name: /Save prices|Set price/ })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Record payment", exact: true })).toHaveCount(0);
+    await expect(page.getByText(/Payment clearance opens on/)).toHaveCount(0);
+    await expect(page.getByLabel("Commissioning price", { exact: true })).toHaveCount(0);
+    await expect(
+      page.getByText("Approved commissionings", { exact: true }).locator(".."),
+    ).toContainText("3");
+    await expect(page.getByText("Incentives paid", { exact: true }).locator("..")).toContainText(
+      "2,500.00",
+    );
+    await expect(
+      page.getByText("Incentives outstanding", { exact: true }).locator(".."),
+    ).toContainText("1,000.00");
+    await expect(page.getByRole("img", { name: /Daily earnings chart.*3,500.00/ })).toBeVisible();
+    await expect(
+      page.getByRole("img", {
+        name: "Commissioning payments chart. 3 approved commissionings",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await page.locator("summary").filter({ hasText: "2026-10-20" }).click();
+    await expect(page.getByRole("cell", { name: "Paid commissioning", exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("cell", { name: "Unpaid commissioning", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("cell", { name: "Unpriced commissioning", exact: true }),
+    ).toBeVisible();
+    for (const name of ["Legacy assessment", "Legacy installation", "Unapproved commissioning"])
+      await expect(page.getByRole("cell", { name, exact: true })).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+}
 
 test("Field associate opens expenses within the field workspace", async ({ page }) => {
   const { errors } = await mock(page, null, "worker");

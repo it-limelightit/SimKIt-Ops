@@ -465,9 +465,7 @@ export function FieldFinancePanel({
 }) {
   const [board, setBoard] = useState<FieldFinance | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [assessment, setAssessment] = useState("");
   const [commissioning, setCommissioning] = useState("");
-  const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [earning, setEarning] = useState<FieldFinance["earnings"][number] | null>(null);
   const [amount, setAmount] = useState("");
@@ -478,8 +476,13 @@ export function FieldFinancePanel({
         _associate: person.id,
         _month: `${month}-01`,
       });
+      const period = paymentPeriod(`${month}-01`);
+      if (data.earnings.some((entry) => entry.date < period.start || entry.date > period.end)) {
+        throw new Error(
+          "The finance database is using an outdated settlement period. Apply the calendar-month finance migration before reviewing incentives.",
+        );
+      }
       setBoard(data);
-      setAssessment(String(data.rates?.assessment ?? ""));
       setCommissioning(String(data.rates?.commissioning ?? ""));
       setError(null);
     } catch (e) {
@@ -494,8 +497,16 @@ export function FieldFinancePanel({
   const isPaid =
     !!board?.payments.length ||
     (!!board?.earnings.length && board.earnings.every((earning) => earning.paid));
-  const periodFinished = end < indiaDate();
   const paymentOpen = indiaDate() >= due;
+  const earnings =
+    board?.earnings.filter(
+      (earning) =>
+        earning.phase === "commissioning" && earning.date >= start && earning.date <= end,
+    ) ?? [];
+  const total = earnings.reduce((sum, earning) => sum + Number(earning.amount ?? 0), 0);
+  const paid = earnings.filter((earning) => earning.paid);
+  const remaining = earnings.filter((earning) => !earning.paid);
+  const paidAmount = paid.reduce((sum, earning) => sum + Number(earning.amount ?? 0), 0);
   const action = (action: string) =>
     confirm({
       title:
@@ -534,124 +545,132 @@ export function FieldFinancePanel({
       </p>
     );
   return (
-    <section>
-      <h2>Field attendance & incentives</h2>
-      <p className="finance-notice">
-        Monthly incentives:{" "}
-        <strong>
-          {start} → {end}
-        </strong>
-        . Payment clearance: {due}. Attendance and expenses use the same calendar month.
-      </p>
-      <div className="finance-metrics">
+    <section aria-label="Commissioning incentives">
+      <div className="finance-incentive-heading">
+        <h2>Commissioning incentives</h2>
+        <span className="finance-muted">
+          {new Date(`${month}-01T12:00:00Z`).toLocaleDateString("en-IN", {
+            month: "long",
+            year: "numeric",
+          })}
+        </span>
+      </div>
+      <div className="finance-metrics finance-incentive-summary">
         <Metric
-          label="Online days (any online event)"
-          value={board.calendar.filter((d) => d.online).length}
+          label="Commissionings this month"
+          value={earnings.length}
+          detail="Approved commissionings"
         />
         <Metric
-          label="Offline days"
-          value={
-            board.calendar.filter(
-              (d) =>
-                !d.online &&
-                !d.off_day &&
-                d.date <= indiaDate() &&
-                !board.leaves.some((l) => l.date === d.date && l.status === "approved"),
-            ).length
-          }
-        />
-        <Metric
-          label="Approved leave days"
-          value={
-            new Set(board.leaves.filter((l) => l.status === "approved").map((l) => l.date)).size
-          }
-        />
-        <Metric
-          label="Rejected leave days"
-          value={
-            new Set(board.leaves.filter((l) => l.status === "rejected").map((l) => l.date)).size
-          }
-        />
-        <Metric label="Off days" value={board.calendar.filter((day) => day.off_day).length} />
-        <Metric
-          label="Incentives (month)"
-          value={money(board.earnings.reduce((s, e) => s + Number(e.amount ?? 0), 0))}
+          label="Total incentives"
+          value={money(total)}
+          detail={`${earnings.length} approved ${earnings.length === 1 ? "commissioning" : "commissionings"}`}
         />
         <Metric
           label="Incentives paid"
-          value={money(
-            board.earnings
-              .filter((earning) => earning.paid)
-              .reduce((s, e) => s + Number(e.amount ?? 0), 0),
-          )}
+          value={money(paidAmount)}
+          detail={`${paid.length} ${paid.length === 1 ? "commissioning" : "commissionings"} paid`}
+        />
+        <Metric
+          label="Incentives outstanding"
+          value={money(total - paidAmount)}
+          detail={`${remaining.length} ${remaining.length === 1 ? "commissioning" : "commissionings"} unpaid · Due ${new Date(`${due}T12:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}`}
         />
       </div>
-      <div className="finance-calendar" aria-label="Field calendar">
-        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-          <span key={d} className="text-center text-xs finance-muted">
-            {d}
-          </span>
-        ))}
-        {Array.from({ length: new Date(`${month}-01T12:00:00Z`).getUTCDay() }, (_, i) => (
-          <span key={`pad-${i}`} />
-        ))}
-        {board.calendar.map((day) => (
-          <div
-            key={day.date}
-            className="finance-day"
-            data-status={day.online ? "present" : day.off_day ? "off_day" : "absent"}
-          >
-            <strong>{Number(day.date.slice(-2))}</strong>
-            {day.date > indiaDate()
-              ? "Scheduled"
-              : day.online
-                ? "Online"
-                : day.off_day
-                  ? "Off day"
-                  : "Offline"}
-            {board.leaves
-              .filter((l) => l.date === day.date)
-              .map((leave, i) => (
-                <span key={i} className="block mt-1" title={leave.reason}>
-                  Leave: {leave.status}
-                </span>
-              ))}
-          </div>
-        ))}
-      </div>
+      {remaining.some((earning) => earning.amount === null) && (
+        <p className="finance-notice" role="status">
+          {remaining.filter((earning) => earning.amount === null).length} commissionings need a
+          rate. Totals exclude unpriced work. Set rates to continue approval.
+        </p>
+      )}
+      <details className="finance-notice">
+        <summary>Field attendance for this month</summary>
+        <div className="finance-metrics">
+          <Metric
+            label="Online days (any online event)"
+            value={board.calendar.filter((d) => d.online).length}
+          />
+          <Metric
+            label="Offline days"
+            value={
+              board.calendar.filter(
+                (d) =>
+                  !d.online &&
+                  !d.off_day &&
+                  d.date <= indiaDate() &&
+                  !board.leaves.some((l) => l.date === d.date && l.status === "approved"),
+              ).length
+            }
+          />
+          <Metric
+            label="Approved leave days"
+            value={
+              new Set(board.leaves.filter((l) => l.status === "approved").map((l) => l.date)).size
+            }
+          />
+          <Metric
+            label="Rejected leave days"
+            value={
+              new Set(board.leaves.filter((l) => l.status === "rejected").map((l) => l.date)).size
+            }
+          />
+          <Metric label="Off days" value={board.calendar.filter((day) => day.off_day).length} />
+        </div>
+        <div className="finance-calendar" aria-label="Field calendar">
+          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+            <span key={d} className="text-center text-xs finance-muted">
+              {d}
+            </span>
+          ))}
+          {Array.from({ length: new Date(`${month}-01T12:00:00Z`).getUTCDay() }, (_, i) => (
+            <span key={`pad-${i}`} />
+          ))}
+          {board.calendar.map((day) => (
+            <div
+              key={day.date}
+              className="finance-day"
+              data-status={day.online ? "present" : day.off_day ? "off_day" : "absent"}
+            >
+              <strong>{Number(day.date.slice(-2))}</strong>
+              {day.date > indiaDate()
+                ? "Scheduled"
+                : day.online
+                  ? "Online"
+                  : day.off_day
+                    ? "Off day"
+                    : "Offline"}
+              {board.leaves
+                .filter((l) => l.date === day.date)
+                .map((leave, i) => (
+                  <span key={i} className="block mt-1" title={leave.reason}>
+                    Leave: {leave.status}
+                  </span>
+                ))}
+            </div>
+          ))}
+        </div>
+      </details>
       <form
-        className="rounded-xl border border-border bg-surface p-4 my-4 grid gap-4 sm:grid-cols-4"
+        className="rounded-xl border border-border bg-surface p-4 my-4 flex flex-wrap items-end gap-4"
         onSubmit={(e) => {
           e.preventDefault();
           setBusy(true);
           void financeRpc("finance_field_rates", {
             _associate: person.id,
-            _assessment: Number(assessment),
+            _assessment: 0,
             _commissioning: Number(commissioning),
-            _reason: reason,
+            _reason: "Commissioning rate updated from Salary / Expense",
           })
             .then(async () => {
               toast.success(
                 "Rates saved. Existing priced work stays unchanged; use Edit amount for corrections.",
               );
-              setReason("");
               await load();
             })
             .catch((e) => toast.error(e.message))
             .finally(() => setBusy(false));
         }}
       >
-        <Field label="Assessment rate (INR)">
-          <input
-            className="finance-input"
-            type="number"
-            step="0.01"
-            min="0"
-            required
-            value={assessment}
-            onChange={(e) => setAssessment(e.target.value)}
-          />
-        </Field>
         <Field label="Commissioning rate (INR)">
           <input
             className="finance-input"
@@ -663,15 +682,6 @@ export function FieldFinancePanel({
             onChange={(e) => setCommissioning(e.target.value)}
           />
         </Field>
-        <Field label="Change reason">
-          <input
-            className="finance-input"
-            required
-            maxLength={1000}
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-          />
-        </Field>
         <div className="self-end">
           <Button disabled={busy}>Save rates</Button>
         </div>
@@ -680,8 +690,8 @@ export function FieldFinancePanel({
         <table className="finance-table !min-w-[650px]">
           <thead>
             <tr>
-              <th>Date</th>
-              <th>Work</th>
+              <th>Commissioning date</th>
+              <th>Approval</th>
               <th>Company</th>
               <th>Amount</th>
               <th>Payment</th>
@@ -689,10 +699,12 @@ export function FieldFinancePanel({
             </tr>
           </thead>
           <tbody>
-            {board.earnings.map((e) => (
+            {earnings.map((e) => (
               <tr key={e.id}>
                 <td>{e.date}</td>
-                <td>{readable(e.phase)}</td>
+                <td>
+                  <Pill value="approved" />
+                </td>
                 <td>{e.company}</td>
                 <td>{e.amount === null ? "Rate pending" : money(Number(e.amount))}</td>
                 <td>
@@ -716,9 +728,11 @@ export function FieldFinancePanel({
                 </td>
               </tr>
             ))}
-            {!board.earnings.length && (
+            {!earnings.length && (
               <tr>
-                <td colSpan={6}>No eligible completed work in this month.</td>
+                <td colSpan={6}>
+                  No approved commissioning for this field associate in this month.
+                </td>
               </tr>
             )}
           </tbody>
@@ -733,10 +747,14 @@ export function FieldFinancePanel({
           </p>
         )}
         <div className="flex flex-wrap gap-2 mt-3">
-          {!isPaid && role === "hardik" && board.earnings.length > 0 && (
+          {!isPaid && role === "hardik" && earnings.length > 0 && (
             <Button
-              disabled={!periodFinished}
-              title={periodFinished ? undefined : "Verification opens after month end"}
+              disabled={busy || remaining.some((earning) => earning.amount === null)}
+              title={
+                remaining.some((earning) => earning.amount === null)
+                  ? "Set all incentive amounts before verifying"
+                  : undefined
+              }
               onClick={() => action("forward")}
             >
               Verify & forward incentives

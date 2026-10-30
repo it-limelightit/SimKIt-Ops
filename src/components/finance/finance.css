@@ -363,6 +363,144 @@
   color: var(--text-secondary);
   margin-top: 8px;
 }
+.finance-incentive-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.finance-incentive-directory {
+  display: grid;
+  gap: 16px;
+}
+.finance-incentive-directory .finance-metrics {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+.finance-incentive-directory .finance-input {
+  width: auto;
+}
+.finance-workspace .finance-incentive-directory > .finance-table-scroll > .finance-table {
+  min-width: 1250px;
+  table-layout: fixed;
+}
+.finance-incentive-directory .finance-table-scroll {
+  max-height: none;
+}
+.finance-incentive-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 300px;
+}
+.finance-incentive-inline-details {
+  display: grid;
+  gap: 20px;
+  padding: 12px;
+  min-width: 0;
+  white-space: normal;
+}
+.finance-incentive-cell-total {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 6px;
+}
+.finance-incentive-cell-total > strong {
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.finance-incentive-cell-total > span {
+  color: var(--text-secondary);
+  font-size: 11px;
+  background: var(--surface-raised);
+  padding: 3px 7px;
+  border-radius: 5px;
+}
+.finance-workspace .finance-incentive-review-table td {
+  padding: 18px 16px;
+  white-space: normal;
+}
+.finance-workspace .finance-incentive-review-table th {
+  padding-left: 16px;
+  padding-right: 16px;
+  white-space: normal;
+}
+.finance-incentive-person-cell > strong {
+  display: block;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+.finance-workspace .finance-incentive-person-cell > p {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.finance-workspace .finance-incentive-review-table .finance-incentive-review-date {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 10px;
+  line-height: 1.5;
+}
+.finance-workspace .finance-incentive-review-table .finance-incentive-review-date small {
+  margin-top: 1px;
+  font-size: 10px;
+}
+.finance-incentive-review-table .finance-incentive-balance {
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+.finance-incentive-review-table .finance-incentive-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  max-width: none;
+}
+.finance-incentive-review-table .finance-incentive-actions button {
+  min-height: 32px;
+  padding: 6px 9px;
+  font-size: 12px;
+  justify-content: center;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.finance-incentive-pending-row > td:first-child {
+  box-shadow: inset 3px 0 var(--lime);
+}
+.finance-incentive-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 14px;
+}
+.finance-incentive-summary .finance-metric strong {
+  font-size: clamp(22px, 2.3vw, 30px);
+  letter-spacing: -0.035em;
+}
+.finance-incentive-summary .finance-metric:last-child {
+  border-color: color-mix(in srgb, var(--lime) 35%, var(--border));
+  background: color-mix(in srgb, var(--lime) 5%, var(--surface));
+}
+.finance-associate-expenses {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
+.finance-expense-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 14px 0 20px;
+}
+@media (min-width: 641px) and (max-width: 1024px) {
+  .finance-incentive-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .finance-incentive-summary {
+    grid-template-columns: 1fr;
+  }
+  .finance-expense-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 .finance-manager .finance-overview-metrics .finance-metric:nth-child(3) {
   border-top: 3px solid var(--lime);
   padding-top: 18px;
@@ -1101,19 +1239,28 @@
   background: var(--surface);
   text-align: left;
   cursor: pointer;
-  transition: border-color 150ms, box-shadow 150ms;
+  transition:
+    border-color 150ms,
+    box-shadow 150ms;
 }
 .finance-receipt:hover {
   border-color: var(--lime);
   box-shadow: 0 3px 12px rgb(15 23 42 / 8%);
 }
-.finance-receipt:last-child { margin-bottom: 0; }
+.finance-receipt:last-child {
+  margin-bottom: 0;
+}
 .finance-receipt:focus-visible {
   outline: 2px solid var(--lime);
   outline-offset: 3px;
 }
-.finance-receipt:disabled { cursor: progress; opacity: .7; }
-.finance-receipt-image { align-items: center; }
+.finance-receipt:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+.finance-receipt-image {
+  align-items: center;
+}
 .finance-receipt-preview {
   position: relative;
   display: flex;
@@ -1167,7 +1314,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.finance-receipt-document { align-items: center; }
+.finance-receipt-document {
+  align-items: center;
+}
 .finance-receipt-file-icon {
   display: flex;
   flex-direction: column;

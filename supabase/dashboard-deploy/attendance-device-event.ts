@@ -131,6 +131,17 @@ serve(async (req) => {
   if (typeof input.topic !== "string" || !allowed.includes(input.topic))
     throw new HttpError(403, "Topic not allowed");
   const admin = adminClient();
+  if (input.kind === "receiver_health") {
+    if (typeof input.healthy !== "boolean") throw new HttpError(400, "Boolean health required");
+    checked(await admin.rpc("attendance_record_receiver_health", {
+      _event_id: uuid(input.event_id),
+      _component: requiredText(input.component, "component", 32),
+      _healthy: input.healthy,
+      _reason: requiredText(input.reason, "reason", 128),
+      _observed_at: isoTimestamp(input.observed_at)
+    }));
+    return json({ accepted: true });
+  }
   if (input.kind === "heartbeat") {
     const observed = Date.parse(isoTimestamp(input.observed_at));
     if (Math.abs(Date.now() - observed) > 6e4)
@@ -162,11 +173,15 @@ serve(async (req) => {
   if (input.kind !== "scan" || typeof input.recognized !== "boolean")
     throw new Error("A scan requires kind and boolean recognized");
   const event = checked(
-    await admin.rpc("attendance_ingest_scan", {
+    await admin.rpc("attendance_ingest_scan_v2", {
       _event_id: requiredText(input.event_id, "event_id"),
       _enroll_id: requiredText(input.enroll_id, "enroll_id", 64),
       _scanned_at: isoTimestamp(input.scanned_at),
-      _recognized: input.recognized
+      _recognized: input.recognized,
+      _receiver_received_at: isoTimestamp(input.receiver_received_at ?? input.scanned_at),
+      _device_time_raw: input.device_time_raw == null ? null : requiredText(input.device_time_raw, "device_time_raw", 40),
+      _time_source: input.time_source === "receiver_live" ? "receiver_live" : "unverified",
+      _time_review_reason: input.time_source === "receiver_live" ? null : requiredText(input.time_review_reason ?? "receiver_health_missing", "time_review_reason", 128)
     })
   );
   if (event.state === "valid")
@@ -177,7 +192,7 @@ serve(async (req) => {
         _observed_at: isoTimestamp(input.scanned_at)
       })
     );
-  if (event.state !== "valid" || !input.photo_base64 || Date.parse(event.expires_at) <= Date.now())
+  if (!["valid", "time_unverified"].includes(event.state) || !input.photo_base64 || Date.parse(event.expires_at) <= Date.now())
     return json({ ...event, photo: "not_stored" });
   try {
     const photo = photoBytes(input.photo_base64, input.photo_mime);

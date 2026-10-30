@@ -54,7 +54,9 @@ before(async () => {
  CREATE TABLE field_payment_records(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),associate_id uuid,period_end date CHECK(extract(day FROM period_end)=15),amount numeric,paid_on date,reference text,recorded_by uuid,UNIQUE(associate_id,period_end));
  CREATE TABLE field_payment_items(payment_id uuid,earning_id uuid PRIMARY KEY,amount numeric);
  CREATE FUNCTION field_ops_associate(_id uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT has_role(_id,'worker') $$;
- CREATE FUNCTION field_ops_phase_ready(_id uuid,_phase text) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT true $$;
+ CREATE TABLE test_commissioning_sites(id uuid PRIMARY KEY,approved boolean);
+ INSERT INTO test_commissioning_sites VALUES('10000000-0000-4000-8000-000000000001',true),('10000000-0000-4000-8000-000000000002',false);
+ CREATE FUNCTION field_ops_phase_ready(_id uuid,_phase text) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT coalesce((SELECT approved FROM test_commissioning_sites WHERE id=_id),false) $$;
  CREATE FUNCTION field_ops_period_end(_date date) RETURNS date LANGUAGE sql IMMUTABLE AS $$ SELECT (date_trunc('month',_date)+CASE WHEN extract(day FROM _date)>15 THEN interval '1 month' ELSE interval '0 month' END+interval '14 days')::date $$;
  INSERT INTO auth.users VALUES('${hardik}','admin@limelightit.io',now()),('${tarun}','tarun@limelightit.io',now()),('${staff}','staff@test.io',now()),('${other}','other@test.io',now()),('${associate}','field@test.io',now());
  INSERT INTO profiles SELECT id,split_part(email,'@',1),true FROM auth.users;
@@ -102,8 +104,77 @@ before(async () => {
       "utf8",
     ),
   );
+  await db.exec(
+    readFileSync(
+      new URL(
+        "../supabase/migrations/20261030120000_commissioning_only_finance.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
 });
 after(() => db.close());
+
+test("current-month incentives can be verified and approved before month end while payment stays locked", async () => {
+  await db.exec(
+    readFileSync(
+      new URL(
+        "../supabase/migrations/20261030160000_incentive_review_anytime.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  try {
+    const end = await scalar(
+      "select field_ops_period_end((now() AT TIME ZONE 'Asia/Kolkata')::date)::text",
+    );
+    const earning = await scalar(
+      "insert into field_earnings(site_id,associate_id,company_name,phase,earning_date,amount) values('10000000-0000-4000-8000-000000000001',$1,'Current month commissioning','commissioning',(now() AT TIME ZONE 'Asia/Kolkata')::date,null) returning id",
+      [associate],
+    );
+    await as(hardik);
+    await assert.rejects(
+      db.query("select finance_field_action($1,$2,0,'forward')", [associate, end]),
+      /set all rates/,
+    );
+    await db.query("update field_earnings set amount=2500 where id=$1", [earning]);
+    await as(staff);
+    await assert.rejects(
+      db.query("select finance_field_action($1,$2,0,'forward')", [associate, end]),
+    );
+    await as(hardik);
+    await db.query("select finance_field_action($1,$2,0,'forward')", [associate, end]);
+    await as(tarun);
+    await db.query("select finance_field_action($1,$2,1,'approve')", [associate, end]);
+    assert.equal(
+      await scalar(
+        "select status from field_finance_reviews where associate_id=$1 and period_end=$2",
+        [associate, end],
+      ),
+      "approved",
+    );
+    await assert.rejects(
+      db.query("select finance_field_action($1,$2,2,'pay','EARLY')", [associate, end]),
+      /Finished calendar month|following month/,
+    );
+    await as(hardik);
+    await assert.rejects(
+      db.query(
+        "select finance_field_action($1,field_ops_period_end((current_date + interval '2 months')::date),0,'forward')",
+        [associate],
+      ),
+      /current or past calendar month/,
+    );
+  } finally {
+    await db.query(
+      "delete from field_finance_reviews where associate_id=$1 and period_end=field_ops_period_end((now() AT TIME ZONE 'Asia/Kolkata')::date)",
+      [associate],
+    );
+    await db.query("delete from field_earnings where company_name='Current month commissioning'");
+  }
+});
 
 test("reapplication uses the latest saved rejection even after current approval fields reset", () => {
   const events = [
@@ -489,21 +560,64 @@ test("salary approval resets on either reviewer edit and locks after payment", a
     /Paid salary is locked/,
   );
 });
+test("only approved commissioning for the selected associate and month can be paid", async () => {
+  await db.query(
+    `insert into field_earnings(site_id,associate_id,company_name,phase,earning_date,amount) values
+    ('10000000-0000-4000-8000-000000000001',$1,'Approved','commissioning','2019-01-10',1500),
+    ('10000000-0000-4000-8000-000000000002',$1,'Not approved','commissioning','2019-01-11',2000),
+    (null,$1,'No approval evidence','commissioning','2019-01-12',3000),
+    ('10000000-0000-4000-8000-000000000001',$1,'Assessment','assessment','2019-01-13',500),
+    ('10000000-0000-4000-8000-000000000001',$1,'Installation','installation','2019-01-14',500),
+    ('10000000-0000-4000-8000-000000000001',$2,'Other associate','commissioning','2019-01-15',500),
+    ('10000000-0000-4000-8000-000000000001',$1,'Next month','commissioning','2019-02-01',500)`,
+    [associate, other],
+  );
+  await as(staff);
+  await assert.rejects(db.query("select finance_field_board($1,'2019-01-01')", [associate]));
+  await as(hardik);
+  const board = await scalar("select finance_field_board($1,'2019-01-01')", [associate]);
+  assert.deepEqual(
+    board.earnings.map((earning) => earning.company),
+    ["Approved"],
+  );
+  await db.query("select finance_field_action($1,'2019-01-31',0,'forward')", [associate]);
+  await as(tarun);
+  await db.query("select finance_field_action($1,'2019-01-31',1,'approve')", [associate]);
+  await db.query("select finance_field_action($1,'2019-01-31',2,'pay','COMMISSION-ONLY')", [
+    associate,
+  ]);
+  const payment = await scalar(
+    "select to_jsonb(p) from field_payment_records p where associate_id=$1 and period_end='2019-01-31'",
+    [associate],
+  );
+  assert.equal(Number(payment.amount), 1500);
+  assert.equal(
+    await scalar("select count(*)::int from field_payment_items where payment_id=$1", [payment.id]),
+    1,
+  );
+  const paid = await scalar("select finance_field_board($1,'2019-01-01')", [associate]);
+  assert.equal(paid.earnings[0].paid, true);
+});
+
 test("field incentives use calendar months, require final approval and reuse existing payments", async () => {
   await db.query(
-    "insert into field_earnings(associate_id,company_name,phase,earning_date,amount) values($1,'Company','assessment','2020-06-16',1000),($1,'Company','commissioning','2020-07-15',2000),($1,'Next','assessment','2020-07-16',3000)",
+    "insert into field_earnings(associate_id,company_name,phase,earning_date,amount) values($1,'Company','commissioning','2020-06-16',1000),($1,'Company','commissioning','2020-07-15',2000),($1,'Next','assessment','2020-07-16',3000)",
     [associate],
+  );
+  await db.query(
+    "update field_earnings set site_id='10000000-0000-4000-8000-000000000001' where phase='commissioning'",
   );
   await as(hardik);
   const board = await scalar("select finance_field_board($1,'2020-07-01')", [associate]);
-  assert.equal(board.earnings.length, 2);
+  assert.equal(board.earnings.length, 1);
+  assert.equal(board.earnings[0].phase, "commissioning");
   await assert.rejects(
     db.query("select field_ops_record_payment($1,'2020-07-31',current_date,'BANK')", [associate]),
     /Tarun approval/,
   );
   await assert.rejects(
     db.query("select finance_field_action($1,'2020-07-15',0,'forward')", [associate]),
-    /finished calendar month/,
+    /current or past calendar month/,
   );
   await db.query("select finance_field_action($1,'2020-07-31',0,'forward')", [associate]);
   await as(tarun);
@@ -517,7 +631,7 @@ test("field incentives use calendar months, require final approval and reuse exi
     await scalar(
       "select count(*)::int from field_payment_items i join field_payment_records p on p.id=i.payment_id where p.period_end='2020-07-31'",
     ),
-    2,
+    1,
   );
   assert.equal(
     Number(
@@ -526,7 +640,7 @@ test("field incentives use calendar months, require final approval and reuse exi
         [associate],
       ),
     ),
-    5000,
+    2000,
   );
   await assert.rejects(
     db.query("select finance_field_earning($1,50,'Change paid')", [board.earnings[0].id]),
@@ -534,7 +648,7 @@ test("field incentives use calendar months, require final approval and reuse exi
   );
   await db.query("update field_earnings set eligible=false where id=$1", [board.earnings[0].id]);
   const paidHistory = await scalar("select finance_field_board($1,'2020-07-01')", [associate]);
-  assert.equal(paidHistory.earnings.length, 2, "Paid work remains visible if the site is reopened");
+  assert.equal(paidHistory.earnings.length, 1, "Paid work remains visible if the site is reopened");
 });
 
 test("calendar migration preserves legacy payments and only clears unpaid work on or after the 7th", async () => {
@@ -561,8 +675,8 @@ test("calendar migration preserves legacy payments and only clears unpaid work o
   }
   await as(hardik);
   const june = await scalar("select finance_field_board($1,'2020-06-01')", [associate]);
-  assert.equal(june.earnings.length, 2);
-  assert.equal(june.earnings.filter((earning) => earning.paid).length, 1);
+  assert.equal(june.earnings.length, 1);
+  assert.equal(june.earnings.filter((earning) => earning.paid).length, 0);
   await db.query("select finance_field_action($1,'2020-06-30',0,'forward')", [associate]);
   await as(tarun);
   await db.query("select finance_field_action($1,'2020-06-30',1,'approve')", [associate]);

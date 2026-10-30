@@ -61,7 +61,7 @@ import { AssociateExtraInventory } from "@/components/inventory/AssociateExtraIn
 import { CompanyTracker } from "@/components/company-tracker/CompanyTracker";
 import { AssociateEntryGate, AssociateEarnings, AssociateSchedule } from "@/components/field-operations/FieldOperations";
 import { useFieldOperations } from "@/hooks/use-field-operations";
-import { installationOverdue } from "@/lib/field-operations";
+import { commissioningEarnings, indiaDate, installationOverdue, paymentPeriod } from "@/lib/field-operations";
 import { OrderTab } from "@/components/business-consultant/OrderTab";
 import {
   getCanonicalStatus,
@@ -71,6 +71,7 @@ import {
   hasDeviceOrder,
 } from "@/utils/status";
 import { notifyAfterNewFactoryFormSubmission } from "@/lib/factory-form-notification";
+import { associateCompletionDate } from "@/utils/associate-completion-date";
 
 export const Route = createFileRoute("/business-consultant")({
   ssr: false,
@@ -89,6 +90,8 @@ type Site = {
   city: string | null;
   address: string | null;
   assigned_at: string | null;
+  commissioned_on?: string | null;
+  commissioning_record_updated_at?: string | null;
   appt_date: string | null;
   appt_time: string | null;
   task_notes: string | null;
@@ -277,7 +280,7 @@ function BusinessConsultantPage() {
     const [aRes, iRes, cRes, mRes] = await Promise.all([
       supabase.from("assessment").select("site_id,data").in("site_id", siteIds),
       supabase.from("installation").select("site_id,data").in("site_id", siteIds),
-      supabase.from("commissioning").select("site_id,data").in("site_id", siteIds),
+      supabase.from("commissioning").select("site_id,data,updated_at").in("site_id", siteIds),
       supabase.from("inventory_materials").select("state,notes,submitted,material_name,created_at"),
     ]);
 
@@ -337,6 +340,8 @@ function BusinessConsultantPage() {
         status,
         derivedStatus,
         assessmentPendingReasons,
+        commissioned_on: typeof cData === "object" && cData && !Array.isArray(cData) && typeof cData.commissioning_phase_submitted_at === "string" ? cData.commissioning_phase_submitted_at : null,
+        commissioning_record_updated_at: cMap.get(s.id)?.updated_at ?? null,
         submitted,
       };
     });
@@ -1156,7 +1161,7 @@ function consultantStatusLabel(status: string) {
 }
 
 function ConsultantDashboard({
-  sites,
+  sites: allSites,
   onSelectSite,
 }: {
   sites: Array<
@@ -1174,8 +1179,110 @@ function ConsultantDashboard({
   onSelectSite: (siteId: string) => void;
 }) {
   const [selectedKpi, setSelectedKpi] = useState<string>("not_started");
+  const [workMonth, setWorkMonth] = useState("");
+  const { userId } = useAuth();
   const fieldOperations = useFieldOperations();
-  const overdueIds = new Set(fieldOperations.board?.sites.filter((company) => installationOverdue(company, fieldOperations.board!.today)).map((company) => company.site_id) ?? []);
+  if (!fieldOperations.board) {
+    return (
+      <div
+        role={fieldOperations.error ? "alert" : "status"}
+        className="rounded-xl border border-border p-6"
+      >
+        {fieldOperations.error || "Loading approved work records…"}
+      </div>
+    );
+  }
+  const period = workMonth ? paymentPeriod(`${workMonth}-01`) : null;
+  const commissioning = commissioningEarnings(
+    fieldOperations.board?.earnings ?? [],
+    userId ?? "",
+    period?.start,
+    period?.end,
+  );
+  const commissionedIds = new Set(commissioning.map((entry) => entry.site_id));
+  const allCommissionedIds = new Set(
+    commissioningEarnings(fieldOperations.board?.earnings ?? [], userId ?? "").map(
+      (entry) => entry.site_id,
+    ),
+  );
+  const activityIds = new Set([
+    ...(fieldOperations.board?.earnings ?? [])
+      .filter(
+        (entry) =>
+          entry.associate_id === userId &&
+          (entry.eligible || entry.paid) &&
+          (!period || (entry.earning_date >= period.start && entry.earning_date <= period.end)),
+      )
+      .map((entry) => entry.site_id),
+    ...(fieldOperations.board?.visits ?? [])
+      .filter(
+        (visit) =>
+          visit.assignee_id === userId &&
+          (!period || (visit.scheduled_for >= period.start && visit.scheduled_for <= period.end)),
+      )
+      .map((visit) => visit.site_id),
+  ]);
+  const completionStatuses = ["Commissioned", "Submitted", "Certification Pending"];
+  const allCommissioning = commissioningEarnings(fieldOperations.board.earnings, userId ?? "");
+  const completionDate = (site: Site) => associateCompletionDate({
+    workDate: allCommissioning.find(entry => entry.site_id === site.id)?.earning_date,
+    submittedAt: site.commissioned_on,
+    recordUpdatedAt: site.commissioning_record_updated_at,
+    activityLogs: parseSiteMetadata(site.task_notes).activity_logs,
+  });
+  const sites = allSites
+    .filter((site) => {
+      // All-time Total keeps every assignment, including legacy status-only completions.
+      if (!period) return true;
+      if (allCommissionedIds.has(site.id)) return commissionedIds.has(site.id);
+      if (completionStatuses.includes(site.derivedStatus)) {
+        const date = completionDate(site)?.date;
+        return !!date && date >= period.start && date <= period.end;
+      }
+      return !period || activityIds.has(site.id);
+    })
+    .map((site) =>
+      commissionedIds.has(site.id)
+        ? {
+            ...site,
+            derivedStatus: "Commissioned",
+            aPct: 100,
+            iPct: 100,
+            cPct: 100,
+            overall: 100,
+          }
+        : site,
+    );
+  // Keep completed work visible after reassignment; never infer entitlement from current assignment.
+  for (const entry of commissioning) {
+    const existing = sites.find((site) => site.id === entry.site_id);
+    if (existing) continue;
+    sites.push({
+      id: entry.site_id ?? `earning:${entry.id}`,
+      name: entry.company_name,
+      company_name: entry.company_name,
+      city: null,
+      address: null,
+      assigned_at: null,
+      appt_date: null,
+      appt_time: null,
+      task_notes: null,
+      consultant_stage: null,
+      aPct: 100,
+      iPct: 100,
+      cPct: 100,
+      overall: 100,
+      status: "Complete",
+      derivedStatus: "Commissioned",
+      assessmentPendingReasons: [],
+      submitted: { assessment: true, installation: true, commissioning: true },
+    });
+  }
+  const overdueIds = new Set(
+    fieldOperations.board?.sites
+      .filter((company) => installationOverdue(company, fieldOperations.board!.today))
+      .map((company) => company.site_id) ?? [],
+  );
 
   const totalSites = sites.length;
   const countNotStarted = sites.filter(
@@ -1186,20 +1293,14 @@ function ConsultantDashboard({
     (s) => s.derivedStatus === "Panel Dispatched" || s.derivedStatus === "Device Order",
   ).length;
   const countInstalled = sites.filter((s) => s.derivedStatus === "Installed").length;
-  // Commissioned also includes the final Submitted / Certification Pending
-  // lifecycle states, but never a site that is still Installed.
-  const isCommissionedLifecycle = (site: (typeof sites)[number]) =>
-    ["Commissioned", "Submitted", "Certification Pending"].includes(site.derivedStatus);
-  const countCommissioned = sites.filter(isCommissionedLifecycle).length;
-  const countSubmitted = sites.filter((s) => s.derivedStatus === "Submitted").length;
-  const countCertification = sites.filter(
-    (s) => s.derivedStatus === "Certification Pending",
-  ).length;
+  // Assignment progress includes submitted companies. Incentive approval is tracked separately.
+  const isCommissionedWork = (site: (typeof sites)[number]) =>
+    completionStatuses.includes(site.derivedStatus) ||
+    commissionedIds.has(site.id) ||
+    commissioning.some((entry) => `earning:${entry.id}` === site.id);
+  const countCommissioned = sites.filter(isCommissionedWork).length;
   const countUnsubmitted = sites.filter((s) => s.derivedStatus === "Unsubmitted").length;
   const countDropped = sites.filter((s) => s.derivedStatus === "Dropped / Rejected").length;
-  const countClosed = sites.filter(
-    (s) => s.derivedStatus === "Submitted" || s.derivedStatus === "Dropped / Rejected",
-  ).length;
 
   const avgOverallProgress =
     totalSites > 0
@@ -1265,7 +1366,7 @@ function ConsultantDashboard({
       id: "commissioned",
       label: "Commissioned",
       value: countCommissioned,
-      desc: "Commissioned only",
+      desc: "Includes submitted companies",
       icon: CheckCircle2,
       badgeStyle: "text-emerald-600 bg-emerald-50 border-emerald-200",
       activeBorder:
@@ -1291,50 +1392,39 @@ function ConsultantDashboard({
     device_order: "Device Order",
     installed: "Installed",
     commissioned: "Commissioned",
-    submitted: "Submitted",
-    certification: "Certification Pending",
     unsubmitted: "Unsubmitted",
     dropped: "Dropped / Rejected",
-    closed: "Submitted / Dropped",
   };
 
-  const filteredSites = sites.filter((s) => {
-    if (overdueIds.has(s.id)) return true;
-    if (selectedKpi === "total") {
+  const filteredSites = sites
+    .filter((s) => {
+      if (selectedKpi === "total") {
+        return true;
+      }
+      if (selectedKpi === "not_started") {
+        return s.derivedStatus === "Not Started Yet" || s.derivedStatus === "Pending Assignment";
+      }
+      if (selectedKpi === "assessed") {
+        return s.derivedStatus === "Assessed";
+      }
+      if (selectedKpi === "device_order") {
+        return s.derivedStatus === "Panel Dispatched" || s.derivedStatus === "Device Order";
+      }
+      if (selectedKpi === "installed") {
+        return s.derivedStatus === "Installed";
+      }
+      if (selectedKpi === "commissioned") {
+        return isCommissionedWork(s);
+      }
+      if (selectedKpi === "unsubmitted") {
+        return s.derivedStatus === "Unsubmitted";
+      }
+      if (selectedKpi === "dropped") {
+        return s.derivedStatus === "Dropped / Rejected";
+      }
       return true;
-    }
-    if (selectedKpi === "not_started") {
-      return s.derivedStatus === "Not Started Yet" || s.derivedStatus === "Pending Assignment";
-    }
-    if (selectedKpi === "assessed") {
-      return s.derivedStatus === "Assessed";
-    }
-    if (selectedKpi === "device_order") {
-      return s.derivedStatus === "Panel Dispatched" || s.derivedStatus === "Device Order";
-    }
-    if (selectedKpi === "installed") {
-      return s.derivedStatus === "Installed";
-    }
-    if (selectedKpi === "commissioned") {
-      return isCommissionedLifecycle(s);
-    }
-    if (selectedKpi === "submitted") {
-      return s.derivedStatus === "Submitted";
-    }
-    if (selectedKpi === "certification") {
-      return s.derivedStatus === "Certification Pending";
-    }
-    if (selectedKpi === "unsubmitted") {
-      return s.derivedStatus === "Unsubmitted";
-    }
-    if (selectedKpi === "dropped") {
-      return s.derivedStatus === "Dropped / Rejected";
-    }
-    if (selectedKpi === "closed") {
-      return s.derivedStatus === "Submitted" || s.derivedStatus === "Dropped / Rejected";
-    }
-    return true;
-  }).sort((a, b) => Number(overdueIds.has(b.id)) - Number(overdueIds.has(a.id)));
+    })
+    .sort((a, b) => Number(overdueIds.has(b.id)) - Number(overdueIds.has(a.id)));
 
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
@@ -1347,14 +1437,38 @@ function ConsultantDashboard({
             My Assignments
           </h1>
         </div>
-        {selectedKpi && (
-          <button
-            onClick={() => setSelectedKpi("")}
-            className="text-xs font-mono font-bold text-lime hover:underline cursor-pointer flex items-center gap-1.5 bg-surface-raised px-3.5 py-2 border border-border rounded-xl shadow-xs transition-all hover:bg-surface-raised/80"
-          >
-            Show All Assignments ({sites.length})
-          </button>
-        )}
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1 text-sm font-semibold text-text-secondary">
+            Work month
+            <input
+              aria-label="Work month"
+              type="month"
+              min="2000-01"
+              max="2100-12"
+              className="rounded-xl border border-border bg-surface px-3 py-2 text-text-primary"
+              value={workMonth}
+              onChange={(event) => {
+                if (!event.target.value || event.target.validity.valid) {
+                  setWorkMonth(event.target.value);
+                  setSelectedKpi("total");
+                }
+              }}
+            />
+          </label>
+          {workMonth && (
+            <Button variant="secondary" onClick={() => setWorkMonth("")}>
+              All months
+            </Button>
+          )}
+          {selectedKpi && (
+            <button
+              onClick={() => setSelectedKpi("")}
+              className="text-xs font-mono font-bold text-lime hover:underline cursor-pointer flex items-center gap-1.5 bg-surface-raised px-3.5 py-2 border border-border rounded-xl shadow-xs transition-all hover:bg-surface-raised/80"
+            >
+              Show All Assignments ({sites.length})
+            </button>
+          )}
+        </div>
       </header>
 
       {/* KTA / KPI Status Cards Grid */}
@@ -1475,11 +1589,8 @@ function ConsultantDashboard({
           <option value="device_order">Device Order ({countDeviceOrder})</option>
           <option value="installed">Installed ({countInstalled})</option>
           <option value="commissioned">Commissioned ({countCommissioned})</option>
-          <option value="submitted">Submitted ({countSubmitted})</option>
-          <option value="certification">Certification Pending ({countCertification})</option>
           <option value="unsubmitted">Unsubmitted ({countUnsubmitted})</option>
           <option value="dropped">Dropped / Rejected ({countDropped})</option>
-          <option value="closed">Submitted / Dropped ({countClosed})</option>
         </Select>
       </div>
 
@@ -1502,15 +1613,22 @@ function ConsultantDashboard({
       ) : (
         <div className="space-y-3">
           {filteredSites.map((s) => {
+            const completedDate = isCommissionedWork(s) ? completionDate(s) : null;
             const managerStatus = s.derivedStatus;
-            const displayStatus = consultantStatusLabel(managerStatus);
+            const displayStatus = isCommissionedWork(s)
+              ? "Commissioned"
+              : consultantStatusLabel(managerStatus);
             const st = siteStatusStyle(displayStatus);
             return (
               <div
                 key={s.id}
-                className={`border rounded-[10px] px-5 py-4 transition-colors shadow-xs ${overdueIds.has(s.id) ? "border-red-300 bg-red-50 text-red-900" : "border-border bg-surface hover:bg-surface-raised/30"}`}
+                className={`border rounded-[10px] px-5 py-4 transition-colors shadow-xs ${!isCommissionedWork(s) && overdueIds.has(s.id) ? "border-red-300 bg-red-50 text-red-900" : "border-border bg-surface hover:bg-surface-raised/30"}`}
               >
-                {overdueIds.has(s.id) && <p className="mb-3 text-sm font-semibold text-red-700">⚠ Installation overdue · assessment completed at least five calendar days ago</p>}
+                {!isCommissionedWork(s) && overdueIds.has(s.id) && (
+                  <p className="mb-3 text-sm font-semibold text-red-700">
+                    ⚠ Installation overdue · assessment completed at least five calendar days ago
+                  </p>
+                )}
                 <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                   {/* Company name + location */}
                   <div className="flex-1 min-w-0">
@@ -1521,6 +1639,13 @@ function ConsultantDashboard({
                       {s.city || "—"}
                       {s.address ? ` · ${s.address}` : ""}
                     </div>
+                    {isCommissionedWork(s) && (
+                      <div className="mt-1.5 text-xs text-text-secondary">
+                        {completedDate
+                          ? `${completedDate.source}: ${new Date(`${completedDate.date}T12:00:00+05:30`).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", year: "numeric" })}`
+                          : "Completion date not recorded"}
+                      </div>
+                    )}
                     {s.appt_date ? (
                       <div className="mt-1.5 text-[10px] font-mono text-text-secondary">
                         Appt: <span className="text-text-primary font-semibold">{s.appt_date}</span>
@@ -1575,13 +1700,17 @@ function ConsultantDashboard({
 
                   {/* Action button */}
                   <div className="sm:w-36 shrink-0 flex sm:justify-end">
-                    <Button
-                      onClick={() => onSelectSite(s.id)}
-                      variant={s.overall === 100 ? "secondary" : "primary"}
-                      className="w-full sm:w-auto py-1.5 px-4 text-xs font-semibold uppercase tracking-wider"
-                    >
-                      {s.overall === 100 ? "View / Edit" : "Start / Continue"}
-                    </Button>
+                    {allSites.some((site) => site.id === s.id) ? (
+                      <Button
+                        onClick={() => onSelectSite(s.id)}
+                        variant={s.overall === 100 ? "secondary" : "primary"}
+                        className="w-full sm:w-auto py-1.5 px-4 text-xs font-semibold uppercase tracking-wider"
+                      >
+                        {s.overall === 100 ? "View / Edit" : "Start / Continue"}
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-text-secondary">Completed work history</span>
+                    )}
                   </div>
                 </div>
               </div>

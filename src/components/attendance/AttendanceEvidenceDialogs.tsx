@@ -5,10 +5,39 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui-kit";
+import { Button, Input, Textarea } from "@/components/ui-kit";
 import { ImageIcon } from "lucide-react";
 import { useEffect, useState } from "react";
-import { dateLabel, statusLabels, timeLabel, type History } from "@/lib/device-attendance";
+import { attendanceRpc, dateLabel, statusLabels, timeLabel, type History } from "@/lib/device-attendance";
+import { scanTimeExplanation } from "@/lib/attendance-review";
+
+function VerifyScanTime({ eventId, onResolved }: { eventId: string; onResolved: () => void }) {
+  const [time, setTime] = useState("");
+  const [evidence, setEvidence] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return <form className="mt-3 space-y-2" onSubmit={async (event) => {
+    event.preventDefault();
+    setBusy(true); setError(null);
+    try {
+      await attendanceRpc("attendance_resolve_scan_time", {
+        _event: eventId, _verified_at: new Date(`${time}:00+05:30`).toISOString(), _evidence: evidence,
+      });
+      onResolved();
+    } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not verify scan time."); }
+    finally { setBusy(false); }
+  }}>
+    <p className="text-xs text-text-secondary">Verify the actual scan time using independent evidence. Arrival time is not proof of entry.</p>
+    <label className="block text-xs">Verified scan date and time (IST)
+      <Input type="datetime-local" required value={time} onChange={(event) => setTime(event.target.value)} disabled={busy} />
+    </label>
+    <label className="block text-xs">Supporting evidence
+      <Textarea required minLength={10} maxLength={2000} value={evidence} onChange={(event) => setEvidence(event.target.value)} disabled={busy} placeholder="Describe the verified device record or other attendance evidence." />
+    </label>
+    {error && <p role="alert" className="text-xs text-coral">{error}</p>}
+    <Button size="sm" type="submit" disabled={busy}>{busy ? "Saving…" : "Verify scan time"}</Button>
+  </form>;
+}
 
 export type AttendancePhoto = { url: string; expires_at: string; photo_expires_at: string };
 export type AttendanceRecordView = { name: string; date: string; data: History } | null;
@@ -19,12 +48,14 @@ export function AttendanceEvidenceDialogs({
   photo,
   onClosePhoto,
   onViewPhoto,
+  onResolved,
 }: {
   record: AttendanceRecordView;
   onCloseRecord: () => void;
   photo: AttendancePhoto | null;
   onClosePhoto: () => void;
   onViewPhoto: (eventId: string) => void;
+  onResolved?: () => void;
 }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -64,10 +95,17 @@ export function AttendanceEvidenceDialogs({
           {record?.data.events.map((event) => (
             <div key={event.id} className="rounded-xl border border-border bg-surface p-4">
               <p className="text-sm font-medium">
-                Entry time: {timeLabel(event.scanned_at)} ·{" "}
-                {statusLabels[event.validation_state] ||
+                {event.validation_state === "time_unverified" ? "Entry time unverified" : `Entry time: ${timeLabel(event.scanned_at)}`} ·{" "}
+                {(event.validation_state === "time_unverified" ? scanTimeExplanation(event.time_review_reason).title : statusLabels[event.validation_state]) ||
                   event.validation_state.replaceAll("_", " ")}
               </p>
+              {event.validation_state === "time_unverified" && <>
+                <p className="mt-1 text-xs text-text-secondary">{scanTimeExplanation(event.time_review_reason).reason}</p>
+                <p className="mt-1 text-xs text-text-secondary"><span className="font-medium text-text-primary">How to fix: </span>{scanTimeExplanation(event.time_review_reason).fix}</p>
+                {event.receiver_received_at && <p className="mt-1 text-xs text-text-secondary">Record arrived: {new Date(event.receiver_received_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST</p>}
+                {event.device_time_raw && <p className="mt-1 text-xs text-text-secondary">Unverified device time: {event.device_time_raw}</p>}
+                <VerifyScanTime eventId={event.id} onResolved={() => { onCloseRecord(); onResolved?.(); }} />
+              </>}
               <p className="mt-1 text-xs text-text-secondary">
                 Saved to database:{" "}
                 {new Date(event.received_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}{" "}
