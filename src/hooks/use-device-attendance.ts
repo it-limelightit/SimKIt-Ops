@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth-store";
 import { canManageAttendance } from "@/lib/attendance-access";
 import { attendanceRpc, type AttendanceBoard } from "@/lib/device-attendance";
+import { withAttendanceReviewReason } from "@/lib/attendance-review";
 
 export function useDeviceAttendance(date: string) {
   const { userId, email } = useAuth();
@@ -15,7 +16,7 @@ export function useDeviceAttendance(date: string) {
     try {
       const next = await attendanceRpc<AttendanceBoard>("attendance_board", { _date: date });
       if (ticket !== generation.current || useAuth.getState().userId !== userId) return;
-      setBoard(next);
+      setBoard({ ...next, rows: next.rows.map((row) => withAttendanceReviewReason(row, next.review_events)) });
       setError(null);
     } catch (failure) {
       if (ticket === generation.current)

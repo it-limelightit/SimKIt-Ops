@@ -50,6 +50,7 @@ import {
   type FinanceRole,
 } from "@/lib/finance";
 import { SalaryPanel, FieldFinancePanel } from "./SalaryPanel";
+import { FieldIncentiveDirectory } from "./FieldIncentiveDirectory";
 import { ManagerExpenseReview } from "./ManagerExpenseReview";
 import { ExpenseReceipt } from "./ExpenseReceipt";
 import { downloadFinanceBackup, downloadStatement } from "./finance-export";
@@ -110,7 +111,6 @@ export function FinanceWorkspace({
     setBoard(null);
     setLoading(true);
     setError(null);
-    setPerson(null);
     setEditor(null);
     setConfirmation(null);
     void reload();
@@ -118,6 +118,9 @@ export function FinanceWorkspace({
       ++requests.current;
     };
   }, [reload]);
+  useEffect(() => {
+    setPerson(null);
+  }, [userId]);
   useEffect(() => {
     const refresh = () => void reload();
     window.addEventListener("focus", refresh);
@@ -139,6 +142,7 @@ export function FinanceWorkspace({
   };
   const reviewer = personal ? null : (board?.role ?? null);
   const expenseFocus = !personal && section === "requests" && !person;
+  const fieldFocus = !personal && section === "field" && !person;
   const claims = (board?.claims ?? []).filter((c) =>
     personal ? c.owner_id === userId : !person || c.owner_id === person.user.id,
   );
@@ -155,9 +159,11 @@ export function FinanceWorkspace({
     const next = date.toISOString().slice(0, 7);
     if (next >= "2000-01" && next <= "2100-12") setMonth(next);
   };
-  const scopeClaims = (board?.claims ?? []).filter((c) => !personal || c.owner_id === userId);
+  const scopeClaims = claims;
   const overview = scopeClaims.filter((c) => c.status === "approved");
-  const approvedSalary = (board?.salaries ?? []).filter((s) => s.status === "approved");
+  const approvedSalary = (board?.salaries ?? []).filter(
+    (s) => s.status === "approved" && (!person || s.employee_id === person.employee?.id),
+  );
   const approvedTotal =
     overview.reduce((s, c) => s + Number(c.amount), 0) +
     (!personal ? approvedSalary.reduce((s, c) => s + Number(c.amount), 0) : 0);
@@ -216,18 +222,20 @@ export function FinanceWorkspace({
     >
       <div className="finance-toolbar finance-page-header">
         <div>
-          {
+          {!person && (
             <div className="finance-eyebrow">
               {personal ? <Receipt size={13} /> : <ShieldCheck size={13} />}{" "}
               {personal ? "Reimbursements" : "Finance workspace"} <span>/</span> {monthLabel}
             </div>
-          }
+          )}
           <h1>{personal ? "My expenses" : "Salary / Expense"}</h1>
-          <p className="finance-muted mt-1">
-            {personal
-              ? "Submit receipts, follow approvals and track reimbursement."
-              : "Monthly salaries, field incentives and expense approvals."}
-          </p>
+          {!person && (
+            <p className="finance-muted mt-1">
+              {personal
+                ? "Submit receipts, follow approvals and track reimbursement."
+                : "Monthly salaries, field incentives and expense approvals."}
+            </p>
+          )}
         </div>
         <div className="finance-header-actions flex flex-wrap items-center gap-2">
           {personal && !embedded && (
@@ -295,7 +303,7 @@ export function FinanceWorkspace({
               <Plus size={16} /> Add Expense
             </Button>
           )}
-          {!personal && board?.role && (
+          {!personal && !person && board?.role && (
             <Button
               variant="secondary"
               disabled={busy || loading || !!error}
@@ -311,7 +319,7 @@ export function FinanceWorkspace({
           )}
         </div>
       </div>
-      {!expenseFocus && (
+      {!expenseFocus && !fieldFocus && !person && (
         <div className="finance-cycle-bar">
           <div>
             <span className="finance-cycle-icon">
@@ -369,35 +377,31 @@ export function FinanceWorkspace({
               <p role="alert">This workspace is available to Hardik and Tarun.</p>
             ) : (
               <>
-                {!expenseFocus && (
+                {!expenseFocus && !fieldFocus && !person?.user.field && (
                   <div className="finance-metrics finance-overview-metrics">
                     <Metric
-                      label={personal ? "Approved expenses" : "Approved salary + expenses"}
+                      label={
+                        personal || person?.user.field
+                          ? "Approved expenses"
+                          : "Approved salary + expenses"
+                      }
                       value={money(approvedTotal)}
                       icon={<Wallet size={17} />}
-                      detail="Final approvals only"
                     />
                     <Metric
                       label="Paid"
                       value={money(paidTotal)}
                       icon={<CheckCircle2 size={17} />}
-                      detail="Recorded payments"
                     />
                     <Metric
                       label="Remaining payable"
                       value={money(approvedTotal - paidTotal)}
                       icon={<Clock3 size={17} />}
-                      detail="Approved balance to clear"
                     />
                     <Metric
                       label="Expenses awaiting review"
                       value={pending}
                       icon={<Receipt size={17} />}
-                      detail={
-                        personal
-                          ? "With Hardik or Tarun"
-                          : `${needsReview.length} awaiting your decision`
-                      }
                     />
                   </div>
                 )}
@@ -474,7 +478,7 @@ export function FinanceWorkspace({
                     )}
                   </>
                 )}
-                {!personal && !expenseFocus && (
+                {!personal && !person && !expenseFocus && !fieldFocus && (
                   <div className="finance-review-banner">
                     <span className="finance-review-icon">
                       <ShieldCheck size={21} />
@@ -544,10 +548,25 @@ export function FinanceWorkspace({
                             <p className="finance-muted">
                               {section === "office"
                                 ? "Review attendance, calculate salary and verify expenses."
-                                : "Review work incentives, availability and expenses."}
+                                : "See monthly incentives and approve without opening each account."}
                             </p>
                           </div>
                           <div className="finance-directory-filters">
+                            {section === "field" && (
+                              <Field label="Field associate month">
+                                <input
+                                  className="finance-input"
+                                  type="month"
+                                  min="2000-01"
+                                  max="2100-12"
+                                  value={month}
+                                  onChange={(event) => {
+                                    if (event.target.validity.valid && event.target.value)
+                                      setMonth(event.target.value);
+                                  }}
+                                />
+                              </Field>
+                            )}
                             <div className="finance-search">
                               <Search size={16} />
                               <input
@@ -557,125 +576,139 @@ export function FinanceWorkspace({
                                 onChange={(event) => setPeopleQuery(event.target.value)}
                               />
                             </div>
-                            <select
-                              className="finance-input"
-                              aria-label="Filter people"
-                              value={peopleFilter}
-                              onChange={(event) => setPeopleFilter(event.target.value)}
-                            >
-                              <option value="all">Everyone</option>
-                              <option value="review">Needs expense review</option>
-                              <option value="unpaid">Unpaid expenses</option>
-                            </select>
+                            {section === "office" && (
+                              <select
+                                className="finance-input"
+                                aria-label="Filter people"
+                                value={peopleFilter}
+                                onChange={(event) => setPeopleFilter(event.target.value)}
+                              >
+                                <option value="all">Everyone</option>
+                                <option value="review">Needs expense review</option>
+                                <option value="unpaid">Unpaid expenses</option>
+                              </select>
+                            )}
                           </div>
                         </div>
-                        <div className="finance-people">
-                          {visiblePeople.map((p) => {
-                            const personClaims = board.claims.filter(
-                              (c) => c.owner_id === p.user.id && c.status !== "cancelled",
-                            );
-                            const toReview = personClaims.filter(
-                              (c) =>
-                                c.status ===
-                                (board.role === "tarun" ? "tarun_pending" : "hardik_pending"),
-                            ).length;
-                            const balance = personClaims
-                              .filter((c) => c.status === "approved" && !c.paid_at)
-                              .reduce((total, c) => total + Number(c.amount), 0);
-                            const salary = board.salaries.find(
-                              (s) => s.employee_id === p.employee?.id,
-                            );
-                            return (
-                              <button
-                                key={p.user.id}
-                                className="finance-person"
-                                aria-label={`${p.user.name || p.user.email} ${p.user.email ?? ""} — Open details`}
-                                onClick={() => setPerson(p)}
-                              >
-                                <div className="finance-person-top">
-                                  <span className="finance-avatar">
-                                    {(p.user.name || p.user.email || "U")
-                                      .split(/\s+/)
-                                      .filter(Boolean)
-                                      .slice(0, 2)
-                                      .map((part) => part[0])
-                                      .join("")
-                                      .toUpperCase()}
-                                  </span>
-                                  <span
-                                    className={`finance-person-state ${toReview ? "needs-review" : ""}`}
-                                  >
-                                    {toReview
-                                      ? `${toReview} to review`
-                                      : p.employee
-                                        ? salary
-                                          ? readable(salary.status)
-                                          : "Salary not set"
-                                        : "Expense records"}
-                                  </span>
-                                  <ArrowUpRight size={16} className="finance-person-arrow" />
-                                </div>
-                                <strong className="finance-person-name">
-                                  {p.user.name || p.user.email}
-                                </strong>
-                                <p className="finance-person-email">
-                                  {p.user.email || "No email linked"}
-                                </p>
-                                <div className="finance-person-totals">
-                                  <div>
-                                    <span>
-                                      {section === "office"
-                                        ? "Calculated salary"
-                                        : "Incentive month"}
-                                    </span>
-                                    <strong>
-                                      {section === "office"
-                                        ? salary
-                                          ? money(Number(salary.amount))
-                                          : "Not set"
-                                        : "1st – month end"}
-                                    </strong>
-                                  </div>
-                                  <div>
-                                    <span>Unpaid expenses</span>
-                                    <strong>{money(balance)}</strong>
-                                  </div>
-                                </div>
-                                <div className="finance-person-footer">
-                                  <span>
-                                    {personClaims.length} expense{" "}
-                                    {personClaims.length === 1 ? "claim" : "claims"}
-                                  </span>
-                                  <span>
-                                    Open details <ChevronRight size={13} />
-                                  </span>
-                                </div>
-                              </button>
-                            );
-                          })}
-                          {visiblePeople.length === 0 && (
-                            <div className="finance-empty">
-                              <Users size={25} />
-                              <strong>
-                                {peopleQuery || peopleFilter !== "all"
-                                  ? "No matching people"
-                                  : "No people in this section yet"}
-                              </strong>
-                              <p>Try another name or change the filter.</p>
-                              {(peopleQuery || peopleFilter !== "all") && (
-                                <Button
-                                  variant="ghost"
-                                  onClick={() => {
-                                    setPeopleQuery("");
-                                    setPeopleFilter("all");
-                                  }}
+                        {section === "field" ? (
+                          <FieldIncentiveDirectory
+                            key={`${month}:${userId}`}
+                            board={board}
+                            month={month}
+                            query={peopleQuery}
+                            busy={busy}
+                            confirm={confirm}
+                            reload={reload}
+                          />
+                        ) : (
+                          <div className="finance-people">
+                            {visiblePeople.map((p) => {
+                              const personClaims = board.claims.filter(
+                                (c) => c.owner_id === p.user.id && c.status !== "cancelled",
+                              );
+                              const toReview = personClaims.filter(
+                                (c) =>
+                                  c.status ===
+                                  (board.role === "tarun" ? "tarun_pending" : "hardik_pending"),
+                              ).length;
+                              const balance = personClaims
+                                .filter((c) => c.status === "approved" && !c.paid_at)
+                                .reduce((total, c) => total + Number(c.amount), 0);
+                              const salary = board.salaries.find(
+                                (s) => s.employee_id === p.employee?.id,
+                              );
+                              return (
+                                <button
+                                  key={p.user.id}
+                                  className="finance-person"
+                                  aria-label={`${p.user.name || p.user.email} ${p.user.email ?? ""} — Open details`}
+                                  onClick={() => setPerson(p)}
                                 >
-                                  Clear filters
-                                </Button>
-                              )}
-                            </div>
-                          )}
-                        </div>
+                                  <div className="finance-person-top">
+                                    <span className="finance-avatar">
+                                      {(p.user.name || p.user.email || "U")
+                                        .split(/\s+/)
+                                        .filter(Boolean)
+                                        .slice(0, 2)
+                                        .map((part) => part[0])
+                                        .join("")
+                                        .toUpperCase()}
+                                    </span>
+                                    <span
+                                      className={`finance-person-state ${toReview ? "needs-review" : ""}`}
+                                    >
+                                      {toReview
+                                        ? `${toReview} to review`
+                                        : p.employee
+                                          ? salary
+                                            ? readable(salary.status)
+                                            : "Salary not set"
+                                          : "Expense records"}
+                                    </span>
+                                    <ArrowUpRight size={16} className="finance-person-arrow" />
+                                  </div>
+                                  <strong className="finance-person-name">
+                                    {p.user.name || p.user.email}
+                                  </strong>
+                                  <p className="finance-person-email">
+                                    {p.user.email || "No email linked"}
+                                  </p>
+                                  <div className="finance-person-totals">
+                                    <div>
+                                      <span>
+                                        {section === "office"
+                                          ? "Calculated salary"
+                                          : "Incentive month"}
+                                      </span>
+                                      <strong>
+                                        {section === "office"
+                                          ? salary
+                                            ? money(Number(salary.amount))
+                                            : "Not set"
+                                          : "1st – month end"}
+                                      </strong>
+                                    </div>
+                                    <div>
+                                      <span>Unpaid expenses</span>
+                                      <strong>{money(balance)}</strong>
+                                    </div>
+                                  </div>
+                                  <div className="finance-person-footer">
+                                    <span>
+                                      {personClaims.length} expense{" "}
+                                      {personClaims.length === 1 ? "claim" : "claims"}
+                                    </span>
+                                    <span>
+                                      Open details <ChevronRight size={13} />
+                                    </span>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                            {visiblePeople.length === 0 && (
+                              <div className="finance-empty">
+                                <Users size={25} />
+                                <strong>
+                                  {peopleQuery || peopleFilter !== "all"
+                                    ? "No matching people"
+                                    : "No people in this section yet"}
+                                </strong>
+                                <p>Try another name or change the filter.</p>
+                                {(peopleQuery || peopleFilter !== "all") && (
+                                  <Button
+                                    variant="ghost"
+                                    onClick={() => {
+                                      setPeopleQuery("");
+                                      setPeopleFilter("all");
+                                    }}
+                                  >
+                                    Clear filters
+                                  </Button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </section>
                     )}
                   </>
@@ -731,6 +764,20 @@ export function FinanceWorkspace({
                       </p>
                     )}
                   </>
+                )}
+                {person?.user.field && (
+                  <section
+                    className="finance-associate-expenses"
+                    aria-label="Expense reimbursements"
+                  >
+                    <h2>Expense reimbursements</h2>
+                    <div className="finance-metrics finance-expense-summary">
+                      <Metric label="Approved expenses" value={money(approvedTotal)} />
+                      <Metric label="Expenses reimbursed" value={money(paidTotal)} />
+                      <Metric label="Reimbursement due" value={money(approvedTotal - paidTotal)} />
+                      <Metric label="Claims awaiting review" value={pending} />
+                    </div>
+                  </section>
                 )}
                 {(personal || person || section === "requests") &&
                   (reviewer ? (

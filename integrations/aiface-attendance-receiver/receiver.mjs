@@ -4,6 +4,8 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { normalizeMessage } from "./vendor/protocol.mjs";
 import { EventQueue } from "./vendor/queue.mjs";
+import { randomUUID } from "node:crypto";
+import { ConnectionHealth, RecoveryWatchdog } from "./connection-health.mjs";
 import {
   deviceProfile,
   heartbeatReply,
@@ -31,6 +33,24 @@ const webhookSecret = required("ATTENDANCE_DEVICE_WEBHOOK_SECRET");
 const database = path.resolve(process.env.RECEIVER_DB || "./receiver.sqlite");
 mkdirSync(path.dirname(database), { recursive: true, mode: 0o700 });
 const queue = new EventQueue(database);
+const watchdog = new RecoveryWatchdog();
+let reconnecting = false;
+const health = new ConnectionHealth((details) => {
+  console.log(`Attendance health ${JSON.stringify(details)}`);
+  try {
+    queue.put({ kind: "receiver_health", event_id: randomUUID(), device_id: deviceId,
+      topic: eventTopic, ...details });
+  } catch {
+    console.error("Health history could not be queued; inspect queue capacity.");
+  }
+});
+function logError(component, error) {
+  let message = String(error?.message || "Unknown error").slice(0, 500);
+  for (const value of [process.env.MQTT_PASSWORD, webhookSecret, process.env.MQTT_USERNAME])
+    if (value) message = message.split(value).join("[redacted]");
+  message = message.replace(/(mqtts?:\/\/)[^\s/]*@/gi, "$1[redacted]@");
+  console.error(JSON.stringify({ component, code: error?.code, message }));
+}
 const photos = new Map();
 const batches = new Map();
 const client = mqtt.connect(required("MQTT_URL"), {
@@ -45,6 +65,7 @@ let ready = false,
   pendingPing = 0,
   draining = false,
   heartbeatInFlight = false;
+let pendingClock = 0;
 async function post(event) {
   return fetch(destination, {
     method: "POST",
@@ -55,22 +76,46 @@ async function post(event) {
   });
 }
 function ping() {
+  health.tick();
+  if (!shuttingDown && !reconnecting && watchdog.due()) {
+    reconnecting = true;
+    ready = false;
+    console.error("No fresh device reply for 3 minutes; resetting attendance MQTT connection.");
+    // A broken stream can remain alive after a broker crash. Force-close only
+    // this subscriber; durable attendance metadata stays in SQLite.
+    const timeout = setTimeout(() => {
+      console.error("Attendance MQTT reset stalled; exiting for PM2 recovery.");
+      process.exit(1);
+    }, 10000);
+    timeout.unref();
+    client.end(true, {}, () => {
+      clearTimeout(timeout);
+      reconnecting = false;
+      if (!shuttingDown) client.reconnect();
+    });
+    return;
+  }
   if (!ready || heartbeatInFlight) return;
   pendingPing = Date.now();
-  // checklive is the only command this receiver publishes; it never enrolls or deletes users.
+  // Read-only reachability check; this receiver never enrolls or deletes users.
   client.publish(
     commandTopic,
     JSON.stringify({ cmd: "checklive" }),
     { qos: 1, retain: false },
     (error) => {
-      if (error) pendingPing = 0;
+      if (error) { pendingPing = 0; logError("heartbeat_publish", error); }
     },
   );
+  // Read-only clock sampling detects frozen/reset clocks without changing device settings.
+  pendingClock = Date.now();
+  client.publish(commandTopic, JSON.stringify({ cmd: "gettime" }), { qos: 1, retain: false },
+    (error) => { if (error) { pendingClock = 0; logError("clock_publish", error); } });
 }
 client.on("connect", () =>
   client.subscribe(eventTopic, { qos: 1 }, (error, granted) => {
     ready = !error && granted?.[0]?.qos !== 128;
     if (ready) {
+      health.connect();
       console.log("Attendance receiver subscribed to the confirmed device topic.");
       ping();
     } else console.error("Attendance subscription failed.");
@@ -79,15 +124,25 @@ client.on("connect", () =>
 client.on("close", () => {
   ready = false;
   pendingPing = 0;
+  pendingClock = 0;
+  health.disconnect();
 });
-client.on("error", () => console.error("MQTT connection failed; reconnecting."));
+client.on("error", (error) => logError("mqtt", error));
+client.on("reconnect", () => console.log("MQTT reconnect attempt."));
 client.handleMessage = (packet, done) => {
   const receivedAt = Date.now();
   try {
     if (packet.retain || packet.topic !== eventTopic) return done();
     if (packet.payload.length > 2900000) throw new Error("Packet too large");
     const message = JSON.parse(packet.payload.toString());
+    if (typeof message.ret === "string" && message.ret.trim() === "gettime" && message.sn === deviceId && message.result !== false) {
+      health.sample(message.time, pendingClock, receivedAt);
+      pendingClock = 0;
+      return done();
+    }
     if (heartbeatReply(message, packet, deviceId, pendingPing)) {
+      watchdog.observe(receivedAt);
+      health.heartbeat(receivedAt);
       pendingPing = 0;
       heartbeatInFlight = true;
       // A real, fresh device reply establishes heartbeat, never broker connectivity alone.
@@ -99,10 +154,13 @@ client.handleMessage = (packet, done) => {
       })
         .then(async (response) => {
           await response.body?.cancel();
-          if (response.ok) console.log("Device heartbeat delivered to Supabase.");
-          else console.error(`Heartbeat rejected (${response.status}).`);
+          health.transition("supabase", response.ok, response.ok ? "heartbeat_accepted" : `http_${response.status}`);
+          if (!response.ok) console.error(`Heartbeat rejected (${response.status}); request_id=${response.headers.get("sb-request-id") || response.headers.get("x-request-id") || "unavailable"}.`);
         })
-        .catch(() => console.error("Heartbeat delivery failed."))
+        .catch((error) => {
+          health.transition("supabase", false, "heartbeat_delivery_failed");
+          logError("heartbeat", error);
+        })
         .finally(() => {
           heartbeatInFlight = false;
         });
@@ -129,7 +187,10 @@ client.handleMessage = (packet, done) => {
       photoField: "image",
       photoMime: "image/jpeg",
     };
-    const events = normalizeMessage(input, eventTopic, config, receivedAt);
+    const timing = health.classify(input, receivedAt);
+    const events = normalizeMessage(input, eventTopic, config, receivedAt, timing);
+    if (events.length && timing.time_source === "unverified")
+      console.warn(`Attendance timing needs review: ${timing.time_review_reason}; records=${events.length}.`);
     const entries = safeRecords.filter((record) => String(record.inout) === "0");
     events.forEach((event, index) => {
       const id = queue.put(event);
@@ -203,8 +264,9 @@ async function drain() {
             `Attendance delivery rejected (${response.status}); metadata retained for retry.`,
           );
         }
-      } catch {
+      } catch (error) {
         queue.retry(row.id);
+        logError("attendance_delivery", error);
         console.error("Attendance delivery failed; metadata retained for retry.");
       }
     }
@@ -234,13 +296,22 @@ async function drain() {
   }
 }
 const heartbeatTimer = setInterval(ping, 20000),
-  drainTimer = setInterval(() => void drain(), 1000);
+  drainTimer = setInterval(() => void drain(), 1000),
+  healthTimer = setInterval(() => {
+    health.tick();
+    console.log(`Attendance health summary ${JSON.stringify({
+      components: Object.fromEntries(health.states), queue: queue.stats(),
+      observed_at: new Date().toISOString(),
+    })}`);
+  }, 60000);
+console.log("Attendance receiver starting; scan timing remains unverified until heartbeat and advancing clock samples are established.");
 let shuttingDown = false;
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
   clearInterval(heartbeatTimer);
   clearInterval(drainTimer);
+  clearInterval(healthTimer);
   ready = false;
   await new Promise((resolve) => client.end(true, {}, resolve));
   while (draining || heartbeatInFlight) await new Promise((resolve) => setTimeout(resolve, 50));

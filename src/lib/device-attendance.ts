@@ -30,6 +30,9 @@ export type AttendanceRow = {
   photo_status: string | null;
   leave_conflict: boolean;
   status: string;
+  time_review_reason?: string | null;
+  entry_source?: "scan" | "manager_adjusted";
+  adjustment_reason?: string | null;
   request_type?: "leave" | "wfh" | null;
   request_status?: string | null;
   request_reason?: string | null;
@@ -58,10 +61,15 @@ export type Settings = {
 };
 export type Scan = {
   id: string;
+  employee_id?: string | null;
   enroll_id: string;
   scanned_at: string;
   received_at: string;
   validation_state: string;
+  receiver_received_at?: string | null;
+  device_time_raw?: string | null;
+  time_source?: string;
+  time_review_reason?: string | null;
   photo_status?: string;
   photo_expires_at?: string;
 };
@@ -98,6 +106,17 @@ export const statusLabels: Record<string, string> = {
   inactive_employee: "Inactive employee",
   failed_recognition: "Face not recognized",
   invalid_time: "Time needs review",
+  time_unverified: "Scan time needs review",
+};
+export const timeReviewLabels: Record<string, string> = {
+  device_connection_unverified: "The device connection was not confirmed when this record arrived.",
+  device_clock_unverified: "The device clock could not be verified as advancing.",
+  buffered_batch: "Several records arrived together and may have been saved during an outage.",
+  device_time_missing_or_invalid: "The device supplied no usable scan time.",
+  device_time_ahead: "The scan time is ahead of the sampled device clock.",
+  delayed_or_clock_changed: "The record was delayed or the device clock changed.",
+  receiver_health_missing: "Connection health was not recorded for this scan.",
+  outage_affected: "This record arrived during recovery from a confirmed outage.",
 };
 export function indiaDate(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {

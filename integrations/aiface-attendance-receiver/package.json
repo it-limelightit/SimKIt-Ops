@@ -8,7 +8,7 @@
   "scripts": {
     "start": "node --env-file=.env receiver.mjs",
     "start:vps": "node --env-file=/etc/simkit-attendance.env receiver.mjs",
-    "test": "node --test receiver.test.mjs"
+    "test": "node --test receiver.test.mjs connection-health.test.mjs"
   },
   "dependencies": {
     "mqtt": "^5.10.4"

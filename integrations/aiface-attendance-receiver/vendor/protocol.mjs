@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export function normalizeMessage(message, topic, config, receivedAt = Date.now()) {
+export function normalizeMessage(message, topic, config, receivedAt = Date.now(), timing = {}) {
   if (!config.topics.includes(topic)) throw new Error("Topic not allowed");
   if (!message || typeof message !== "object" || Array.isArray(message))
     throw new Error("JSON object required");
@@ -60,6 +60,10 @@ export function normalizeMessage(message, topic, config, receivedAt = Date.now()
           : createHash("sha256").update(stable).digest("hex"),
         enroll_id: String(record.enrollid),
         scanned_at: scannedAt,
+        receiver_received_at: scannedAt,
+        device_time_raw: typeof record.time === "string" && record.time.trim() ? record.time.slice(0, 40) : null,
+        time_source: timing.time_source || "unverified",
+        time_review_reason: timing.time_review_reason || (timing.time_source === "receiver_live" ? null : "receiver_health_missing"),
         recognized: config.validModes.includes(String(record.mode)),
       };
       if (config.photoField && record[config.photoField]) {

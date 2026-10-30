@@ -37,6 +37,8 @@ import { isJenilThakar } from "@/lib/field-associate-visibility";
 import { commissioningDateChanged } from "@/hooks/use-commissioning-work-dates";
 import {
   earningsTotal,
+  commissioningEarnings,
+  isCommissioningEarning,
   fieldRpc,
   indiaDate,
   indiaTime,
@@ -47,7 +49,6 @@ import {
   phaseLabel,
   shifts,
   stageLabel,
-  visibleWorkDates,
   type Associate,
   type Earning,
   type FieldBoard,
@@ -61,7 +62,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 const panel = "rounded-2xl border border-border bg-surface p-4 sm:p-6";
 const colors = ["#84cc16", "#38bdf8", "#a78bfa"];
 const phases: Phase[] = ["assessment", "installation", "commissioning"];
-const payablePhases: Phase[] = ["assessment", "commissioning"];
+const payablePhases: Phase[] = ["commissioning"];
 const visitLabels = { ...stageLabel, follow_up: "Follow-up / issue resolution" };
 
 function LoadMessage({
@@ -637,14 +638,12 @@ async function downloadStatement(
       year: "numeric",
       timeZone: "UTC",
     }).format(new Date(`${date}T00:00:00Z`));
-  const eligible = rows.filter((entry) => entry.eligible || entry.paid);
+  const eligible = rows.filter(isCommissioningEarning);
   const workDays = dates
     .map((date) => ({ date, entries: eligible.filter((entry) => entry.earning_date === date) }))
     .filter((day) => day.entries.length);
   const total = earningsTotal(eligible);
-  const pending = eligible.filter(
-    (entry) => entry.phase !== "installation" && entry.amount == null,
-  ).length;
+  const pending = eligible.filter((entry) => entry.amount == null).length;
   const header = () => {
     doc.setFillColor(...navy);
     doc.rect(0, 0, 210, 22, "F");
@@ -709,7 +708,7 @@ async function downloadStatement(
   doc.text(title, 12, 39 + nameOffset);
   doc.setTextColor(...muted);
   doc.text(
-    `${workDays.length} work days | ${eligible.length} activities | Installation is not payable${pending ? ` | ${pending} rates pending` : ""}`,
+    `${workDays.length} work days | ${eligible.length} approved commissionings${pending ? ` | ${pending} rates pending` : ""}`,
     12,
     45 + nameOffset,
   );
@@ -730,12 +729,8 @@ async function downloadStatement(
       dateLabel(date),
       entry.company_name,
       phaseLabel[entry.phase],
-      entry.phase === "installation"
-        ? "-"
-        : entry.amount == null
-          ? "Rate pending"
-          : amount(Number(entry.amount)),
-      entry.phase === "installation" ? "Not payable" : entry.paid ? "Paid" : "Unpaid",
+      entry.amount == null ? "Rate pending" : amount(Number(entry.amount)),
+      entry.paid ? "Paid" : "Unpaid",
       last ? amount(dailyTotal) : "",
     ]),
     foot: [[{ content: "Period total (INR)", colSpan: 5 }, amount(total)]],
@@ -817,15 +812,8 @@ function EarningsView({
   const [newDate, setNewDate] = useState("");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
-  const [paymentOpen, setPaymentOpen] = useState(false);
-  const [paidOn, setPaidOn] = useState(board.today);
-  const [reference, setReference] = useState("");
   const fullPeriod = paymentPeriod(`${month}-01`);
-  const joiningDate = indiaDate(new Date(associate.joined));
-  const selectedPeriod = {
-    ...fullPeriod,
-    start: joiningDate > fullPeriod.start ? joiningDate : fullPeriod.start,
-  };
+  const selectedPeriod = fullPeriod;
   let start = `${month}-01`,
     end = monthDays(month).at(-1)!;
   if (mode === "month") {
@@ -844,9 +832,11 @@ function EarningsView({
   const rows = board.earnings.filter(
     (e) => e.associate_id === associate.id && e.earning_date >= start && e.earning_date <= end,
   );
-  const eligible = rows.filter((e) => e.eligible || e.paid);
+  const commissioned = commissioningEarnings(rows, associate.id, start, end);
+  const eligible = commissioned;
+  const paidAmount = earningsTotal(commissioned.filter((entry) => entry.paid));
   const workedDates = Array.from(new Set(eligible.map((entry) => entry.earning_date))).sort();
-  const recordDates = visibleWorkDates(eligible, board.attendance, associate.id);
+  const recordDates = workedDates;
   const dates: string[] = [];
   for (
     let d = new Date(`${start}T00:00:00Z`);
@@ -858,23 +848,13 @@ function EarningsView({
     date: date.slice(5),
     earnings: earningsTotal(eligible.filter((e) => e.earning_date === date)),
   }));
-  const distribution = phases.map((p) => ({
-    name: phaseLabel[p],
-    value: eligible.filter((e) => e.phase === p).length,
-  }));
+  const distribution = [
+    { name: "Paid commissionings", value: commissioned.filter((entry) => entry.paid).length },
+    { name: "Unpaid commissionings", value: commissioned.filter((entry) => !entry.paid).length },
+  ];
   const payments = board.payments.filter(
     (p) => p.associate_id === associate.id && p.period_end >= start && p.period_end <= end,
   );
-  const settled = board.payments.find(
-    (p) => p.associate_id === associate.id && p.period_end === selectedPeriod.end,
-  );
-  const paymentDisabledReason = settled
-    ? "Payment has already been recorded for this month."
-    : selectedPeriod.due > board.today
-      ? `Payment clearance opens on ${selectedPeriod.due}.`
-      : earningsTotal(eligible.filter((entry) => !entry.paid)) <= 0
-        ? "This month has no unpaid assessment or commissioning earnings."
-        : null;
   const editDate = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!editing) return;
@@ -889,23 +869,6 @@ function EarningsView({
       setEditing(null);
       toast.success("Commissioning work date updated.");
       window.dispatchEvent(new Event(commissioningDateChanged));
-      await reload();
-    }
-    setBusy(false);
-  };
-  const recordPayment = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setBusy(true);
-    const { error } = await fieldRpc("field_ops_record_payment", {
-      _associate: associate.id,
-      _period_end: selectedPeriod.end,
-      _paid_on: paidOn,
-      _reference: reference,
-    });
-    if (error) toast.error(error.message);
-    else {
-      setPaymentOpen(false);
-      toast.success("Payment recorded.");
       await reload();
     }
     setBusy(false);
@@ -953,7 +916,7 @@ function EarningsView({
             setBusy(true);
             void downloadStatement(
               associate,
-              rows,
+              commissioned,
               `${start} to ${end}${mode === "month" ? ` · Due ${selectedPeriod.due}` : ""}`,
               payments,
               workedDates,
@@ -964,42 +927,35 @@ function EarningsView({
         >
           <Download size={16} /> PDF statement
         </Button>
-        {manager && mode === "month" && (
-          <Button
-            disabled={!!paymentDisabledReason}
-            title={paymentDisabledReason || "Record payment already made for this month"}
-            onClick={() => setPaymentOpen(true)}
-          >
-            {settled ? "Payment recorded" : "Record payment"}
-          </Button>
-        )}
       </div>
-      {manager && mode === "month" && paymentDisabledReason && (
-        <p className="text-xs text-text-secondary">{paymentDisabledReason}</p>
-      )}
       <p className="text-xs text-text-secondary">
         {start} to {end}
         {mode === "month"
           ? ` · Payment due ${selectedPeriod.due}`
           : " · Monthly earnings are payable on the 7th of the following month."}
       </p>
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Metric label="Work earnings" value={money(earningsTotal(eligible))} />
-        <Metric label="Completed activities" value={String(eligible.length)} />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Metric label="Commissioning incentives" value={money(earningsTotal(commissioned))} />
+        <Metric label="Approved commissionings" value={String(commissioned.length)} />
+        <Metric label="Incentives paid" value={money(paidAmount)} />
         <Metric
-          label="Rate pending"
-          value={String(
-            eligible.filter((e) => e.phase !== "installation" && e.amount == null).length,
-          )}
+          label="Incentives outstanding"
+          value={money(earningsTotal(commissioned) - paidAmount)}
         />
       </div>
+      {commissioned.some((entry) => entry.amount === null) && (
+        <p className="text-sm text-amber-600" role="status">
+          {commissioned.filter((entry) => entry.amount === null).length} approved commissionings
+          need an incentive amount. Totals include priced records only.
+        </p>
+      )}
       <div className="grid gap-4 lg:grid-cols-3">
         <div className={`${panel} min-w-0 lg:col-span-2`}>
           <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
             <div>
               <h3 className="font-semibold">Daily earnings</h3>
               <p className="mt-1 text-xs text-text-secondary">
-                Completed work across the selected period
+                Approved commissioning incentives across the selected period
               </p>
             </div>
             <span className="rounded-full bg-lime/10 px-3 py-1 text-sm font-semibold text-lime">
@@ -1057,12 +1013,14 @@ function EarningsView({
           </div>
         </div>
         <div className={`${panel} min-w-0`}>
-          <h3 className="font-semibold">Completed work</h3>
-          <p className="mt-1 text-xs text-text-secondary">Activity by company stage</p>
+          <h3 className="font-semibold">Commissioning payments</h3>
+          <p className="mt-1 text-xs text-text-secondary">
+            Paid and unpaid approved commissionings
+          </p>
           <div
             className="relative h-52"
             role="img"
-            aria-label={`Completed work chart. ${eligible.length} activities`}
+            aria-label={`Commissioning payments chart. ${eligible.length} approved commissionings`}
           >
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
@@ -1094,7 +1052,7 @@ function EarningsView({
             )}
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
               <span className="text-3xl font-bold">{eligible.length}</span>
-              <span className="text-xs text-text-secondary">activities</span>
+              <span className="text-xs text-text-secondary">commissionings</span>
             </div>
           </div>
           {distribution.map((p, i) => (
@@ -1114,7 +1072,7 @@ function EarningsView({
       <section className={panel}>
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h3 className="font-semibold">Daily work records</h3>
+            <h3 className="font-semibold">Commissioning earnings records</h3>
             <p className="mt-1 text-xs text-text-secondary">
               {start} to {end}
             </p>
@@ -1125,7 +1083,7 @@ function EarningsView({
         </div>
         <div className="mb-3 grid grid-cols-[minmax(0,1fr)_48px_90px] gap-2 border-b border-border px-3 pb-3 text-[10px] font-semibold uppercase tracking-wide text-text-secondary sm:grid-cols-[minmax(0,1fr)_100px_130px] sm:gap-4 sm:text-xs">
           <span>Date</span>
-          <span className="text-center">Tasks</span>
+          <span className="text-center">Count</span>
           <span className="text-right">Total</span>
         </div>
         {recordDates.map((date) => {
@@ -1174,38 +1132,27 @@ function EarningsView({
                             <span className="inline-block rounded-md bg-lime/10 px-2 py-1 text-xs font-medium">
                               {phaseLabel[e.phase]}
                             </span>
-                            {manager &&
-                              e.phase === "commissioning" &&
-                              !e.paid &&
-                              e.site_id !== null && (
-                                <button
-                                  className="ml-2 text-xs text-lime underline"
-                                  onClick={() => {
-                                    setEditing(e);
-                                    setNewDate(e.earning_date);
-                                    setReason("");
-                                  }}
-                                >
-                                  Edit date
-                                </button>
-                              )}
+                            {manager && !e.paid && e.site_id !== null && (
+                              <button
+                                className="ml-2 text-xs text-lime underline"
+                                onClick={() => {
+                                  setEditing(e);
+                                  setNewDate(e.earning_date);
+                                  setReason("");
+                                }}
+                              >
+                                Edit date
+                              </button>
+                            )}
                           </td>
                           <td className="px-4 py-4 text-right font-semibold tabular-nums">
-                            {e.phase === "installation"
-                              ? "—"
-                              : e.amount == null
-                                ? "Rate pending"
-                                : money(Number(e.amount))}
+                            {e.amount == null ? "Rate pending" : money(Number(e.amount))}
                           </td>
                           <td className="px-4 py-4 text-center">
                             <span
-                              className={`inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${e.phase === "installation" ? "bg-surface-raised text-text-secondary" : e.paid ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}
+                              className={`inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${e.paid ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}
                             >
-                              {e.phase === "installation"
-                                ? "Not payable"
-                                : e.paid
-                                  ? "Paid"
-                                  : "Unpaid"}
+                              {e.paid ? "Paid" : "Unpaid"}
                             </span>
                           </td>
                         </tr>
@@ -1219,7 +1166,7 @@ function EarningsView({
         })}
         {!recordDates.length && (
           <p className="py-6 text-center text-sm text-text-secondary">
-            No work matches the selected period.
+            No approved commissionings match the selected period.
           </p>
         )}
         <div className="mt-4 flex items-center justify-between border-t border-border pt-4 font-semibold">
@@ -1227,7 +1174,7 @@ function EarningsView({
           <span>{money(earningsTotal(eligible))}</span>
         </div>
       </section>
-      {rows.some((e) => !e.eligible && !e.paid) && (
+      {rows.some((e) => e.phase === "commissioning" && !e.eligible && !e.paid) && (
         <p className="text-sm text-amber-600">
           Reopened or incomplete work is excluded from payable earnings.
         </p>
@@ -1265,36 +1212,6 @@ function EarningsView({
           </form>
         </DialogContent>
       </Dialog>
-      <Dialog open={paymentOpen} onOpenChange={(open) => !busy && setPaymentOpen(open)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Record payment already made</DialogTitle>
-            <DialogDescription>
-              This records payment of per-work earnings; it does not transfer money. Period{" "}
-              {selectedPeriod.start} to {selectedPeriod.end}, due {selectedPeriod.due}.
-            </DialogDescription>
-          </DialogHeader>
-          <form className="space-y-4" onSubmit={(e) => void recordPayment(e)}>
-            <p className="text-xl font-bold">
-              {money(earningsTotal(eligible.filter((e) => !e.paid)))}
-            </p>
-            <Label>Paid on</Label>
-            <Input
-              required
-              type="date"
-              min={selectedPeriod.due}
-              max={board.today}
-              value={paidOn}
-              onChange={(e) => setPaidOn(e.target.value)}
-            />
-            <Label>Payment reference</Label>
-            <Input required value={reference} onChange={(e) => setReference(e.target.value)} />
-            <Button type="submit" disabled={busy}>
-              Confirm payment record
-            </Button>
-          </form>
-        </DialogContent>
-      </Dialog>
     </section>
   );
 }
@@ -1318,97 +1235,9 @@ export function AssociateEarnings() {
       <h1 className="flex items-center gap-3 font-syne text-3xl font-bold">
         <IndianRupee /> My Earnings
       </h1>
-      <p className="text-text-secondary">
-        Earn through completed assessments and approved commissioning.
-      </p>
+      <p className="text-text-secondary">Earn incentives through approved commissioning.</p>
       <EarningsView board={state.board} associate={associate} reload={state.reload} />
     </div>
-  );
-}
-
-function RatesEditor({
-  board,
-  associate,
-  reload,
-}: {
-  board: FieldBoard;
-  associate: Associate;
-  reload: () => Promise<void>;
-}) {
-  const rate = board.rates.find((r) => r.associate_id === associate.id);
-  const [values, setValues] = useState<Record<Phase, string>>({
-    assessment: rate ? String(rate.assessment) : "",
-    installation: rate ? String(rate.installation) : "",
-    commissioning: rate ? String(rate.commissioning) : "",
-  });
-  const [busy, setBusy] = useState(false);
-  const save = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setBusy(true);
-    const { error } = await fieldRpc("field_ops_set_rates", {
-      _associate: associate.id,
-      _assessment: Number(values.assessment),
-      _installation: 0,
-      _commissioning: Number(values.commissioning),
-    });
-    if (error) toast.error(error.message);
-    else {
-      toast.success("Rates saved. Existing priced earnings are unchanged.");
-      await reload();
-    }
-    setBusy(false);
-  };
-  return (
-    <form
-      onSubmit={(e) => void save(e)}
-      className="max-w-3xl rounded-xl border border-border bg-surface p-4"
-    >
-      <div className="mb-4 flex items-center gap-3">
-        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-lime/10 text-lime">
-          <IndianRupee size={18} />
-        </span>
-        <div>
-          <h3 className="font-semibold">Work prices · {associate.name}</h3>
-          <p className="mt-0.5 text-xs text-text-secondary">
-            Payment per completed assessment and approved commissioning
-          </p>
-        </div>
-      </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        {payablePhases.map((p) => (
-          <div key={p} className="rounded-xl border border-border bg-surface-raised/30 p-3">
-            <Label>{phaseLabel[p]}</Label>
-            <div className="relative">
-              <span
-                aria-hidden="true"
-                className="absolute inset-y-0 left-3 flex items-center text-text-secondary"
-              >
-                ₹
-              </span>
-              <Input
-                aria-label={`${phaseLabel[p]} price`}
-                className="pl-8 font-semibold tabular-nums"
-                type="number"
-                required
-                min="0"
-                step="0.01"
-                value={values[p]}
-                onChange={(e) => setValues({ ...values, [p]: e.target.value })}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
-        <p className="max-w-md text-xs text-text-secondary">
-          Installation is tracked without payment. Saved prices apply to future completions and
-          unpriced work.
-        </p>
-        <Button type="submit" disabled={busy}>
-          Save prices
-        </Button>
-      </div>
-    </form>
   );
 }
 
@@ -1436,21 +1265,15 @@ function AssociateActivityCharts({
     });
   }
   const events = board.attendance.filter((event) => event.associate_id === associate.id);
-  const earnings = board.earnings.filter(
-    (entry) => entry.associate_id === associate.id && (entry.eligible || entry.paid),
-  );
+  const earnings = commissioningEarnings(board.earnings, associate.id);
   const joined = indiaDate(new Date(associate.joined));
   const data = dates.map((day) => {
     const tracked = day <= board.today && day >= joined && day >= board.tracking_started;
     const online = events.some((event) => event.work_date === day && event.online);
-    const daily = earnings.filter((entry) => entry.earning_date === day);
     return {
       date: day.slice(5),
       online: tracked ? Number(online) : null,
       offline: tracked ? Number(!online) : null,
-      assessment: earningsTotal(daily.filter((entry) => entry.phase === "assessment")),
-      installation: earningsTotal(daily.filter((entry) => entry.phase === "installation")),
-      commissioning: earningsTotal(daily.filter((entry) => entry.phase === "commissioning")),
     };
   });
   const onlineDays = data.filter((day) => day.online === 1).length;
@@ -1474,7 +1297,6 @@ function AssociateActivityCharts({
     color: colors[phases.indexOf(phase)],
   }));
   const total = earningsTotal(periodEarnings);
-  const installations = periodEarnings.filter((entry) => entry.phase === "installation").length;
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1559,12 +1381,12 @@ function AssociateActivityCharts({
           </p>
         </article>
         <article className="min-w-0 overflow-hidden rounded-xl border border-border bg-surface p-3">
-          <h4 className="text-sm font-semibold">Earnings by work</h4>
-          <p className="mt-0.5 text-xs text-text-secondary">Assessment and commissioning income</p>
+          <h4 className="text-sm font-semibold">Commissioning incentives</h4>
+          <p className="mt-0.5 text-xs text-text-secondary">Approved commissioning income</p>
           <div
             className="relative h-40"
             role="img"
-            aria-label={`Earnings by work: ${money(total)} payable`}
+            aria-label={`Commissioning incentives: ${money(total)} payable`}
           >
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
@@ -1597,7 +1419,7 @@ function AssociateActivityCharts({
               <span className="max-w-[92px] truncate text-sm font-bold" title={money(total)}>
                 {money(total)}
               </span>
-              <span className="text-[10px] text-text-secondary">work earnings</span>
+              <span className="text-[10px] text-text-secondary">commissioning income</span>
             </div>
           </div>
           <div className="space-y-2">
@@ -1616,7 +1438,7 @@ function AssociateActivityCharts({
             ))}
           </div>
           <p className="mt-3 border-t border-border pt-2 text-[11px] text-text-secondary">
-            {installations} installations tracked · no payment
+            {periodEarnings.length} approved commissionings
           </p>
         </article>
       </div>
@@ -1681,12 +1503,6 @@ function AssociateDetails({
             <TabsTrigger value="earnings" className="gap-2 px-3 py-2">
               <IndianRupee size={16} />
               Earnings
-            </TabsTrigger>
-          )}
-          {!compact && associate.active !== false && (
-            <TabsTrigger value="prices" className="gap-2 px-3 py-2">
-              <Activity size={16} />
-              Work prices
             </TabsTrigger>
           )}
         </TabsList>
@@ -1771,16 +1587,6 @@ function AssociateDetails({
         </TabsContent>
         {!compact && (
           <>
-            {associate.active !== false && (
-              <TabsContent value="prices" className="mt-0">
-                <RatesEditor
-                  key={associate.id}
-                  board={board}
-                  associate={associate}
-                  reload={reload}
-                />
-              </TabsContent>
-            )}
             <TabsContent value="earnings" className="mt-0">
               <EarningsView board={board} associate={associate} manager reload={reload} />
             </TabsContent>
@@ -1896,7 +1702,7 @@ export function ManagerFieldOperations() {
       <div>
         <h2 className="font-semibold">Field associates</h2>
         <p className="mt-1 text-sm text-text-secondary">
-          Select an associate to view visits, history, earnings or work prices.
+          Select an associate to view visits, history and commissioning earnings.
         </p>
       </div>
       {visibleUsers.map((u) => (

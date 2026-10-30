@@ -9,7 +9,7 @@
   },
   "attendance-device-event": {
     "file": "attendance-device-event.ts",
-    "sha256": "2c08a212ead0990ece965f43b61546548d5747cbcba8e4216173e6f6cb8855ee"
+    "sha256": "a6413a863d0d4f09c79c3bb2d18a3121ca81628dcbeb57fe35764ff0a228f7de"
   },
   "attendance-command-retry": {
     "file": "attendance-command-retry.ts",

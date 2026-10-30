@@ -165,8 +165,31 @@ export function installationOverdue(company: Company, today: string) {
 }
 export function earningsTotal(rows: Earning[]) {
   return rows
-    .filter((e) => e.phase !== "installation" && (e.eligible || e.paid))
+    .filter((e) => isCommissioningEarning(e))
     .reduce((total, e) => total + Number(e.amount ?? 0), 0);
+}
+
+// Commissioning is attributed to the worker in the work ledger, regardless of
+// when the site was assigned or who it is assigned to now. Paid history survives reopening.
+export function isCommissioningEarning(entry: Earning) {
+  return (
+    entry.phase === "commissioning" && (entry.paid || (entry.eligible && entry.site_id != null))
+  );
+}
+
+export function commissioningEarnings(
+  rows: Earning[],
+  associateId: string,
+  start?: string,
+  end?: string,
+) {
+  return rows.filter(
+    (entry) =>
+      entry.associate_id === associateId &&
+      isCommissioningEarning(entry) &&
+      (!start || entry.earning_date >= start) &&
+      (!end || entry.earning_date <= end),
+  );
 }
 
 export function visibleWorkDates(rows: Earning[], attendance: Attendance[], associateId: string) {

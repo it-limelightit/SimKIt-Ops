@@ -22,10 +22,12 @@ import {
   timeLabel,
   type AttendanceBoard,
   type Employee,
+  type History,
 } from "@/lib/device-attendance";
-import { AttendanceEvidenceDialogs, type AttendancePhoto } from "./AttendanceEvidenceDialogs";
+import { AttendanceEvidenceDialogs, type AttendancePhoto, type AttendanceRecordView } from "./AttendanceEvidenceDialogs";
 import { attendanceSummary, formatAttendanceDuration } from "@/lib/attendance-analytics";
 import { requestCalendarStyle } from "@/lib/request-calendar";
+import { attendanceReviewExplanation, withAttendanceReviewReason } from "@/lib/attendance-review";
 import {
   addDays,
   createAttendanceDayCache,
@@ -79,6 +81,8 @@ export function EmployeeAttendance({ employee, board, boardDate, onBack }: Props
   const [exporting, setExporting] = useState(false);
   const [photo, setPhoto] = useState<AttendancePhoto | null>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
+  const [record, setRecord] = useState<AttendanceRecordView>(null);
+  const [recordBusy, setRecordBusy] = useState(false);
   const [revision, setRevision] = useState(0);
   const lastRevision = useRef(0);
   useEffect(() => {
@@ -134,9 +138,10 @@ export function EmployeeAttendance({ employee, board, boardDate, onBack }: Props
         const date = dates[index++];
         try {
           const daily = await cache.get(date, manualRefresh ? 0 : date === today ? 14_000 : 60_000);
+          const row = daily.rows.find((row) => row.employee_id === employee!.id);
           result.push({
             date,
-            row: daily.rows.find((row) => row.employee_id === employee!.id) || null,
+            row: row ? withAttendanceReviewReason(row, daily.review_events) : null,
           });
         } catch (failure) {
           failures.push(
@@ -179,6 +184,14 @@ export function EmployeeAttendance({ employee, board, boardDate, onBack }: Props
     } finally {
       setPhotoBusy(false);
     }
+  }
+  async function viewScans(date: string) {
+    setRecordBusy(true);
+    try {
+      const result = await attendanceRpc<History>("attendance_history", { _employee: employeeId, _date: date });
+      if (useAuth.getState().userId === userId) setRecord({ name: employee.name, date, data: result });
+    } catch (failure) { toast.error(failure instanceof Error ? failure.message : "Could not load scan history."); }
+    finally { setRecordBusy(false); }
   }
   async function exportHistory(format: "xlsx" | "pdf" = "xlsx") {
     if (exporting || loading || invalid || errors.length || !data || !summary.total) return;
@@ -530,8 +543,9 @@ export function EmployeeAttendance({ employee, board, boardDate, onBack }: Props
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface-raised p-3 text-sm">
               <div>
                 <p className="font-medium">
-                  {dateLabel(selectedDay.date)} · {statusLabels[selectedDay.row.status]}
+                  {dateLabel(selectedDay.date)} · {attendanceReviewExplanation(selectedDay.row)?.title || statusLabels[selectedDay.row.status]}
                 </p>
+                {selectedDay.row.entry_source === "manager_adjusted" && <p className="mt-1 text-xs text-text-secondary">Entry time adjusted by manager · Late penalty waived</p>}
                 {selectedDay.row.request_status && (
                   <p
                     className={`mt-1 inline-flex rounded-full border px-2 py-1 text-xs ${requestCalendarStyle(selectedDay.row.request_type, selectedDay.row.request_status)?.tone || ""}`}
@@ -545,10 +559,13 @@ export function EmployeeAttendance({ employee, board, boardDate, onBack }: Props
                   </p>
                 )}
                 <p className="mt-1 text-xs text-text-secondary">
-                  First valid scan: {timeLabel(selectedDay.row.entry_at)} IST · Late:{" "}
-                  {formatAttendanceDuration(selectedDay.row.late_minutes)}
+                  Entry time: {timeLabel(selectedDay.row.entry_at)} IST · Late:{" "}
+                  {selectedDay.row.time_review_reason ? "Not calculated until scan time is confirmed" : formatAttendanceDuration(selectedDay.row.late_minutes)}
                 </p>
               </div>
+              <Button size="sm" variant="secondary" disabled={recordBusy} onClick={() => void viewScans(selectedDay.date)}>
+                {recordBusy ? "Loading…" : "View scans / review time"}
+              </Button>
             </div>
           )}
         </Card>
@@ -616,7 +633,7 @@ export function EmployeeAttendance({ employee, board, boardDate, onBack }: Props
                               className={`inline-flex rounded-full border px-2 py-0.5 whitespace-nowrap ${colors[day.row?.status || ""] || "border-border text-text-secondary"}`}
                             >
                               {day.row
-                                ? statusLabels[day.row.status] || day.row.status
+                                ? attendanceReviewExplanation(day.row)?.title || statusLabels[day.row.status] || day.row.status
                                 : "Unavailable"}
                             </span>
                             {day.row?.leave_conflict && (
@@ -654,8 +671,9 @@ export function EmployeeAttendance({ employee, board, boardDate, onBack }: Props
         )}
       </div>
       <AttendanceEvidenceDialogs
-        record={null}
-        onCloseRecord={() => {}}
+        record={record}
+        onCloseRecord={() => setRecord(null)}
+        onResolved={() => { cache.clear(); setRevision((value) => value + 1); toast.success("Scan time verified. Attendance recalculated."); }}
         photo={photo}
         onClosePhoto={() => setPhoto(null)}
         onViewPhoto={(eventId) => void viewPhoto(eventId)}

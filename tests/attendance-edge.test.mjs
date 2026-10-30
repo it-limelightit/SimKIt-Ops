@@ -412,7 +412,7 @@ test("only validated scans can confirm enrollment; rejected scans remain reviewa
   const headers = { "x-attendance-secret": env.ATTENDANCE_DEVICE_WEBHOOK_SECRET };
   state.rpc = (name) => ({
     data:
-      name === "attendance_ingest_scan"
+      name === "attendance_ingest_scan_v2"
         ? { id: "event", state: "valid", expires_at: new Date().toISOString() }
         : true,
     error: null,
@@ -452,7 +452,7 @@ test("attendance is saved even when image upload fails; same event is retryable"
   });
   assert.equal(response.status, 503);
   assert.equal((await response.json()).photo, "retry_needed");
-  assert.equal(state.calls[0].name, "attendance_ingest_scan");
+  assert.equal(state.calls[0].name, "attendance_ingest_scan_v2");
   assert.ok(state.writes.some((w) => w.table === "attendance_photos" && w.op === "insert"));
 });
 test("expired delayed photos are not uploaded, and expired photo access is denied", async () => {

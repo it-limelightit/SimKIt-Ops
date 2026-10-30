@@ -11,6 +11,7 @@ const files = [
   "src/components/attendance/AttendancePanel.tsx",
   "src/hooks/use-device-attendance.ts",
   "src/lib/device-attendance.ts",
+  "src/lib/attendance-review.ts",
   "src/components/field-operations/FieldAttendanceCalendar.tsx",
   "src/components/field-operations/FieldOperations.tsx",
   "src/routes/employee.tsx",
@@ -41,7 +42,7 @@ const isAttendance = (path) =>
   /FieldAttendanceCalendar|FieldOperations\.tsx|[/\\](attendance|attendance-[^/\\]+)[/\\]|device-attendance|attendance-analytics|attendance-excel|attendance-pdf|attendance-report-logo|attendance-access|manager\.attendance|attendance-deno|[/\\]attendance(?:\.ts|-validation)/.test(
     path,
   );
-const relevant = diagnostics.filter((d) => !d.file || isAttendance(d.file.fileName) || /[/\\]routes[/\\]employee\.tsx$/.test(d.file.fileName));
+const relevant = diagnostics.filter((d) => !d.file || isAttendance(d.file.fileName) || /attendance-review\.ts$|[/\\]routes[/\\]employee\.tsx$/.test(d.file.fileName));
 if (relevant.length) {
   console.error(
     ts.formatDiagnosticsWithColorAndContext(relevant, {

@@ -42,6 +42,7 @@ import {
   type Settings,
 } from "@/lib/device-attendance";
 import { AttendanceOverview } from "./AttendanceOverview";
+import { attendanceReviewExplanation } from "@/lib/attendance-review";
 import { LeaveWorkspace } from "./LeaveWorkspace";
 import { AttendanceEvidenceDialogs, type AttendanceRecordView } from "./AttendanceEvidenceDialogs";
 import "./attendance.css";
@@ -61,7 +62,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
     </label>
   );
 }
-function Status({ value, lateMinutes }: { value: string; lateMinutes?: number | null }) {
+function Status({ value, lateMinutes, label }: { value: string; lateMinutes?: number | null; label?: string }) {
   const tone = ["present", "enrolled", "approved"].includes(value)
     ? "border-mint/20 bg-mint/10 text-mint"
     : value === "late"
@@ -82,7 +83,7 @@ function Status({ value, lateMinutes }: { value: string; lateMinutes?: number | 
       <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
       {value === "late" && lateMinutes != null && lateMinutes > 0
         ? `${lateMinutes} min late`
-        : statusLabels[value] || value}
+        : label || statusLabels[value] || value}
     </span>
   );
 }
@@ -773,10 +774,10 @@ export function AttendancePanel() {
                         {row.department}
                       </td>
                       <td className="px-3 py-3 whitespace-nowrap tabular-nums sm:px-4">
-                        {timeLabel(row.entry_at)}
+                        {row.entry_at ? timeLabel(row.entry_at) : row.time_review_reason ? "Time not confirmed" : timeLabel(null)}
                       </td>
                       <td className="px-3 py-3 sm:px-4">
-                        <Status value={row.status} lateMinutes={row.late_minutes} />
+                        <Status value={row.status} lateMinutes={row.late_minutes} label={attendanceReviewExplanation(row)?.title} />
                         {row.leave_conflict && <p className="mt-1 text-xs">Scanned during leave</p>}
                       </td>
                       <td
@@ -791,7 +792,7 @@ export function AttendancePanel() {
                           disabled={busy}
                           onClick={() => openEmployee(row.employee_id)}
                         >
-                          Details
+                          {row.time_review_reason ? "Check scan time" : "Details"}
                         </Button>
                       </td>
                     </tr>
@@ -818,12 +819,12 @@ export function AttendancePanel() {
                         {row.department} · ID {row.enroll_id}
                       </p>
                     </div>
-                    <Status value={row.status} lateMinutes={row.late_minutes} />
+                    <Status value={row.status} lateMinutes={row.late_minutes} label={attendanceReviewExplanation(row)?.title} />
                   </div>
                   <p className="text-sm tabular-nums">
                     {row.entry_at
                       ? `First entry · ${timeLabel(row.entry_at)} IST`
-                      : "No entry recorded"}
+                      : row.time_review_reason ? "Scan received; actual entry time not confirmed" : "No entry recorded"}
                     {row.status !== "late" &&
                       (row.late_minutes || 0) > 0 &&
                       ` · ${formatAttendanceDuration(row.late_minutes)} late`}
@@ -1358,6 +1359,7 @@ export function AttendancePanel() {
       <AttendanceEvidenceDialogs
         record={history}
         onCloseRecord={() => setHistory(null)}
+        onResolved={() => void reload()}
         photo={photo}
         onClosePhoto={() => setPhoto(null)}
         onViewPhoto={(eventId) => void viewPhoto(eventId)}
@@ -1563,7 +1565,7 @@ function SettingsForm({
         A working day stays awaiting scan until midnight IST. If no valid face scan is recorded
         during that day, it is marked absent. Approved leave, WFH, holidays and off days are exempt.
         Late minutes are measured after office start plus the grace period. Needs review means a
-        scan conflicts with approved leave, its lateness cannot be calculated, or office settings
+        scan time is unverified after a connection or device-clock issue, a scan conflicts with approved leave, its lateness cannot be calculated, or office settings
         are unavailable for that date.
       </p>
       <Button type="submit" disabled={busy} className="w-full">
