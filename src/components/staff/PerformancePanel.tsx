@@ -1,4 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { MonthlyPerformance } from "./MonthlyPerformance";
+import { monthlyCompany } from "@/utils/monthly-performance";
+import { filterCompanySource } from "@/lib/company-source";
 import { useCommissioningWorkDates, commissioningDateChanged, type CommissioningWorkDate } from "@/hooks/use-commissioning-work-dates";
 import { commissioningWorkTimestamp } from "@/utils/commissioning-work-date";
 import { fieldRpc } from "@/lib/field-operations";
@@ -23,6 +26,7 @@ type Site = {
   id: string;
   name: string;
   company_name: string | null;
+  company_source?: "npc" | "lead" | null;
   city: string | null;
   assigned_worker_id: string | null;
   assigned_at: string | null;
@@ -58,6 +62,30 @@ type SiteDetail = {
 };
 
 type ConsultantRow = { consultant: Consultant; sites: SiteDetail[] };
+type PerformanceStatusLog = { type: string; to_status: string; at: string };
+
+async function loadPerformanceHistory() {
+  const logs = new Map<string, PerformanceStatusLog[]>();
+  const pageSize = 1000;
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase.from("activity_logs" as any)
+      .select("site_id,entity_id,to_value,created_at")
+      .eq("action", "status_change").eq("entity_type", "site")
+      .in("to_value", ["In Assessment", "Assessed", "Installed", "Commissioned", "Submitted"])
+      .order("created_at", { ascending: true }).order("id", { ascending: true })
+      .range(offset, offset + pageSize - 1);
+    if (error) return { logs, error: error.message };
+    const entries = (data ?? []) as unknown as { site_id: string | null; entity_id: string | null; to_value: string; created_at: string }[];
+    for (const entry of entries) {
+      const siteId = entry.site_id || entry.entity_id;
+      if (!siteId) continue;
+      const list = logs.get(siteId) ?? [];
+      list.push({ type: "status_change", to_status: entry.to_value, at: entry.created_at });
+      logs.set(siteId, list);
+    }
+    if (entries.length < pageSize) return { logs, error: null };
+  }
+}
 
 export function getAppointmentTimingStatus(scheduledDateStr: string | null, scheduledTimeStr: string | null, completedAtIso: string | null) {
   if (!scheduledDateStr || !completedAtIso) return null;
@@ -81,15 +109,10 @@ export function PerformancePanel() {
   const commissioningWorkDates = useCommissioningWorkDates();
   const [rows, setRows] = useState<ConsultantRow[] | null>(null);
   const [allSiteDetails, setAllSiteDetails] = useState<SiteDetail[]>([]);
-  const [openConsultant, setOpenConsultant] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [associateFilter, setAssociateFilter] = useState("all");
-  const [timeFilter, setTimeFilter] = useState("all");
-  const [customRangeStart, setCustomRangeStart] = useState("");
-  const [customRangeEnd, setCustomRangeEnd] = useState("");
   const [factoryPeriod, setFactoryPeriod] = useState("aug_2026_to_today");
   const [analysisView, setAnalysisView] = useState("stage");
-  const [search, setSearch] = useState("");
+  const [statusHistory, setStatusHistory] = useState<Map<string, PerformanceStatusLog[]>>(new Map());
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -100,21 +123,25 @@ export function PerformancePanel() {
         return;
       }
 
-      const [profsRes, sitesRes, aRes, iRes, cRes, contactsRes, machinesRes, materialsRes] = await Promise.all([
+      const [profsRes, sitesRes, aRes, iRes, cRes, contactsRes, machinesRes, materialsRes, history] = await Promise.all([
         supabase.from("profiles").select("id,name,is_active").in("id", ids),
-        supabase.from("sites").select("id,name,company_name,city,assigned_worker_id,assigned_at,appt_date,appt_time,task_notes,consultant_stage,created_at"),
+        supabase.from("sites").select("id,name,company_name,company_source,city,assigned_worker_id,assigned_at,appt_date,appt_time,task_notes,consultant_stage,created_at"),
         supabase.from("assessment").select("site_id,data,updated_at"),
         supabase.from("installation").select("site_id,data,updated_at"),
         supabase.from("commissioning").select("site_id,data,updated_at"),
         supabase.from("contacts").select("*"),
         supabase.from("machines").select("*"),
         supabase.from("inventory_materials").select("material_name,state,notes,submitted"),
+        loadPerformanceHistory(),
       ]);
+      setStatusHistory(history.logs);
+      setHistoryError(history.error);
 
       const aMap = new Map<string, PhaseRecord>(((aRes.data ?? []) as any[]).map((r) => [r.site_id, r]));
       const iMap = new Map<string, PhaseRecord>(((iRes.data ?? []) as any[]).map((r) => [r.site_id, r]));
       const cMap = new Map<string, PhaseRecord>(((cRes.data ?? []) as any[]).map((r) => [r.site_id, r]));
       const materials = (materialsRes.data ?? []) as Material[];
+      const performanceSites = filterCompanySource((sitesRes.data ?? []) as Site[], "npc");
 
       const contactsBySite: Record<string, Contact[]> = {};
       for (const c of (contactsRes.data ?? []) as any[]) {
@@ -129,7 +156,7 @@ export function PerformancePanel() {
       }
 
       const sitesByWorker: Record<string, Site[]> = {};
-      for (const s of (sitesRes.data ?? []) as any[]) {
+      for (const s of performanceSites) {
         for (const workerId of getSiteWorkerIds(s).filter((id) => ids.includes(id))) {
           if (!sitesByWorker[workerId]) sitesByWorker[workerId] = [];
           sitesByWorker[workerId].push(s);
@@ -174,7 +201,7 @@ export function PerformancePanel() {
         sites: (sitesByWorker[p.id] ?? []).map(buildSiteDetail),
       }));
 
-      setAllSiteDetails(((sitesRes.data ?? []) as Site[]).map(buildSiteDetail));
+      setAllSiteDetails(performanceSites.map(buildSiteDetail));
       setRows(out.sort((a, b) => b.sites.length - a.sites.length));
     };
 
@@ -185,6 +212,7 @@ export function PerformancePanel() {
       .on("postgres_changes", { event: "*", schema: "public", table: "assessment" }, () => void load())
       .on("postgres_changes", { event: "*", schema: "public", table: "installation" }, () => void load())
       .on("postgres_changes", { event: "*", schema: "public", table: "commissioning" }, () => void load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "activity_logs" }, () => void load())
       .subscribe();
 
     return () => {
@@ -192,32 +220,18 @@ export function PerformancePanel() {
     };
   }, [commissioningWorkDates]);
 
-  const filteredRows = useMemo(() => {
-    if (!rows) return [];
-    const term = search.trim().toLowerCase();
-    return rows
-      .map((row) => ({
-        ...row,
-        sites: row.sites.filter((sd) => {
-          const matchesAssociate = associateFilter === "all" || row.consultant.id === associateFilter;
-          const matchesStatus = statusFilter === "all" ||
-            performanceStatusGroup(sd) === statusFilter ||
-            (statusFilter === "assigned" && getSiteWorkerIds(sd.site).length > 0) ||
-            (statusFilter === "dropped" && sd.status === "Dropped / Rejected");
-          const matchesTime = siteMatchesTimeFilter(sd, timeFilter, customRangeStart, customRangeEnd);
-          const matchesSearch = !term || [
-            row.consultant.name || "",
-            sd.site.name,
-            sd.site.company_name || "",
-            sd.site.city || "",
-            sd.status,
-          ].some((value) => value.toLowerCase().includes(term));
-          return matchesAssociate && matchesStatus && matchesTime && matchesSearch;
-        }),
-      }))
-      .filter((row) => row.sites.length > 0 || (!term && statusFilter === "all" && associateFilter === "all" && timeFilter === "all"));
-  }, [rows, associateFilter, customRangeEnd, customRangeStart, search, statusFilter, timeFilter]);
-  const analytics = useMemo(() => buildAnalytics(filteredRows), [filteredRows]);
+  const monthlyCompanies = useMemo(() => allSiteDetails.map((detail) => monthlyCompany({
+    id: detail.site.id,
+    name: detail.site.company_name || detail.site.name,
+    associateIds: getSiteWorkerIds(detail.site),
+    assigned: detail.site.assigned_at,
+    status: detail.status,
+    assessment: detail.assessment,
+    installation: detail.installation,
+    commissioning: detail.commissioning,
+    commissioningWorkDate: commissioningWorkDates.get(detail.site.id)?.date,
+    logs: [...(parseSiteMetadata(detail.site.task_notes).activity_logs ?? []), ...(statusHistory.get(detail.site.id) ?? [])],
+  })), [allSiteDetails, commissioningWorkDates, statusHistory]);
   // Factory Analysis is intentionally independent from the Stage Base Progress
   // controls. A stage, period shortcut, or search selected in that view must
   // not silently narrow the factory-wide timing report.
@@ -238,14 +252,11 @@ export function PerformancePanel() {
         <div className="max-w-3xl">
           <p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-lime/80">Business Analytics</p>
           <h1 className="mt-1 text-3xl font-extrabold tracking-tight text-text-primary sm:text-4xl">Company Performance</h1>
-          <p className="mt-1.5 max-w-2xl text-sm leading-5 text-text-secondary">
-            Analyze field associate execution from assignment to assessment, installation and commissioning with overview-aligned operational counts.
-          </p>
         </div>
         <div className="flex w-fit items-center gap-3 rounded-xl border border-border bg-surface px-3 py-2.5 shadow-xs lg:mb-0">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-lime/10 font-mono text-sm font-extrabold text-lime">{analytics.total}</span>
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-lime/10 font-mono text-sm font-extrabold text-lime">{allSiteDetails.length}</span>
           <div>
-            <div className="font-mono text-[9px] font-bold uppercase tracking-[0.16em] text-text-secondary">Current View</div>
+            <div className="font-mono text-[9px] font-bold uppercase tracking-[0.16em] text-text-secondary">NPC Companies</div>
             <div className="mt-0.5 text-sm font-bold text-text-primary">Companies</div>
           </div>
         </div>
@@ -262,116 +273,10 @@ export function PerformancePanel() {
               <option value="factory">Factory Analysis</option>
             </Select>
           </div>
-          {analysisView === "stage" && (
-          <div className="sticky top-3 z-20 rounded-xl border border-border bg-surface/95 p-3 shadow-lg shadow-slate-950/5 backdrop-blur">
-            <div className="mb-2.5 flex flex-col gap-2 border-b border-border pb-2.5 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-2 text-sm font-bold text-text-primary">
-                <Filter size={15} className="text-lime" />
-                Focus Filters
-              </div>
-              <div className="font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-text-secondary">
-                {filteredRows.length} consultant{filteredRows.length !== 1 ? "s" : ""} in selected view
-              </div>
-            </div>
-              <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-[minmax(360px,1.15fr)_180px_200px_minmax(180px,0.8fr)_auto]">
-                <div className="flex min-w-0 flex-wrap items-center gap-1 rounded-lg border border-border bg-surface-raised/40 p-1">
-                  {[
-                    ["all", "All"],
-                    ["7d", "Week"],
-                    ["month", "Month"],
-                    ["30d", "30D"],
-                    ["90d", "90D"],
-                    ["custom", "Custom"],
-                  ].map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setTimeFilter(value)}
-                      aria-pressed={timeFilter === value}
-                      className={`rounded-md px-2.5 py-2 font-mono text-[10px] font-bold uppercase tracking-wide transition-colors ${timeFilter === value ? "bg-text-primary text-surface shadow-sm" : "text-text-secondary hover:bg-surface hover:text-text-primary"}`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="text-xs">
-                  <option value="all">All stages</option>
-                  <option value="assigned">Assigned</option>
-                  <option value="not_started">Not Started Yet</option>
-                  <option value="assessed">Assessed</option>
-                  <option value="installed">Installed</option>
-                  <option value="commissioned">Commissioned</option>
-                  <option value="submitted">Submitted</option>
-                  <option value="dropped">Dropped / Rejected</option>
-                </Select>
-                <Select value={associateFilter} onChange={(e) => setAssociateFilter(e.target.value)} className="text-xs">
-                  <option value="all">All field associates</option>
-                  {associateOptions.map((associate) => (
-                    <option key={associate.id} value={associate.id}>{associate.name}</option>
-                  ))}
-                </Select>
-                <div className="relative min-w-0">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" size={15} />
-                  <Input
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search consultant, company, city, status..."
-                    className="pl-9"
-                  />
-                </div>
-                <Button
-                  variant="secondary"
-                  onClick={() => { setAnalysisView("stage"); setFactoryPeriod("aug_2026_to_today"); setTimeFilter("all"); setCustomRangeStart(""); setCustomRangeEnd(""); setStatusFilter("all"); setAssociateFilter("all"); setSearch(""); }}
-                  className="h-9 rounded-lg px-3 text-xs"
-                >
-                  <RotateCcw size={14} />
-                  Reset
-                </Button>
-              </div>
-              {timeFilter === "custom" && (
-                <div className="mt-2.5 flex flex-col gap-2 rounded-lg border border-lime/20 bg-lime/5 p-2.5 sm:flex-row sm:items-center">
-                  <div className="flex items-center gap-2 text-xs font-bold text-text-primary">
-                    <CalendarDays size={15} className="text-lime" />
-                    Activity date range
-                  </div>
-                  <div className="flex flex-1 flex-wrap items-center gap-2">
-                    <input
-                      type="date"
-                      value={customRangeStart}
-                      max={customRangeEnd || undefined}
-                      onChange={(e) => setCustomRangeStart(e.target.value)}
-                      aria-label="Custom range start date"
-                      className="rounded-md border border-border bg-surface px-2 py-1.5 text-xs font-semibold text-text-primary outline-none focus:border-lime"
-                    />
-                    <span className="text-xs text-text-secondary">to</span>
-                    <input
-                      type="date"
-                      value={customRangeEnd}
-                      min={customRangeStart || undefined}
-                      onChange={(e) => setCustomRangeEnd(e.target.value)}
-                      aria-label="Custom range end date"
-                      className="rounded-md border border-border bg-surface px-2 py-1.5 text-xs font-semibold text-text-primary outline-none focus:border-lime"
-                    />
-                    {(customRangeStart || customRangeEnd) && (
-                      <button
-                        type="button"
-                        onClick={() => { setCustomRangeStart(""); setCustomRangeEnd(""); }}
-                        className="text-xs font-bold text-text-secondary hover:text-text-primary"
-                      >
-                        Clear dates
-                      </button>
-                    )}
-                  </div>
-                  <p className="text-[10px] text-text-secondary">Filters by each company’s latest activity.</p>
-                </div>
-              )}
-          </div>
-          )}
-
           {analysisView === "stage" ? (
             <>
-              <AnalyticsDashboard analytics={analytics} onFilter={setStatusFilter} />
-              <StagePerformanceTable filteredRows={filteredRows} openConsultant={openConsultant} setOpenConsultant={setOpenConsultant} />
+              {historyError && <p role="alert" className="text-xs text-amber-600">Saved activity history could not be loaded. Historical dates may be incomplete.</p>}
+              <MonthlyPerformance companies={monthlyCompanies} associates={associateOptions} />
             </>
           ) : (
             <FactoryAnalysisDashboard

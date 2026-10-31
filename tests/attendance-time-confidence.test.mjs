@@ -35,6 +35,53 @@ before(async () => {
   await db.query("UPDATE attendance_employees SET auth_user_id=$1 WHERE id=$2", [account, employee]);
 });
 after(() => db.close());
+test("off-day migration corrects historical Sunday and holiday arrivals without changing scan evidence", async () => {
+  await db.exec("BEGIN");
+  try {
+    await db.exec(migration("20261029140000_attendance_manager_day_adjustments").replace(/^BEGIN;$/m, "").replace(/^COMMIT;$/m, ""));
+    await user(manager);
+    const sunday = await scalar("SELECT ((now() AT TIME ZONE 'Asia/Kolkata')::date-extract(dow FROM now() AT TIME ZONE 'Asia/Kolkata')::int-7)::text");
+    const monday = await scalar("SELECT ($1::date+1)::text", [sunday]);
+    const holiday = await scalar("SELECT ($1::date+2)::text", [sunday]);
+    await db.query("UPDATE attendance_settings SET working_days=ARRAY[1,2,3,4,5,6],holidays=ARRAY[$1::date]", [holiday]);
+    for (const day of [sunday, monday, holiday]) await ingest(`off-day-${day}`, `${day}T19:01:07+05:30`, "receiver_live");
+    assert.equal((await scalar("SELECT attendance_board($1::date)", [sunday])).rows[0].status, "late");
+    const evidence = await scalar("SELECT jsonb_agg(to_jsonb(s) ORDER BY id) FROM attendance_scan_events s");
+    const daily = await scalar("SELECT jsonb_agg(to_jsonb(r) ORDER BY id) FROM attendance_daily_records r");
+
+    await db.exec(migration("20261031120000_attendance_off_day_classification").replace(/^BEGIN;$/m, "").replace(/^COMMIT;$/m, ""));
+    for (const day of [sunday, holiday]) {
+      const row = (await scalar("SELECT attendance_board($1::date)", [day])).rows[0];
+      assert.equal(row.status, "off_day");
+      assert.equal(row.late_minutes, null);
+      assert.ok(row.entry_at);
+      await user(account);
+      const employeeDay = (await scalar("SELECT attendance_my_calendar($1::date)", [day])).days.find((r) => r.date === day);
+      assert.equal(employeeDay.status, "off_day");
+      assert.equal(employeeDay.working_day, false);
+      assert.equal(employeeDay.late_minutes, null);
+      await user(manager);
+    }
+    assert.equal((await scalar("SELECT attendance_board($1::date)", [monday])).rows[0].status, "late");
+    assert.deepEqual(await scalar("SELECT jsonb_agg(to_jsonb(s) ORDER BY id) FROM attendance_scan_events s"), evidence);
+    assert.deepEqual(await scalar("SELECT jsonb_agg(to_jsonb(r) ORDER BY id) FROM attendance_daily_records r"), daily);
+
+    await ingest("off-day-uncertain", `${sunday}T19:02:00+05:30`);
+    assert.equal((await scalar("SELECT attendance_board($1::date)", [sunday])).rows[0].status, "needs_review");
+    await db.query("SELECT attendance_adjust_day($1,$2::date,$3::timestamptz,'Administrative adjustment preserves Sunday policy')", [employee, sunday, `${sunday}T10:00:00+05:30`]);
+    const adjusted = (await scalar("SELECT attendance_board($1::date)", [sunday])).rows[0];
+    assert.equal(adjusted.status, "off_day");
+    assert.equal(adjusted.entry_source, "manager_adjusted");
+    assert.equal(adjusted.late_minutes, null);
+    for (const signature of ["attendance_board_before_time_guard(date)", "attendance_my_calendar_before_time_guard(date)"]) {
+      assert.equal(await scalar("SELECT has_function_privilege('authenticated',$1,'EXECUTE')", [signature]), false);
+    }
+    await user(account);
+    await db.exec("SAVEPOINT denied_board");
+    await assert.rejects(db.query("SELECT attendance_board($1::date)", [sunday]), /Manager access required/);
+    await db.exec("ROLLBACK TO SAVEPOINT denied_board");
+  } finally { await db.exec("ROLLBACK"); }
+});
 test("manager day adjustment preserves raw scans, waives lateness and survives subsequent scans", async () => {
   await db.exec("BEGIN");
   try {
