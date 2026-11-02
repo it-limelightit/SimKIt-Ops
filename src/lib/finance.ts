@@ -196,6 +196,15 @@ export async function financeRpc<T>(name: string, args: Record<string, unknown> 
   if (error) throw new Error(error.message);
   return data;
 }
+// Grace period: expenses submitted on the 1st-3rd of a month still settle into
+// the PREVIOUS month's cycle. Mirrors the expense_save() DB rule so the UI shows
+// the same month the backend will store. `today` is an ISO date (YYYY-MM-DD...).
+export const EXPENSE_GRACE_DAYS = 3;
+export function effectiveSettlementMonth(today: string): string {
+  const [year, month, day] = today.slice(0, 10).split("-").map(Number);
+  const monthIndex = day <= EXPENSE_GRACE_DAYS ? month - 2 : month - 1;
+  return new Date(Date.UTC(year, monthIndex, 1)).toISOString().slice(0, 10);
+}
 export function settlementDates(month: string) {
   const [year, number] = month.slice(0, 7).split("-").map(Number);
   const next = new Date(Date.UTC(year, number, 1)).toISOString().slice(0, 7);
