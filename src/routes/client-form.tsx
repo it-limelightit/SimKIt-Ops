@@ -1,3 +1,4 @@
+import { SimKitLogo } from "@/components/SimKitLogo";
 import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { useState, useEffect } from "react";
@@ -623,6 +624,7 @@ function ClientFormPage() {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6">
         <Card className="max-w-md w-full p-8 border border-lime/20 bg-surface/40 text-center space-y-5 animate-in zoom-in-95 duration-200">
+          <SimKitLogo />
           <CheckCircle2 className="mx-auto h-16 w-16 text-lime stroke-[1.5]" />
           <div>
             <h2 className="text-xl font-syne font-extrabold uppercase tracking-wide text-text-primary">
@@ -649,7 +651,7 @@ function ClientFormPage() {
         <Card className="max-w-md w-full p-8 border border-border/80 bg-surface/40 space-y-6">
           <div className="text-center space-y-2">
             <div className="mx-auto h-12 w-12 rounded-full bg-lime/10 flex items-center justify-center mb-2">
-              <Building2 className="h-6 w-6 text-lime" />
+              <SimKitLogo iconOnly />
             </div>
             <h2 className="text-lg font-syne font-extrabold uppercase tracking-wide text-text-primary">
               Verify Your Email
@@ -692,7 +694,8 @@ function ClientFormPage() {
   return (
     <div className="min-h-screen bg-background text-text-primary font-sans flex flex-col">
       {/* Header */}
-      <header className="border-b border-border/60 bg-surface/30 backdrop-blur px-6 py-4 flex items-center justify-between">
+      <header className="border-b border-border/60 bg-surface/30 backdrop-blur px-6 py-4 flex flex-wrap gap-4 items-center justify-between">
+        <SimKitLogo />
         <div>
           <h1 className="text-sm font-syne font-extrabold tracking-wider uppercase text-lime">
             Factory Data Submission

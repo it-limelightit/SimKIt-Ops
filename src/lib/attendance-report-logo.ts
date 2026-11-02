@@ -1,4 +1,4 @@
-import logoUrl from "../../image copy.png";
+import logoUrl from "../../public/brand/simkit-mark.png";
 
 export async function attendanceReportLogo(): Promise<string> {
   const response = await fetch(logoUrl);

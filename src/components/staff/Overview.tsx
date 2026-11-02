@@ -33,7 +33,7 @@ import { CommissioningTab } from "@/components/business-consultant/Commissioning
 import { OrderTab } from "@/components/business-consultant/OrderTab";
 import { parseTaskNotes } from "./TasksPanel";
 import { AddAssessorDialog, type AssessorDetails } from "./AddAssessorDialog";
-import logoUrl from "../../../image copy.png";
+import logoUrl from "../../../public/brand/simkit-mark.png";
 import { createOverviewPdfHeader, getOverviewPdfRows } from "@/lib/overview-pdf";
 import {
   Building,

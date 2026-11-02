@@ -1,3 +1,4 @@
+import { SimKitLogo } from "@/components/SimKitLogo";
 import { FieldAttendanceCalendar } from "./FieldAttendanceCalendar";
 import { useEffect, useId, useState, type ReactNode } from "react";
 import {
@@ -55,7 +56,7 @@ import {
   type Phase,
   type VisitType,
 } from "@/lib/field-operations";
-import logoUrl from "../../../image copy.png";
+import logoUrl from "../../../public/brand/simkit-mark.png";
 import { FieldVisitScheduler } from "@/components/field-visit-scheduler/FieldVisitScheduler";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 

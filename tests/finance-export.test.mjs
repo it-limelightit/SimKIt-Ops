@@ -6,10 +6,18 @@ import { pathToFileURL } from "node:url";
 import ts from "typescript";
 
 const require = createRequire(import.meta.url);
+const fieldOperationsUrl = `data:text/javascript;base64,${Buffer.from(
+  ts.transpileModule(
+    readFileSync(new URL("../src/lib/field-operations.ts", import.meta.url), "utf8")
+      .replace('import { supabase } from "@/integrations/supabase/client";', 'const supabase = {};'),
+    { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } },
+  ).outputText,
+).toString("base64")}`;
 let source = readFileSync(
   new URL("../src/components/finance/finance-export.ts", import.meta.url),
   "utf8",
 )
+  .replace('"@/lib/field-operations"', JSON.stringify(fieldOperationsUrl))
   .replace(
     /import \{\r?\n  categories,[\s\S]*?from "@\/lib\/finance";/,
   'const categories = { travel: "Travel" }; const financeRpc = () => {}; const expenseFileDownload = () => {};',
@@ -78,7 +86,7 @@ const fixture = () => ({
 });
 
 test("single-page salary statement shows combined totals and separates pending amounts from approval", () => {
-  const logo = `data:image/png;base64,${readFileSync(new URL("../image copy.png", import.meta.url)).toString("base64")}`;
+  const logo = `data:image/png;base64,${readFileSync(new URL("../public/brand/simkit-mark.png", import.meta.url)).toString("base64")}`;
   const bytes = statementBytes(fixture(), "2026-10", person, employee, undefined, logo);
   const pdf = Buffer.from(bytes).toString("latin1");
   assert.ok(pdf.startsWith("%PDF-"));

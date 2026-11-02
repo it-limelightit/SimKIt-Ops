@@ -1849,7 +1849,7 @@ function Shell({
         id="associate-navigation"
         className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-border bg-surface transition-transform duration-200 lg:visible lg:translate-x-0 ${navigationOpen ? "visible translate-x-0" : "invisible -translate-x-full"}`}
       >
-        <div className="flex h-20 items-center justify-between px-6">
+        <div className="flex min-h-24 items-center justify-between px-4 py-3">
           <button
             onClick={() => {
               onGoToDashboard?.();

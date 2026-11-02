@@ -23,7 +23,7 @@ test("PDF exclusions preserve filtered row order, use IDs and never mutate dashb
 
 test("branded PDF header repeats with complete metadata and expands for long titles", async () => {
   const doc = new jsPDF();
-  const logo = `data:image/png;base64,${readFileSync("image copy.png").toString("base64")}`;
+  const logo = `data:image/png;base64,${readFileSync("public/brand/simkit-mark.png").toString("base64")}`;
   const options = {
     title: "NPC - Not Started Yet Report",
     generatedAt: "30 Oct 2026, 4:30 pm IST",

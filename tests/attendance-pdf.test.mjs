@@ -45,7 +45,7 @@ const row = {
   leave_conflict: true,
 };
 const generatedAt = new Date("2026-10-12T06:00:00Z");
-const logo = `data:image/png;base64,${readFileSync(new URL("../image copy.png", import.meta.url)).toString("base64")}`;
+const logo = `data:image/png;base64,${readFileSync(new URL("../public/brand/simkit-mark.png", import.meta.url)).toString("base64")}`;
 
 test("employee PDF includes branded attendance analytics, missing dates, conflicts and IST without salary data", async () => {
   const days = [

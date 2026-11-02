@@ -4,7 +4,7 @@ import { useRouterState } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { Button, Card, Input, Label, Select, Badge, Textarea } from "@/components/ui-kit";
 import { toast } from "sonner";
-import logoUrl from "../../../image copy.png";
+import logoUrl from "../../../public/brand/simkit-mark.png";
 import { useAuth } from "@/lib/auth-store";
 import { actorName, recordActivityLog } from "@/lib/activity-log";
 import { formatLocationName, formatSiteCityName, isDistrictOnly, locationKey, siteCityKey } from "@/utils/site-location";
