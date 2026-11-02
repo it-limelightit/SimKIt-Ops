@@ -348,3 +348,14 @@ select option {
   }
 }
 
+
+/* Hide scrollbar visually while keeping scroll functional (used by sidebar nav). */
+.no-scrollbar {
+  -ms-overflow-style: none; /* IE and old Edge */
+  scrollbar-width: none; /* Firefox */
+}
+.no-scrollbar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none; /* Chrome, Safari, Edge */
+}

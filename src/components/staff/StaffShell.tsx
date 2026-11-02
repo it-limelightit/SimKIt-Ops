@@ -31,6 +31,8 @@ import {
   CalendarCheck,
 } from "lucide-react";
 import { Button } from "../ui-kit";
+import { ImpersonateButton } from "./ImpersonateUser";
+import { canImpersonate } from "@/lib/impersonation";
 
 export function StaffShell({ children, role }: { children: React.ReactNode; role: "supervisor" }) {
   const { signOut, profile, email, role: currentRole } = useAuth();
@@ -145,7 +147,7 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
       {/* Mobile Drawer (Menu Overlay) */}
       {isOpen && (
         <div className="fixed inset-0 z-50 flex flex-col bg-background text-text-primary animate-in slide-in-from-top duration-200 md:hidden">
-          <div className="flex h-16 items-center justify-between border-b border-border px-6 bg-surface">
+          <div className="flex h-16 shrink-0 items-center justify-between border-b border-border px-6 bg-surface">
             <Link
               to={home}
               className="simkit-brand-link"
@@ -160,7 +162,7 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
               <X size={20} strokeWidth={2} />
             </button>
           </div>
-          <nav className="flex-1 px-4 py-6 space-y-1">
+          <nav className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-6 space-y-1">
             {items.map((it) => {
               const active = expenseOpen ? it.to === "/expenses" : path === it.to || (it.to !== base && path.startsWith(it.to));
               const cls = `flex items-center gap-3 px-4 py-3 text-sm font-semibold rounded-[6px] transition-all duration-150 ${active ? "bg-lime/10 text-lime border-l-3 border-lime" : "text-text-secondary hover:bg-surface hover:text-text-primary"}`;
@@ -187,12 +189,15 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
               );
             })}
           </nav>
-          <div className="border-t border-border px-6 py-6 bg-surface">
+          <div className="shrink-0 border-t border-border px-6 py-6 bg-surface">
             <div className="font-mono text-[9px] text-lime mb-1 uppercase tracking-widest font-bold">
               {displayRole}
             </div>
-            <div className="text-sm font-semibold mb-3 text-text-primary">
-              {profile?.name ?? "—"}
+            <div className="mb-3 flex items-center justify-between">
+              <div className="text-sm font-semibold text-text-primary">
+                {profile?.name ?? "—"}
+              </div>
+              {canImpersonate(email) && <ImpersonateButton />}
             </div>
             <Button
               onClick={() => {
@@ -213,7 +218,7 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
         className={`hidden shrink-0 flex-col bg-surface border-r border-border md:flex md:h-screen md:sticky md:top-0 transition-all duration-200 ${collapsed ? "w-16" : "w-64"}`}
       >
         <div
-          className={`flex items-center border-b border-border py-5 ${collapsed ? "justify-center px-0" : "justify-between px-5"}`}
+          className={`flex shrink-0 items-center border-b border-border py-5 ${collapsed ? "justify-center px-0" : "justify-between px-5"}`}
         >
           {!collapsed && (
             <Link
@@ -241,7 +246,7 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
             )}
           </button>
         </div>
-        <nav className={`flex-1 py-6 space-y-1 ${collapsed ? "px-2" : "px-3"}`}>
+        <nav className={`no-scrollbar min-h-0 flex-1 overflow-y-auto py-6 space-y-1 ${collapsed ? "px-2" : "px-3"}`}>
           {items.map((it) => {
             const active = expenseOpen ? it.to === "/expenses" : path === it.to || (it.to !== base && path.startsWith(it.to));
             const cls = `flex items-center gap-3 py-2.5 text-sm font-semibold transition-all duration-150 rounded-[6px] ${collapsed ? "justify-center px-0" : "px-4"} ${active ? "bg-lime/10 text-lime border-l-3 border-lime" : "text-text-secondary hover:bg-surface-raised hover:text-text-primary"}`;
@@ -269,7 +274,7 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
           })}
         </nav>
         <div
-          className={`border-t border-border py-4 bg-surface-raised/30 flex items-center ${collapsed ? "justify-center px-2 flex-col gap-2" : "justify-between px-4"}`}
+          className={`shrink-0 border-t border-border py-4 bg-surface-raised/30 flex items-center ${collapsed ? "justify-center px-2 flex-col gap-2" : "justify-between px-4"}`}
         >
           {!collapsed && (
             <div className="flex flex-col min-w-0">
@@ -282,6 +287,7 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
             </div>
           )}
           <div className="flex items-center gap-1">
+            {canImpersonate(email) && <ImpersonateButton collapsed={collapsed} />}
             <button
               onClick={toggleTheme}
               className="text-text-secondary hover:text-lime transition-colors p-1.5 cursor-pointer"

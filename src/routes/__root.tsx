@@ -15,6 +15,7 @@ import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { useAuthInit } from "@/lib/auth-store";
 import { OfflineBanner } from "@/components/OfflineBanner";
+import { ImpersonationBanner } from "@/components/staff/ImpersonateUser";
 
 function NotFoundComponent() {
   useEffect(() => {
@@ -143,6 +144,7 @@ function RootComponent() {
   useAuthInit();
   return (
     <QueryClientProvider client={queryClient}>
+      <ImpersonationBanner />
       <OfflineBanner />
       <Outlet />
       <Toaster

@@ -29,6 +29,12 @@ export type InstallationEquipmentChecklist = {
   waiting_dispatch: boolean;
   orders: InstallationEquipmentOrder[];
 };
+export type AssociateExtraCompany = {
+  company: string;
+  quantity: number;
+  total_value: number | null;
+  last_confirmed_at: string | null;
+};
 export type AssociateExtraItem = {
   associate_id: string;
   associate_name: string;
@@ -40,6 +46,9 @@ export type AssociateExtraItem = {
   unit_price: number | null;
   total_value: number | null;
   companies: string;
+  company_list?: string[] | null;
+  company_breakdown?: AssociateExtraCompany[] | null;
+  last_confirmed_at?: string | null;
 };
 
 export async function associateInventoryRpc<T>(

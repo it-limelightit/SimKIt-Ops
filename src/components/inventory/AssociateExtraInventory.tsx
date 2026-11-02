@@ -1,12 +1,127 @@
-import { useEffect, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { RefreshCw, ChevronRight, Boxes } from "lucide-react";
 import { Button, Card, Input, Label, Select } from "@/components/ui-kit";
-import { associateInventoryRpc, type AssociateExtraItem } from "@/lib/associate-inventory";
+import {
+  associateInventoryRpc,
+  type AssociateExtraItem,
+  type AssociateExtraCompany,
+} from "@/lib/associate-inventory";
 
 const price = (value: number | null) =>
   value == null
     ? "Price unavailable"
     : new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(value);
+
+const dateFormatter = new Intl.DateTimeFormat("en-IN", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+});
+
+const formatDate = (value: string | null | undefined) => {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : dateFormatter.format(parsed);
+};
+
+// Prefer the structured array; fall back to splitting the comma-joined string.
+const companyList = (item: AssociateExtraItem): string[] => {
+  const list = Array.isArray(item.company_list)
+    ? item.company_list.filter((name): name is string => Boolean(name && name.trim()))
+    : [];
+  if (list.length) return list;
+  return (item.companies ?? "")
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+};
+
+// Per-company quantity breakdown. When the backend breakdown isn't available
+// yet (migration not applied), fall back to the plain company list with an
+// unknown quantity so the UI still lists the companies.
+const companyBreakdown = (item: AssociateExtraItem): AssociateExtraCompany[] => {
+  if (Array.isArray(item.company_breakdown) && item.company_breakdown.length) {
+    return item.company_breakdown.filter((row) => row && row.company);
+  }
+  return companyList(item).map((company) => ({
+    company,
+    quantity: NaN,
+    total_value: null,
+    last_confirmed_at: item.last_confirmed_at ?? null,
+  }));
+};
+
+// Detail table: one row per sensor/item, with its source company and the date
+// it was confirmed/sent.
+function ItemsTable({ items }: { items: AssociateExtraItem[] }) {
+  return (
+    <div className="overflow-x-auto rounded-[8px] border border-border">
+      <table className="w-full min-w-[640px] text-sm text-left">
+        <thead>
+          <tr className="border-b border-border bg-surface-raised/40 font-mono text-[10px] uppercase tracking-widest text-text-secondary">
+            <th className="px-3 py-2.5 font-semibold">Item</th>
+            <th className="px-3 py-2.5 text-right font-semibold">Qty</th>
+            <th className="px-3 py-2.5 text-right font-semibold">Unit price</th>
+            <th className="px-3 py-2.5 text-right font-semibold">Total value</th>
+            <th className="px-3 py-2.5 font-semibold">Sent / confirmed</th>
+            <th className="px-3 py-2.5 font-semibold">Source company</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item) => {
+            const breakdown = companyBreakdown(item);
+            const confirmedOn = formatDate(item.last_confirmed_at);
+            return (
+              <tr
+                key={`${item.associate_id}:${item.group_key}:${item.model}`}
+                className="border-b border-border/50 align-top last:border-0 hover:bg-surface-raised/30"
+              >
+                <td className="px-3 py-3">
+                  <span className="font-medium text-text-primary">{item.label}</span>
+                  {item.model && (
+                    <span className="block text-xs text-text-secondary">{item.model}</span>
+                  )}
+                </td>
+                <td className="px-3 py-3 text-right whitespace-nowrap font-semibold">
+                  {item.quantity}
+                  <span className="ml-1 text-xs font-normal text-text-secondary">{item.unit}</span>
+                </td>
+                <td className="px-3 py-3 text-right whitespace-nowrap">{price(item.unit_price)}</td>
+                <td className="px-3 py-3 text-right whitespace-nowrap font-semibold">
+                  {price(item.total_value)}
+                </td>
+                <td className="px-3 py-3 whitespace-nowrap text-text-secondary">
+                  {confirmedOn ?? "—"}
+                </td>
+                <td className="px-3 py-3">
+                  {breakdown.length ? (
+                    <div className="space-y-1">
+                      {breakdown.map((row) => (
+                        <div
+                          key={row.company}
+                          className="flex items-center justify-between gap-3 rounded-[4px] bg-surface-raised px-2 py-1"
+                        >
+                          <span className="min-w-0 text-xs text-text-primary" title={row.company}>
+                            {row.company}
+                          </span>
+                          <span className="shrink-0 whitespace-nowrap font-mono text-xs font-semibold text-lime">
+                            {Number.isNaN(row.quantity) ? "—" : `${row.quantity} ${item.unit}`}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-text-secondary">—</span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 export function AssociateExtraInventory({ manager = false }: { manager?: boolean }) {
   const [items, setItems] = useState<AssociateExtraItem[]>([]);
@@ -15,6 +130,14 @@ export function AssociateExtraInventory({ manager = false }: { manager?: boolean
   const [attempt, setAttempt] = useState(0);
   const [associate, setAssociate] = useState("");
   const [query, setQuery] = useState("");
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggle = (id: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   useEffect(() => {
     let active = true;
     setLoading(true);
@@ -48,6 +171,27 @@ export function AssociateExtraInventory({ manager = false }: { manager?: boolean
   const total = filtered.every((item) => item.total_value != null)
     ? filtered.reduce((sum, item) => sum + Number(item.total_value), 0)
     : null;
+
+  // Field associate-wise roll-up: each associate with their item count, total
+  // units and total amount. Expanding one reveals the per-sensor detail.
+  const groups = useMemo(() => {
+    const map = new Map<
+      string,
+      { id: string; name: string; items: AssociateExtraItem[]; units: number; total: number; totalKnown: boolean }
+    >();
+    for (const item of filtered) {
+      let group = map.get(item.associate_id);
+      if (!group) {
+        group = { id: item.associate_id, name: item.associate_name, items: [], units: 0, total: 0, totalKnown: true };
+        map.set(item.associate_id, group);
+      }
+      group.items.push(item);
+      group.units += Number(item.quantity);
+      if (item.total_value == null) group.totalKnown = false;
+      else group.total += Number(item.total_value);
+    }
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [filtered]);
 
   return (
     <Card className="p-5 space-y-4">
@@ -110,43 +254,61 @@ export function AssociateExtraInventory({ manager = false }: { manager?: boolean
         <>
           <p className="text-sm font-semibold">
             {units} extra {units === 1 ? "item" : "items"} · Total value: {price(total)}
+            {manager && (
+              <span className="text-text-secondary font-normal">
+                {" "}· {groups.length} field {groups.length === 1 ? "associate" : "associates"}
+              </span>
+            )}
           </p>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
-              <thead>
-                <tr className="border-b border-border">
-                  {manager && <th className="p-3">Field associate</th>}
-                  <th className="p-3">Item</th>
-                  <th className="p-3">Quantity</th>
-                  <th className="p-3">Unit price</th>
-                  <th className="p-3">Total value</th>
-                  <th className="p-3">Source company</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((item) => (
-                  <tr
-                    key={`${item.associate_id}:${item.group_key}:${item.model}`}
-                    className="border-b border-border/50"
-                  >
-                    {manager && <td className="p-3 font-semibold">{item.associate_name}</td>}
-                    <td className="p-3">
-                      {item.label}
-                      {item.model && (
-                        <span className="block text-xs text-text-secondary">{item.model}</span>
-                      )}
-                    </td>
-                    <td className="p-3">
-                      {item.quantity} {item.unit}
-                    </td>
-                    <td className="p-3 whitespace-nowrap">{price(item.unit_price)}</td>
-                    <td className="p-3 whitespace-nowrap">{price(item.total_value)}</td>
-                    <td className="p-3">{item.companies}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+
+          {manager ? (
+            <div className="space-y-2.5">
+              {groups.map((group) => {
+                const open = expanded.has(group.id);
+                return (
+                  <div key={group.id} className="rounded-[8px] border border-border overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => toggle(group.id)}
+                      aria-expanded={open}
+                      className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-raised/40"
+                    >
+                      <ChevronRight
+                        size={16}
+                        className={`shrink-0 text-text-secondary transition-transform ${open ? "rotate-90" : ""}`}
+                      />
+                      <Boxes size={16} className="shrink-0 text-lime" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-semibold text-text-primary">
+                          {group.name}
+                        </span>
+                        <span className="block text-xs text-text-secondary">
+                          {group.units} {group.units === 1 ? "item" : "items"} ·{" "}
+                          {group.items.length} {group.items.length === 1 ? "type" : "types"}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-right">
+                        <span className="block font-semibold text-text-primary">
+                          {price(group.totalKnown ? group.total : null)}
+                        </span>
+                        <span className="block font-mono text-[10px] uppercase tracking-wider text-text-secondary">
+                          {open ? "Hide details" : "View details"}
+                        </span>
+                      </span>
+                    </button>
+                    {open && (
+                      <div className="border-t border-border bg-surface-raised/20 p-3">
+                        <ItemsTable items={group.items} />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <ItemsTable items={filtered} />
+          )}
+
           <p className="text-xs text-text-secondary">
             Prices come from manager inventory at dispatch or first confirmation. Values stay fixed
             for that order; mixed prices are shown as an average unit price.

@@ -270,8 +270,9 @@ test("personal claim access and deferred reviewer submissions", async () => {
   await assert.rejects(claim(), /pending configuration/);
   await as(staff);
   const id = await claim();
+  // Grace period: claims submitted on the 1st-3rd settle into the previous month.
   const month = await scalar(
-    "select date_trunc('month',now() AT TIME ZONE 'Asia/Kolkata')::date::text",
+    "select (case when extract(day from (now() AT TIME ZONE 'Asia/Kolkata')::date)<=3 then date_trunc('month',(now() AT TIME ZONE 'Asia/Kolkata')::date)-interval '1 month' else date_trunc('month',(now() AT TIME ZONE 'Asia/Kolkata')::date) end)::date::text",
   );
   assert.equal(
     await scalar("select settlement_month::text from expense_claims where id=$1", [id]),

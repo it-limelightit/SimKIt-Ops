@@ -44,18 +44,29 @@ export function createOverviewPdfHeader(
         const w = image.width * scale;
         const h = image.height * scale;
         doc.addImage(options.logo, "PNG", margin + (22 - w) / 2, 6 + (22 - h) / 2, w, h);
-        brandX += 27;
+        brandX += 23;
       }
+      // Brand lock-up sits right next to the logo, vertically centred to it
+      // (the logo band spans y6..y28, so its centre is ~17).
+      const logoBandCenterY = 17;
       doc.setFont("helvetica", "bold");
       doc.setFontSize(13);
       doc.setTextColor(18, 28, 48);
-      doc.text("LimelightIT", brandX, 14);
+      doc.text("LimelightIT", brandX, logoBandCenterY - 2);
       doc.setFont("helvetica", "normal");
       doc.setFontSize(8);
       doc.setTextColor(85, 96, 115);
-      doc.text("Research Pvt. Ltd.", brandX, 19);
-      doc.setFontSize(7);
-      doc.text("FIELD ASSIGNMENT OVERVIEW", brandX, 24);
+      doc.text("Research Pvt. Ltd.", brandX, logoBandCenterY + 3);
+      // Section heading: centred horizontally on the page and vertically within
+      // the header band.
+      const pageWidth = doc.internal.pageSize.getWidth();
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.setTextColor(13, 134, 154);
+      doc.text("FIELD ASSIGNMENT OVERVIEW", pageWidth / 2, logoBandCenterY, {
+        align: "center",
+        baseline: "middle",
+      });
       doc.setDrawColor(13, 134, 154);
       doc.setLineWidth(0.6);
       doc.line(margin, 29, margin + width, 29);

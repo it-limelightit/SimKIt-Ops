@@ -41,6 +41,7 @@ import {
   readable,
   canManageFinance,
   settlementDates,
+  effectiveSettlementMonth,
   validateExpenseFile,
   type ExpenseClaim,
   type ExpenseFile,
@@ -819,9 +820,10 @@ export function FinanceWorkspace({
           files={board.files}
           today={board.today}
           onClose={() => setEditor(null)}
-          onSaved={async () => {
+          onSaved={async (targetMonth) => {
             setEditor(null);
-            await reload();
+            if (targetMonth && targetMonth !== month) setMonth(targetMonth);
+            else await reload();
           }}
         />
       )}
@@ -1579,7 +1581,7 @@ function ExpenseEditor({
   files: ExpenseFile[];
   today: string;
   onClose: () => void;
-  onSaved: () => Promise<void>;
+  onSaved: (targetMonth?: string) => Promise<void>;
 }) {
   const [date, setDate] = useState(claim?.expense_date ?? today);
   const [title, setTitle] = useState(claim?.title ?? "");
@@ -1618,7 +1620,7 @@ function ExpenseEditor({
         _files: attached,
       });
       toast.success(claim ? "Expense reapplied and sent to Hardik" : "Expense submitted to Hardik");
-      await onSaved();
+      await onSaved(claim ? undefined : effectiveSettlementMonth(today).slice(0, 7));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not submit expense");
     } finally {
@@ -1638,7 +1640,7 @@ function ExpenseEditor({
           <DialogDescription>
             {claim
               ? `Keeps settlement month ${claim.settlement_month.slice(0, 7)}. Both approvals restart with Hardik.`
-              : `New claims submitted now belong to ${today.slice(0, 7)}, due ${settlementDates(today).due}.`}
+              : `New claims submitted now belong to ${effectiveSettlementMonth(today).slice(0, 7)}, due ${settlementDates(effectiveSettlementMonth(today)).due}.`}
           </DialogDescription>
         </DialogHeader>
         <form
