@@ -6,7 +6,7 @@ import { Button, Input, Label, Select } from "@/components/ui-kit";
 import { parseSiteMetadata } from "@/lib/site-metadata";
 import { getCanonicalStatus } from "@/utils/status";
 import { formatSiteCityName, siteCityKey, siteCityOptions } from "@/utils/site-location";
-import logoUrl from "../../../image copy.png";
+import logoUrl from "../../../public/brand/simkit-mark.png";
 import {
   Building2,
   CheckCircle2,

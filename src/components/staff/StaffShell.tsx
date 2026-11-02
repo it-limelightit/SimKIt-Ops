@@ -112,7 +112,7 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
   return (
     <div className={`flex min-h-screen flex-col md:flex-row bg-background text-text-primary ${isSalaryManager(email)?"finance-account-shell":""}`}>
       {/* Mobile Header */}
-      <header className="flex h-16 items-center justify-between border-b border-border bg-surface px-6 md:hidden">
+      <header className="flex min-h-20 items-center justify-between border-b border-border bg-surface px-6 md:hidden">
         <Link
           to={home}
           onClick={() => setExpenseOpen(false)}
@@ -210,7 +210,7 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
 
       {/* Desktop Sidebar */}
       <aside
-        className={`hidden shrink-0 flex-col bg-surface border-r border-border md:flex md:h-screen md:sticky md:top-0 transition-all duration-200 ${collapsed ? "w-16" : "w-60"}`}
+        className={`hidden shrink-0 flex-col bg-surface border-r border-border md:flex md:h-screen md:sticky md:top-0 transition-all duration-200 ${collapsed ? "w-16" : "w-64"}`}
       >
         <div
           className={`flex items-center border-b border-border py-5 ${collapsed ? "justify-center px-0" : "justify-between px-5"}`}

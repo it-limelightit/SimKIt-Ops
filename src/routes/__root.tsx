@@ -1,3 +1,4 @@
+import { SimKitLogo } from "@/components/SimKitLogo";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   Outlet,
@@ -26,6 +27,7 @@ function NotFoundComponent() {
   return (
     <div className="flex min-h-screen items-center justify-center px-6">
       <div className="max-w-md text-center">
+        <SimKitLogo className="mb-6" />
         <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">404</p>
         <h1 className="mt-4 text-4xl">Page not found</h1>
         <p className="mt-3 text-sm text-muted-foreground">
@@ -52,6 +54,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   return (
     <div className="flex min-h-screen items-center justify-center px-6">
       <div className="max-w-md text-center">
+        <SimKitLogo className="mb-6" />
         <h1 className="text-3xl">Something went wrong</h1>
         <p className="mt-3 text-sm text-muted-foreground">
           The page failed to load. Try again or head home.
@@ -88,6 +91,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     ],
     links: [
       { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
+      { rel: "icon", type: "image/png", href: "/brand/simkit-mark.png" },
+      { rel: "apple-touch-icon", href: "/brand/simkit-mark.png" },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {

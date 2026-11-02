@@ -5,7 +5,7 @@ import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 const dir=path.dirname(fileURLToPath(import.meta.url));
 const pdf=new jsPDF({unit:'mm',format:'a4',compress:true});
-const logo=readFileSync(path.resolve(dir,'../../image copy.png'));
+const logo=readFileSync(path.resolve(dir,'../../public/brand/simkit-mark.png'));
 const C={navy:'#1F3347',blue:'#3656C9',body:'#33445C',muted:'#65758B',line:'#DCE3ED',pale:'#F2F5FC'};
 let y=0;const pages=[];
 function text(s,size=11.5,bold=false,color=C.body,x=19,width=172){pdf.setFont('helvetica',bold?'bold':'normal');pdf.setFontSize(size);pdf.setTextColor(color);const lines=pdf.splitTextToSize(s,width);pdf.text(lines,x,y);y+=lines.length*size*.46+2.7;}

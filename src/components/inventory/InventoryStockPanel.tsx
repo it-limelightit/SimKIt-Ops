@@ -23,7 +23,7 @@ import {
   FileText,
 } from "lucide-react";
 import { toast } from "sonner";
-import logoUrl from "../../../image copy.png";
+import logoUrl from "../../../public/brand/simkit-mark.png";
 import { inventoryComponentKey, inventoryModelKey, inventoryDispatchHint, inventoryOrderIncludesDm, inventoryCtSensorCount } from "@/lib/inventory-components";
 import {
   InventoryStockItem,
