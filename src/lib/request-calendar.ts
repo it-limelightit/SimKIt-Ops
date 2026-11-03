@@ -2,7 +2,14 @@ export function requestCalendarStyle(
   type: string | null | undefined,
   decision: string | null | undefined,
 ) {
-  const kind = type === "late" ? "Late arrival" : type === "wfh" ? "WFH" : "Leave";
+  const kind =
+    type === "late"
+      ? "Late arrival"
+      : type === "half_day"
+        ? "Half day"
+        : type === "wfh"
+          ? "WFH"
+          : "Leave";
   if (decision === "approved")
     return {
       label: `${kind} approved`,
@@ -13,4 +20,15 @@ export function requestCalendarStyle(
   if (decision === "pending")
     return { label: `${kind} pending`, tone: "border-amber-300 bg-amber-50 text-amber-800" };
   return null;
+}
+
+/** Short name of a calendar request type, e.g. "WFH", "Late arrival". */
+export function requestKindLabel(type: string | null | undefined) {
+  return type === "late"
+    ? "Late arrival"
+    : type === "half_day"
+      ? "Half day"
+      : type === "wfh"
+        ? "WFH"
+        : "Leave";
 }

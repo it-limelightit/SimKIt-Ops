@@ -35,7 +35,9 @@ export type AttendanceRow = {
   review_reason?: string | null;
   entry_source?: "scan" | "manager_adjusted";
   adjustment_reason?: string | null;
-  request_type?: "leave" | "wfh" | null;
+  request_type?: "leave" | "wfh" | "late" | "half_day" | null;
+  arrival_approved?: boolean;
+  arrival_half_day?: boolean;
   request_status?: string | null;
   request_reason?: string | null;
 };

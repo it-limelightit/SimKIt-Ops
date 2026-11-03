@@ -5,6 +5,7 @@ import {
   associateInventoryRpc,
   type AssociateExtraItem,
   type AssociateExtraCompany,
+  type AssociateExtraUsage,
 } from "@/lib/associate-inventory";
 
 const price = (value: number | null) =>
@@ -51,6 +52,39 @@ const companyBreakdown = (item: AssociateExtraItem): AssociateExtraCompany[] => 
   }));
 };
 
+// What happened to units logistics assigned from extra stock to a later order,
+// based on that order's installation confirmation.
+function reuseOutcome(use: AssociateExtraUsage, unit: string) {
+  const installed = use.installed ?? use.quantity;
+  const returned = use.returned ?? 0;
+  switch (use.outcome) {
+    case "pending":
+      return {
+        label: `🕓 Assigned to this order · awaiting installation`,
+        change: `−${use.quantity} ${unit}`,
+        tone: "text-text-secondary",
+      };
+    case "returned":
+      return {
+        label: `↩ Not used here · returned to extra stock`,
+        change: null,
+        tone: "text-lime",
+      };
+    case "partial":
+      return {
+        label: `✅ ${installed} installed · ↩ ${returned} not used, returned to extra stock`,
+        change: `−${installed} ${unit}`,
+        tone: "text-warning",
+      };
+    default:
+      return {
+        label: `✅ Installed here`,
+        change: `−${installed} ${unit}`,
+        tone: "text-warning",
+      };
+  }
+}
+
 // Detail table: one row per sensor/item, with its source company and the date
 // it was confirmed/sent.
 function ItemsTable({ items }: { items: AssociateExtraItem[] }) {
@@ -65,7 +99,7 @@ function ItemsTable({ items }: { items: AssociateExtraItem[] }) {
             <th className="px-3 py-2.5 text-right font-semibold">Total value</th>
             <th className="px-3 py-2.5 font-semibold">Sent / confirmed</th>
             <th className="px-3 py-2.5 font-semibold">Source company</th>
-            <th className="px-3 py-2.5 font-semibold">Used on orders</th>
+            <th className="px-3 py-2.5 font-semibold">Reuse history</th>
           </tr>
         </thead>
         <tbody>
@@ -118,25 +152,35 @@ function ItemsTable({ items }: { items: AssociateExtraItem[] }) {
                 <td className="px-3 py-3">
                   {item.usage_history?.length ? (
                     <div className="space-y-1">
-                      {item.usage_history.map((use) => (
-                        <div
-                          key={use.order_id}
-                          className="rounded-[4px] bg-surface-raised px-2 py-1 text-xs"
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="min-w-0 text-text-primary" title={use.company}>
-                              {use.company}
-                              {use.device_id ? ` · ${use.device_id}` : ""}
+                      {item.usage_history.map((use) => {
+                        const outcome = reuseOutcome(use, item.unit);
+                        return (
+                          <div
+                            key={use.order_id}
+                            className="rounded-[4px] bg-surface-raised px-2 py-1 text-xs"
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="min-w-0 text-text-primary" title={use.company}>
+                                {use.company}
+                                {use.device_id ? ` · ${use.device_id}` : ""}
+                              </span>
+                              {outcome.change && (
+                                <span
+                                  className={`shrink-0 whitespace-nowrap font-mono font-semibold ${outcome.tone}`}
+                                >
+                                  {outcome.change}
+                                </span>
+                              )}
+                            </div>
+                            <span className={`block text-[11px] font-medium ${outcome.tone}`}>
+                              {outcome.label}
                             </span>
-                            <span className="shrink-0 whitespace-nowrap font-mono font-semibold text-warning">
-                              −{use.quantity} {item.unit}
+                            <span className="block text-[10px] text-text-secondary">
+                              Assigned {formatDate(use.used_at) ?? "—"} · by {use.selected_by}
                             </span>
                           </div>
-                          <span className="block text-[10px] text-text-secondary">
-                            {formatDate(use.used_at) ?? "—"} · by {use.selected_by}
-                          </span>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ) : (
                     <span className="text-text-secondary">—</span>
