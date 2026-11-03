@@ -4,7 +4,9 @@ export type CalendarDay = {
   working_day: boolean | null;
   entry_at: string | null;
   late_minutes: number | null;
-  request_type: "leave" | "wfh" | null;
+  request_type: "leave" | "wfh" | "late" | "half_day" | null;
+  arrival_approved?: boolean;
+  arrival_half_day?: boolean;
   request_status: string | null;
   reason: string | null;
   review_reason?: string | null;

@@ -60,6 +60,11 @@ export type AssociateExtraUsage = {
   company: string;
   device_id: string | null;
   quantity: number;
+  /** Units confirmed as Used at that company. */
+  installed?: number;
+  /** Units confirmed as not used there; they stay in extra stock. */
+  returned?: number;
+  outcome?: "pending" | "installed" | "returned" | "partial";
   used_at: string | null;
   selected_by: string;
 };

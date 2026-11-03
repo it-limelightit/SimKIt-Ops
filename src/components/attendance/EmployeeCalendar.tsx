@@ -24,7 +24,7 @@ import {
 import { Button, Card, Select } from "@/components/ui-kit";
 import { attendanceRpc, dateLabel, indiaDate, timeLabel } from "@/lib/device-attendance";
 import { useAuth } from "@/lib/auth-store";
-import { requestCalendarStyle } from "@/lib/request-calendar";
+import { requestCalendarStyle, requestKindLabel } from "@/lib/request-calendar";
 import { formatLateLabel } from "@/lib/attendance-analytics";
 import {
   calendarStatuses,
@@ -315,7 +315,7 @@ export function EmployeeCalendar() {
                       key={day.date}
                       type="button"
                       aria-pressed={selected === day.date}
-                      aria-label={`${dateLabel(day.date)}: ${status.label}${day.request_status ? `, ${day.request_type === "wfh" ? "WFH" : "leave"} ${day.request_status}` : ""}`}
+                      aria-label={`${dateLabel(day.date)}: ${status.label}${day.request_status ? `, ${requestKindLabel(day.request_type)} ${day.request_status}` : ""}`}
                       title={`${dateLabel(day.date)} · ${status.label}${requestStyle ? ` · ${requestStyle.label}` : ""}`}
                       onClick={() => setSelected(day.date)}
                       className={`relative flex min-h-[56px] min-w-0 flex-col items-start rounded-lg border p-1.5 text-left transition-all sm:min-h-[72px] sm:p-2.5 ${requestStyle?.tone || status.tone} ${selected === day.date ? "ring-2 ring-indigo-500 ring-offset-1" : "hover:ring-1 hover:ring-indigo-300"} ${matches ? "" : "opacity-35"}`}
@@ -417,7 +417,7 @@ export function EmployeeCalendar() {
                       {chosen.request_status && (
                         <div className="rounded-xl bg-surface-raised p-3">
                           <dt className="text-xs text-text-secondary">
-                            {chosen.request_type === "wfh" ? "Work-from-home" : "Leave"} request
+                            {chosen.request_type === "wfh" ? "Work-from-home" : requestKindLabel(chosen.request_type)} request
                           </dt>
                           <dd
                             className={`mt-1 font-semibold capitalize ${chosen.request_status === "approved" ? "text-mint" : chosen.request_status === "rejected" ? "text-coral" : "text-warning"}`}
@@ -650,7 +650,7 @@ export function EmployeeCalendar() {
                       {day.entry_at
                         ? `${timeLabel(day.entry_at)} IST${(day.late_minutes ?? 0) > 0 ? ` · ${formatLateLabel(day.late_minutes)}` : ""}`
                         : day.request_status
-                          ? `${day.request_type === "wfh" ? "WFH" : "Leave"} ${day.request_status}`
+                          ? `${requestKindLabel(day.request_type)} ${day.request_status}`
                           : "No scan"}
                     </span>
                     <span
