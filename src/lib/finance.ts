@@ -216,6 +216,32 @@ export function canReapply(
 ) {
   return claim.status === "rejected" && today <= settlementDates(claim.settlement_month).deadline;
 }
+type ClaimAccess = Pick<ExpenseClaim, "status" | "settlement_month" | "owner_id" | "paid_at">;
+/**
+ * Only the person who submitted a claim may edit it, and only while it waits for
+ * Hardik or after rejection. Hardik and Tarun never edit someone's expense.
+ */
+export function canEditExpense(
+  claim: ClaimAccess,
+  _role: FinanceRole,
+  userId: string | null | undefined,
+  today: string,
+) {
+  if (!userId || claim.owner_id !== userId) return false;
+  if (claim.paid_at || !["hardik_pending", "rejected"].includes(claim.status)) return false;
+  // Rejected claims keep the reapply deadline.
+  if (claim.status === "rejected") return canReapply(claim, today);
+  return true;
+}
+/** Owner, Hardik or Tarun may delete a claim until Tarun approves it or it is paid. */
+export function canDeleteExpense(
+  claim: ClaimAccess,
+  role: FinanceRole,
+  userId: string | null | undefined,
+) {
+  if (claim.paid_at || claim.status === "approved" || claim.status === "cancelled") return false;
+  return role === "hardik" || role === "tarun" || claim.owner_id === userId;
+}
 export function salaryTotals(base: number, days: FinanceDay[], overrides: DayOverrides = {}) {
   const working = days.filter((d) => d.working_day === true).length;
   const units = days.map((d) =>

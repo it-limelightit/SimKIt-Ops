@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui-kit";
 import { Fragment } from "react";
-import { Check, X, SlidersHorizontal, Eye } from "lucide-react";
+import { Check, X, SlidersHorizontal, Eye, Send, Wallet } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -265,76 +265,93 @@ export function FieldIncentiveDirectory({
                     {row.data ? money(row.remaining) : "—"}
                   </td>
                   <td>
-                    <div className="finance-incentive-actions">
-                      {board.role === "tarun" && row.pending && (
-                        <>
-                          <Button
-                            size="sm"
-                            disabled={busy || loading}
-                            aria-label="Approve incentives"
-                            onClick={() => action(row, "approve")}
-                          >
-                            <Check size={14} /> Approve
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="danger"
-                            aria-label="Reject incentives"
-                            disabled={busy || loading}
-                            onClick={() => action(row, "reject")}
-                          >
-                            <X size={14} /> Reject
-                          </Button>
-                        </>
+                    <div className="finance-incentive-actions finance-row-actions">
+                      {((board.role === "tarun" && row.pending) ||
+                        (board.role === "hardik" &&
+                          row.ready &&
+                          !["approved", "tarun_pending"].includes(
+                            row.data?.review?.status ?? "",
+                          )) ||
+                        (!row.paid && row.data?.review?.status === "approved")) && (
+                        <div className="finance-decision-actions">
+                          {board.role === "tarun" && row.pending && (
+                            <>
+                              <button
+                                type="button"
+                                className="finance-action-btn finance-action-approve"
+                                disabled={busy || loading}
+                                aria-label="Approve incentives"
+                                onClick={() => action(row, "approve")}
+                              >
+                                <Check size={13} /> Approve
+                              </button>
+                              <button
+                                type="button"
+                                className="finance-action-btn finance-action-reject"
+                                aria-label="Reject incentives"
+                                disabled={busy || loading}
+                                onClick={() => action(row, "reject")}
+                              >
+                                <X size={13} /> Reject
+                              </button>
+                            </>
+                          )}
+                          {board.role === "hardik" &&
+                            row.ready &&
+                            !["approved", "tarun_pending"].includes(
+                              row.data?.review?.status ?? "",
+                            ) && (
+                              <button
+                                type="button"
+                                className="finance-action-btn finance-action-send"
+                                disabled={busy || loading}
+                                onClick={() => action(row, "forward")}
+                              >
+                                <Send size={13} /> Verify & forward
+                              </button>
+                            )}
+                          {!row.paid && row.data?.review?.status === "approved" && (
+                            <button
+                              type="button"
+                              className="finance-action-btn finance-action-pay"
+                              disabled={busy || loading || indiaDate() < due}
+                              onClick={() => action(row, "pay")}
+                            >
+                              <Wallet size={13} />
+                              {indiaDate() < due ? `Payable from ${due}` : "Record payment"}
+                            </button>
+                          )}
+                        </div>
                       )}
-                      {board.role === "hardik" &&
-                        row.ready &&
-                        !["approved", "tarun_pending"].includes(row.data?.review?.status ?? "") && (
-                          <Button
-                            size="sm"
-                            disabled={busy || loading}
-                            onClick={() => action(row, "forward")}
-                          >
-                            Verify & forward incentives
-                          </Button>
-                        )}
-                      {!row.paid && row.data?.review?.status === "approved" && (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          disabled={busy || loading || indiaDate() < due}
-                          onClick={() => action(row, "pay")}
+                      <div className="finance-manage-actions">
+                        <button
+                          type="button"
+                          className="finance-action-btn finance-action-history"
+                          disabled={busy || !row.data}
+                          aria-label={`${row.person.name || row.person.email} — View details`}
+                          aria-haspopup="dialog"
+                          onClick={() => {
+                            setDetailMode("view");
+                            setExpanded(row.person.id);
+                          }}
                         >
-                          {indiaDate() < due ? `Payable from ${due}` : "Record incentive payment"}
-                        </Button>
-                      )}
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={busy}
-                        aria-label={`${row.person.name || row.person.email} ${row.person.email ?? ""} — Edit incentives`}
-                        aria-haspopup="dialog"
-                        aria-controls={`incentive-details-${row.person.id}`}
-                        onClick={() => {
-                          setDetailMode("edit");
-                          setExpanded(row.person.id);
-                        }}
-                      >
-                        <SlidersHorizontal size={14} /> Edit
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={busy || !row.data}
-                        aria-label={`${row.person.name || row.person.email} — View details`}
-                        aria-haspopup="dialog"
-                        onClick={() => {
-                          setDetailMode("view");
-                          setExpanded(row.person.id);
-                        }}
-                      >
-                        <Eye size={14} /> View details
-                      </Button>
+                          <Eye size={13} /> View details
+                        </button>
+                        <button
+                          type="button"
+                          className="finance-action-btn finance-action-edit"
+                          disabled={busy}
+                          aria-label={`${row.person.name || row.person.email} ${row.person.email ?? ""} — Edit incentives`}
+                          aria-haspopup="dialog"
+                          aria-controls={`incentive-details-${row.person.id}`}
+                          onClick={() => {
+                            setDetailMode("edit");
+                            setExpanded(row.person.id);
+                          }}
+                        >
+                          <SlidersHorizontal size={13} /> Edit
+                        </button>
+                      </div>
                     </div>
                   </td>
                 </tr>

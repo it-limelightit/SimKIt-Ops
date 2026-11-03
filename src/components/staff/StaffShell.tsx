@@ -246,7 +246,7 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
             )}
           </button>
         </div>
-        <nav className={`no-scrollbar min-h-0 flex-1 overflow-y-auto py-6 space-y-1 ${collapsed ? "px-2" : "px-3"}`}>
+        <nav className={`no-scrollbar min-h-0 flex-1 overflow-y-auto pt-6 pb-16 space-y-1 ${collapsed ? "px-2" : "px-3"}`}>
           {items.map((it) => {
             const active = expenseOpen ? it.to === "/expenses" : path === it.to || (it.to !== base && path.startsWith(it.to));
             const cls = `flex items-center gap-3 py-2.5 text-sm font-semibold transition-all duration-150 rounded-[6px] ${collapsed ? "justify-center px-0" : "px-4"} ${active ? "bg-lime/10 text-lime border-l-3 border-lime" : "text-text-secondary hover:bg-surface-raised hover:text-text-primary"}`;
@@ -272,42 +272,43 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
               </Link>
             );
           })}
-        </nav>
-        <div
-          className={`shrink-0 border-t border-border py-4 bg-surface-raised/30 flex items-center ${collapsed ? "justify-center px-2 flex-col gap-2" : "justify-between px-4"}`}
-        >
-          {!collapsed && (
-            <div className="flex flex-col min-w-0">
-              <div className="font-mono text-[8px] uppercase tracking-wider text-text-secondary font-bold truncate">
-                {isSalaryManager(email)?"Salary manager":"User"}
+          {/* Account section: last item in the menu, so it scrolls with the links. */}
+          <div
+            className={`mt-4 rounded-[6px] border border-border py-3 bg-surface-raised/30 flex items-center ${collapsed ? "justify-center px-2 flex-col gap-2" : "justify-between px-4"}`}
+          >
+            {!collapsed && (
+              <div className="flex flex-col min-w-0">
+                <div className="font-mono text-[8px] uppercase tracking-wider text-text-secondary font-bold truncate">
+                  {isSalaryManager(email)?"Salary manager":"User"}
+                </div>
+                <div className="text-xs font-semibold text-text-primary truncate">
+                  {profile?.name ?? "—"}
+                </div>
               </div>
-              <div className="text-xs font-semibold text-text-primary truncate">
-                {profile?.name ?? "—"}
-              </div>
+            )}
+            <div className="flex items-center gap-1">
+              {canImpersonate(email) && <ImpersonateButton collapsed={collapsed} />}
+              <button
+                onClick={toggleTheme}
+                className="text-text-secondary hover:text-lime transition-colors p-1.5 cursor-pointer"
+                title={themeMode === "light" ? "Switch to Dark Mode" : "Switch to Light Mode"}
+              >
+                {themeMode === "light" ? (
+                  <Moon size={16} strokeWidth={2} />
+                ) : (
+                  <Sun size={16} strokeWidth={2} />
+                )}
+              </button>
+              <button
+                onClick={signOut}
+                className="text-text-secondary hover:text-coral transition-colors p-1.5 cursor-pointer"
+                title="Sign out"
+              >
+                <LogOut size={16} strokeWidth={2} />
+              </button>
             </div>
-          )}
-          <div className="flex items-center gap-1">
-            {canImpersonate(email) && <ImpersonateButton collapsed={collapsed} />}
-            <button
-              onClick={toggleTheme}
-              className="text-text-secondary hover:text-lime transition-colors p-1.5 cursor-pointer"
-              title={themeMode === "light" ? "Switch to Dark Mode" : "Switch to Light Mode"}
-            >
-              {themeMode === "light" ? (
-                <Moon size={16} strokeWidth={2} />
-              ) : (
-                <Sun size={16} strokeWidth={2} />
-              )}
-            </button>
-            <button
-              onClick={signOut}
-              className="text-text-secondary hover:text-coral transition-colors p-1.5 cursor-pointer"
-              title="Sign out"
-            >
-              <LogOut size={16} strokeWidth={2} />
-            </button>
           </div>
-        </div>
+        </nav>
       </aside>
 
       <main className="flex-1 overflow-x-hidden min-w-0">

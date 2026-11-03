@@ -118,6 +118,88 @@ export const impersonateUserFn = createServerFn({ method: "POST" })
     }
   });
 
+export type ImpersonationTarget = { email: string; name: string | null; active: boolean };
+
+// Only these real staff accounts appear in the "Enter another account" dropdown.
+export const IMPERSONATION_DROPDOWN_EMAILS = [
+  "kishanvyas308@gmail.com",
+  "frdgarana2003@gmail.com",
+  "raghavgaur.10b@gmail.com",
+  "alakhbrahmbhatt0225@gmail.com",
+  "associatelimelight@gmail.com",
+  "sparsh@limelightit.io",
+  "aryankadiya2005@gmail.com",
+  "kuldeepshrimali.limelight@gmail.com",
+  "admin@limelightit.io",
+  "tarun@limelightit.io",
+  "mayankk.limelightit@gmail.com",
+  "info@limelightit.io",
+  "surajbiswas.limelight@gmail.com",
+  "vikashkumavat.limelight@gmail.com",
+  "nitsanghani1@gmail.com",
+];
+
+/**
+ * Server function: list every account the super-access user can enter, for the
+ * "Enter another account" dropdown. Same caller checks as impersonateUserFn.
+ */
+export const listImpersonationTargetsFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => data as { accessToken: string })
+  .handler(async ({ data }) => {
+    try {
+      const { data: callerData, error: callerErr } = await supabaseAdmin.auth.getUser(
+        data?.accessToken,
+      );
+      const caller = callerData?.user;
+      if (callerErr || !caller) {
+        return { success: false as const, error: "Your session is invalid. Please sign in again." };
+      }
+      if (!canImpersonate(caller.email)) {
+        return { success: false as const, error: "Access denied." };
+      }
+      const users: { email?: string | null }[] = [];
+      for (let page = 1; page <= 20; page++) {
+        const { data: list, error } = await supabaseAdmin.auth.admin.listUsers({
+          page,
+          perPage: 1000,
+        });
+        if (error) throw error;
+        users.push(...list.users);
+        if (list.users.length < 1000) break;
+      }
+      const { data: profiles } = await supabaseAdmin
+        .from("profiles")
+        .select("email, name, is_active");
+      const byEmail = new Map(
+        (profiles ?? []).map((p: any) => [String(p.email ?? "").toLowerCase(), p]),
+      );
+      const self = caller.email?.toLowerCase();
+      const targets: ImpersonationTarget[] = users
+        .map((u) => u.email?.trim().toLowerCase())
+        .filter(
+          (email): email is string =>
+            !!email && email !== self && IMPERSONATION_DROPDOWN_EMAILS.includes(email),
+        )
+        .map((email) => {
+          const profile: any = byEmail.get(email);
+          return { email, name: profile?.name ?? null, active: profile?.is_active !== false };
+        })
+        .sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
+      return { success: true as const, targets };
+    } catch (e: any) {
+      return { success: false as const, error: e?.message || String(e) };
+    }
+  });
+
+export async function listImpersonationTargets(): Promise<ImpersonationTarget[]> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) throw new Error("You must be signed in to do this.");
+  const res = await listImpersonationTargetsFn({ data: { accessToken: token } });
+  if (!res.success) throw new Error(res.error);
+  return res.targets;
+}
+
 function readStorage(key: string): string | null {
   try {
     return typeof window !== "undefined" ? window.sessionStorage.getItem(key) : null;
