@@ -7,7 +7,9 @@ import {
   enterAsUser,
   returnToAdmin,
   getActiveImpersonation,
+  listImpersonationTargets,
   type ActiveImpersonation,
+  type ImpersonationTarget,
 } from "@/lib/impersonation";
 
 /**
@@ -18,12 +20,30 @@ export function ImpersonateButton({ collapsed }: { collapsed?: boolean }) {
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
+  const [targets, setTargets] = useState<ImpersonationTarget[] | null>(null);
+  const [targetsError, setTargetsError] = useState<string | null>(null);
+
+  // Load every account for the dropdown the first time the dialog opens.
+  useEffect(() => {
+    if (!open || targets !== null) return;
+    let cancelled = false;
+    listImpersonationTargets()
+      .then((list) => !cancelled && setTargets(list))
+      .catch((err) => {
+        if (cancelled) return;
+        setTargets([]);
+        setTargetsError(err instanceof Error ? err.message : "could not load");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, targets]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     const target = email.trim();
     if (!target.includes("@")) {
-      toast.error("Enter the account's email address.");
+      toast.error("Select an account.");
       return;
     }
     setLoading(true);
@@ -82,16 +102,44 @@ export function ImpersonateButton({ collapsed }: { collapsed?: boolean }) {
 
             <form onSubmit={submit} className="space-y-4">
               <div>
-                <Label htmlFor="impersonate-email">Account email</Label>
-                <Input
-                  id="impersonate-email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="person@example.com"
-                  autoFocus
-                  required
-                />
+                <Label htmlFor="impersonate-email">Account</Label>
+                {targets && targets.length > 0 ? (
+                  <select
+                    id="impersonate-email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    autoFocus
+                    required
+                    className="mt-1 w-full rounded-[6px] border border-border bg-surface px-3 py-2.5 text-sm text-text-primary focus:border-lime focus:outline-none"
+                  >
+                    <option value="" disabled>
+                      Select an account…
+                    </option>
+                    {targets.map((t) => (
+                      <option key={t.email} value={t.email}>
+                        {t.name ? `${t.name} — ${t.email}` : t.email}
+                        {t.active ? "" : " (inactive)"}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <>
+                    <Input
+                      id="impersonate-email"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder={targets === null ? "Loading accounts…" : "person@example.com"}
+                      autoFocus
+                      required
+                    />
+                    {targetsError && (
+                      <p className="mt-1 text-[11px] text-text-secondary">
+                        Account list unavailable ({targetsError}). Type the email instead.
+                      </p>
+                    )}
+                  </>
+                )}
               </div>
               <Button type="submit" className="w-full" disabled={loading}>
                 <LogIn size={14} strokeWidth={2} />

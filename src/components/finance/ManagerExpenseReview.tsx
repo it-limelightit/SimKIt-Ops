@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, Receipt, Search, RotateCcw } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Clock3, Eye, Pencil, Receipt, RotateCcw, Search, Send, Trash2, Wallet, XCircle } from "lucide-react";
 import { Button } from "@/components/ui-kit";
 import {
   Dialog,
@@ -10,6 +10,8 @@ import {
 } from "@/components/ui/dialog";
 import { money } from "@/lib/field-operations";
 import {
+  canDeleteExpense,
+  canEditExpense,
   categories,
   expenseReapplication,
   financeRpc,
@@ -30,6 +32,7 @@ export function ManagerExpenseReview({
   today,
   role,
   events,
+  onEdit,
 }: {
   claims: ExpenseClaim[];
   files: ExpenseFile[];
@@ -39,6 +42,8 @@ export function ManagerExpenseReview({
   today: string;
   role: "hardik" | "tarun";
   events: FinanceEvent[];
+  /** Opens the expense editor for a claim (Hardik / Tarun corrections). */
+  onEdit?: (claim: ExpenseClaim) => void;
 }) {
   const [owner, setOwner] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -120,6 +125,21 @@ export function ManagerExpenseReview({
           _revision: claim.revision,
           _action: "pay",
           _reason: reason,
+        });
+        await reload();
+      },
+    });
+  const removeClaim = (claim: ExpenseClaim) =>
+    confirm({
+      title: "Delete expense?",
+      detail: `${claim.title} · ${claim.owner_name} · ${money(Number(claim.amount))}. The claim will be cancelled; its history is retained.`,
+      successMessage: "Expense deleted",
+      execute: async () => {
+        await financeRpc("expense_action", {
+          _id: claim.id,
+          _revision: claim.revision,
+          _action: "cancel",
+          _reason: null,
         });
         await reload();
       },
@@ -236,18 +256,19 @@ export function ManagerExpenseReview({
                         )}
                       </td>
                       <td>
-                        <div className="finance-register-actions">
-                          <Button
-                            size="sm"
-                            variant="secondary"
+                        <div className="finance-register-actions finance-action-group">
+                          <button
+                            type="button"
+                            className="finance-action-btn finance-action-history"
                             aria-label={"Review expenses for " + g.name}
                             onClick={() => setOwner(g.id)}
                           >
+                            <Eye size={13} />
                             View details
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant={hardik ? "secondary" : "primary"}
+                          </button>
+                          <button
+                            type="button"
+                            className="finance-action-btn finance-action-approve"
                             aria-label={
                               (hardik ? "Verify all expenses for " : "Approve all expenses for ") +
                               g.name
@@ -255,17 +276,26 @@ export function ManagerExpenseReview({
                             disabled={busy || !g.awaiting.length}
                             onClick={() => decide(g.awaiting, "approve", g.name)}
                           >
+                            <CheckCircle2 size={13} />
                             {hardik ? "Verify all" : "Approve all"}
-                          </Button>
+                            {g.awaiting.length > 0 && (
+                              <span className="finance-action-count">{g.awaiting.length}</span>
+                            )}
+                          </button>
                           {hardik && (
-                            <Button
-                              size="sm"
+                            <button
+                              type="button"
+                              className="finance-action-btn finance-action-send"
                               aria-label={"Send verified expenses to Tarun for " + g.name}
                               disabled={busy || !g.ready.length}
                               onClick={() => decide(g.ready, "forward", g.name)}
                             >
+                              <Send size={13} />
                               Send to Tarun
-                            </Button>
+                              {g.ready.length > 0 && (
+                                <span className="finance-action-count">{g.ready.length}</span>
+                              )}
+                            </button>
                           )}
                         </div>
                       </td>
@@ -303,12 +333,13 @@ export function ManagerExpenseReview({
               Expenses for {person.name}: receipts, status and review actions
             </caption>
             <colgroup>
-              <col style={{ width: "11%" }} />
-              <col style={{ width: "25%" }} />
               <col style={{ width: "13%" }} />
-              <col style={{ width: "22%" }} />
-              <col style={{ width: "13%" }} />
-              <col style={{ width: "16%" }} />
+              <col style={{ width: "28%" }} />
+              <col style={{ width: "14%" }} />
+              <col style={{ width: "28%" }} />
+              <col style={{ width: "17%" }} />
+              {/* Fixed width so the review + manage action rows never squeeze. */}
+              <col className="finance-approval-actions-col" style={{ width: "290px" }} />
             </colgroup>
             <thead>
               <tr>
@@ -372,46 +403,96 @@ export function ManagerExpenseReview({
                         />
                       </td>
                       <td data-label="Actions" className="finance-approval-decision">
-                        {(hardik
-                          ? ["hardik_pending", "hardik_verified"].includes(c.status)
-                          : c.status === "tarun_pending") && (
-                          <div className="flex flex-wrap gap-2 mt-2">
-                            {c.status !== "hardik_verified" && (
-                              <Button
-                                size="sm"
-                                variant={hardik ? "secondary" : "primary"}
-                                disabled={busy}
-                                onClick={() => decide([c], "approve")}
-                              >
-                                {hardik ? "Verify" : "Approve"}
-                              </Button>
-                            )}
-                            <Button
-                              size="sm"
-                              variant="danger"
-                              disabled={busy}
-                              onClick={() => decide([c], "reject")}
+                        <div className="finance-row-actions">
+                          {((hardik
+                            ? ["hardik_pending", "hardik_verified"].includes(c.status)
+                            : c.status === "tarun_pending") ||
+                            (c.status === "approved" && !c.paid_at)) && (
+                            <div className="finance-decision-actions">
+                              {(hardik ? c.status === "hardik_pending" : c.status === "tarun_pending") && (
+                                <button
+                                  type="button"
+                                  className="finance-action-btn finance-action-approve"
+                                  disabled={busy}
+                                  onClick={() => decide([c], "approve")}
+                                >
+                                  <CheckCircle2 size={13} />
+                                  {hardik ? "Verify" : "Approve"}
+                                </button>
+                              )}
+                              {(hardik
+                                ? ["hardik_pending", "hardik_verified"].includes(c.status)
+                                : c.status === "tarun_pending") && (
+                                <button
+                                  type="button"
+                                  className="finance-action-btn finance-action-reject"
+                                  disabled={busy}
+                                  onClick={() => decide([c], "reject")}
+                                >
+                                  <XCircle size={13} />
+                                  Reject
+                                </button>
+                              )}
+                              {c.status === "approved" && !c.paid_at && (
+                                <button
+                                  type="button"
+                                  className="finance-action-btn finance-action-pay"
+                                  disabled={busy || today < settlementDates(c.settlement_month).due}
+                                  onClick={() => recordPayment(c)}
+                                >
+                                  <Wallet size={13} />
+                                  {today < settlementDates(c.settlement_month).due
+                                    ? `Payable from ${settlementDates(c.settlement_month).due}`
+                                    : "Record payment"}
+                                </button>
+                              )}
+                            </div>
+                          )}
+                          <div className="finance-manage-actions">
+                            <button
+                              type="button"
+                              className="finance-action-btn finance-action-history"
+                              title="View history"
+                              onClick={() => setHistory(c)}
                             >
-                              Reject
-                            </Button>
+                              <Clock3 size={13} />
+                              History
+                            </button>
+                            {onEdit && canEditExpense(c, role, null, today) && (
+                              <button
+                                type="button"
+                                className="finance-action-btn finance-action-edit"
+                                title="Edit expense"
+                                disabled={busy}
+                                onClick={() => onEdit(c)}
+                              >
+                                <Pencil size={13} />
+                                Edit
+                              </button>
+                            )}
+                            {canDeleteExpense(c, role, null) && (
+                              <button
+                                type="button"
+                                className="finance-action-btn finance-action-delete"
+                                title="Delete expense"
+                                disabled={busy}
+                                onClick={() => removeClaim(c)}
+                              >
+                                <Trash2 size={13} />
+                                Delete
+                              </button>
+                            )}
                           </div>
-                        )}
-                        {c.status === "approved" && !c.paid_at && (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            disabled={busy || today < settlementDates(c.settlement_month).due}
-                            onClick={() => recordPayment(c)}
-                          >
-                            {today < settlementDates(c.settlement_month).due
-                              ? `Payable from ${settlementDates(c.settlement_month).due}`
-                              : "Record payment"}
-                          </Button>
-                        )}
-                        {c.paid_at && <small>{c.payment_reference}</small>}
-                        <Button size="sm" variant="ghost" onClick={() => setHistory(c)}>
-                          History
-                        </Button>
+                          {c.paid_at ? (
+                            <small className="finance-action-note">
+                              Paid · locked{c.payment_reference ? ` · ${c.payment_reference}` : ""}
+                            </small>
+                          ) : c.status === "approved" ? (
+                            <small className="finance-action-note">Approved · cannot be deleted</small>
+                          ) : ["hardik_verified", "tarun_pending"].includes(c.status) ? (
+                            <small className="finance-action-note">Verified · editing locked</small>
+                          ) : null}
+                        </div>
                       </td>
                     </tr>
                   );

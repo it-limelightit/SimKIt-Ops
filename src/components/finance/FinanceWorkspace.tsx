@@ -19,6 +19,9 @@ import {
   ShieldCheck,
   Users,
   Wallet,
+  Pencil,
+  Trash2,
+  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui-kit";
@@ -33,6 +36,8 @@ import { useAuth } from "@/lib/auth-store";
 import { indiaDate, money } from "@/lib/field-operations";
 import {
   canReapply,
+  canEditExpense,
+  canDeleteExpense,
   categories,
   expenseFileRequest,
   expenseReapplication,
@@ -905,6 +910,7 @@ function ExpenseTable({
   personal: boolean;
   initialStatus?: string;
 }) {
+  const userId = useAuth((state) => state.userId);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState(initialStatus);
   const [selected, setSelected] = useState<Record<string, number>>({});
@@ -1187,7 +1193,8 @@ function ExpenseTable({
             <col style={{ width: 165 }} />
             <col style={{ width: 165 }} />
             <col style={{ width: 165 }} />
-            <col style={{ width: 190 }} />
+            {/* Actions: wide enough for History · Edit · Delete on one row. */}
+            <col style={{ width: 312 }} />
           </colgroup>
           <thead>
             <tr>
@@ -1354,66 +1361,93 @@ function ExpenseTable({
                   </td>
                   <td className="finance-actions-cell">
                     <div className="finance-row-actions">
-                      <Button
-                        className="finance-history-action"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setHistory(c)}
-                      >
-                        History
-                      </Button>
-                      {personal && canReapply(c, today) && (
-                        <Button size="sm" disabled={busy} onClick={() => onEdit(c)}>
-                          Edit & Reapply
-                        </Button>
-                      )}
-                      {personal && c.status === "rejected" && !canReapply(c, today) && (
-                        <small>Reapply closed {settlementDates(c.settlement_month).deadline}</small>
-                      )}
-                      {personal && ["hardik_pending", "rejected"].includes(c.status) && (
-                        <Button
-                          variant="danger"
-                          size="sm"
-                          disabled={busy}
-                          onClick={() => action(c, "cancel")}
-                        >
-                          Delete
-                        </Button>
-                      )}
-                      {reviewable(c) && (
-                        <>
-                          {c.status !== "hardik_verified" && (
-                            <Button
-                              className="finance-approve-action"
-                              variant="secondary"
-                              size="sm"
+                      {(reviewable(c) || (role && c.status === "approved" && !c.paid_at)) && (
+                        <div className="finance-decision-actions">
+                          {reviewable(c) && c.status !== "hardik_verified" && (
+                            <button
+                              type="button"
+                              className="finance-action-btn finance-action-approve"
                               disabled={busy}
                               onClick={() => action(c, "approve")}
                             >
+                              <CheckCircle2 size={13} />
                               {role === "hardik" ? "Verify" : "Approve"}
-                            </Button>
+                            </button>
                           )}
-                          <Button
-                            size="sm"
-                            variant="danger"
-                            disabled={busy}
-                            onClick={() => action(c, "reject")}
-                          >
-                            Reject
-                          </Button>
-                        </>
+                          {reviewable(c) && (
+                            <button
+                              type="button"
+                              className="finance-action-btn finance-action-reject"
+                              disabled={busy}
+                              onClick={() => action(c, "reject")}
+                            >
+                              <XCircle size={13} />
+                              Reject
+                            </button>
+                          )}
+                          {role && c.status === "approved" && !c.paid_at && (
+                            <button
+                              type="button"
+                              className="finance-action-btn finance-action-pay"
+                              disabled={busy || today < settlementDates(c.settlement_month).due}
+                              onClick={() => action(c, "pay")}
+                            >
+                              <Wallet size={13} />
+                              {today < settlementDates(c.settlement_month).due
+                                ? `Payable from ${settlementDates(c.settlement_month).due}`
+                                : "Record payment"}
+                            </button>
+                          )}
+                        </div>
                       )}
-                      {role && c.status === "approved" && !c.paid_at && (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          disabled={busy || today < settlementDates(c.settlement_month).due}
-                          onClick={() => action(c, "pay")}
+                      <div className="finance-manage-actions">
+                        <button
+                          type="button"
+                          className="finance-action-btn finance-action-history"
+                          title="View history"
+                          onClick={() => setHistory(c)}
                         >
-                          {today < settlementDates(c.settlement_month).due
-                            ? `Payable from ${settlementDates(c.settlement_month).due}`
-                            : "Record payment"}
-                        </Button>
+                          <Clock3 size={13} />
+                          History
+                        </button>
+                        {canEditExpense(c, role, userId, today) && (
+                          <button
+                            type="button"
+                            className="finance-action-btn finance-action-edit"
+                            title={
+                              c.status === "rejected" && c.owner_id === userId
+                                ? "Edit & reapply"
+                                : "Edit expense"
+                            }
+                            disabled={busy}
+                            onClick={() => onEdit(c)}
+                          >
+                            <Pencil size={13} />
+                            {c.status === "rejected" && c.owner_id === userId ? "Reapply" : "Edit"}
+                          </button>
+                        )}
+                        {canDeleteExpense(c, role, userId) && (
+                          <button
+                            type="button"
+                            className="finance-action-btn finance-action-delete"
+                            title="Delete expense"
+                            disabled={busy}
+                            onClick={() => action(c, "cancel")}
+                          >
+                            <Trash2 size={13} />
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                      {personal && c.status === "rejected" && !canReapply(c, today) && (
+                        <small className="finance-action-note">
+                          Reapply closed {settlementDates(c.settlement_month).deadline}
+                        </small>
+                      )}
+                      {(c.paid_at || c.status === "approved") && (
+                        <small className="finance-action-note">
+                          {c.paid_at ? "Paid · locked" : "Approved · cannot be deleted"}
+                        </small>
                       )}
                     </div>
                   </td>
@@ -1619,7 +1653,13 @@ function ExpenseEditor({
         _description: description,
         _files: attached,
       });
-      toast.success(claim ? "Expense reapplied and sent to Hardik" : "Expense submitted to Hardik");
+      toast.success(
+        claim
+          ? claim.status === "rejected"
+            ? "Expense reapplied and sent to Hardik"
+            : "Expense updated and sent back to Hardik for review"
+          : "Expense submitted to Hardik",
+      );
       await onSaved(claim ? undefined : effectiveSettlementMonth(today).slice(0, 7));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not submit expense");
@@ -1636,7 +1676,7 @@ function ExpenseEditor({
     >
       <DialogContent className="finance-expense-dialog finance-editor-dialog">
         <DialogHeader>
-          <DialogTitle>{claim ? "Edit & Reapply" : "Add Expense"}</DialogTitle>
+          <DialogTitle>{claim ? (claim.status === "rejected" ? "Edit & Reapply" : "Edit expense") : "Add Expense"}</DialogTitle>
           <DialogDescription>
             {claim
               ? `Keeps settlement month ${claim.settlement_month.slice(0, 7)}. Both approvals restart with Hardik.`
@@ -1655,7 +1695,7 @@ function ExpenseEditor({
               <ShieldCheck size={16} />
               <span>
                 {claim
-                  ? "Your updated claim returns to Hardik for verification."
+                  ? "Your changes send this claim back to Hardik for verification; earlier approvals restart."
                   : "Your claim goes to Hardik first, then Tarun for final approval."}
               </span>
             </div>
@@ -1794,7 +1834,9 @@ function ExpenseEditor({
                 {busy
                   ? "Uploading & submitting…"
                   : claim
-                    ? "Reapply to Hardik"
+                    ? claim.status === "rejected"
+                      ? "Reapply to Hardik"
+                      : "Save changes"
                     : "Submit to Hardik"}
               </Button>
             </div>
