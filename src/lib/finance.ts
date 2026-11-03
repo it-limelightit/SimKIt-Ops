@@ -224,12 +224,17 @@ export function salaryTotals(base: number, days: FinanceDay[], overrides: DayOve
       : d.units,
   );
   const payable = units.reduce<number>((sum, unit) => sum + Number(unit ?? 0), 0);
+  // Monthly salary covers every calendar day (Sundays and off days are paid).
+  const calendarDays = days.length;
   return {
     working,
+    calendarDays,
     payable,
     unresolved: units.filter((u) => u === null).length,
-    daily: working ? base / working : 0,
-    amount: working ? Math.round(((base * payable) / working + Number.EPSILON) * 100) / 100 : 0,
+    daily: calendarDays ? base / calendarDays : 0,
+    amount: calendarDays
+      ? Math.round(((base * payable) / calendarDays + Number.EPSILON) * 100) / 100
+      : 0,
   };
 }
 async function invokeExpenseFiles(body: FormData | Record<string, unknown>) {

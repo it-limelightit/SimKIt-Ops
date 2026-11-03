@@ -246,19 +246,32 @@ test("month boundaries, year rollover and inclusive fifth-day deadline", () => {
   );
   assert.equal(canManageFinance("admin@limelight.io"), false);
 });
-test("salary preview matches working-day example and half-day adjustment", () => {
-  const days = Array.from({ length: 25 }, (_, i) => ({
+test("salary covers the full calendar month, off days paid, half-day adjustment", () => {
+  // June: 30 days = 25 working days + 5 paid off days.
+  const days = Array.from({ length: 30 }, (_, i) => ({
     date: `2026-06-${String(i + 1).padStart(2, "0")}`,
-    working_day: true,
-    status: "present",
+    working_day: i < 25,
+    status: i < 25 ? "present" : "off_day",
     units: 1,
   }));
-  assert.equal(salaryTotals(15000, days).daily, 600);
+  assert.equal(salaryTotals(15000, days).daily, 500);
   assert.equal(salaryTotals(15000, days).amount, 15000);
   assert.equal(
     salaryTotals(15000, days, { [days[0].date]: { units: 0.5, reason: "Half day" } }).amount,
-    14700,
+    14750,
   );
+  // October: 31 days, three late half days, everything else paid -> 15000 - 1.5 days.
+  const october = Array.from({ length: 31 }, (_, i) => ({
+    date: `2026-10-${String(i + 1).padStart(2, "0")}`,
+    working_day: true,
+    status: [27, 29, 30].includes(i) ? "late" : "present",
+    units: [27, 29, 30].includes(i) ? 0.5 : 1,
+  }));
+  assert.equal(salaryTotals(15000, october).amount, 14274.19);
+  const waived = Object.fromEntries(
+    october.filter((d) => d.status === "late").map((d) => [d.date, { units: 1, reason: "Allowed" }]),
+  );
+  assert.equal(salaryTotals(15000, october, waived).amount, 15000);
   assert.equal(salaryTotals(15000, []).amount, 0);
   assert.throws(() => validateExpenseFile({ size: 5000001, type: "application/pdf" }), /5 MB/);
   assert.throws(() => validateExpenseFile({ size: 100, type: "image/svg+xml" }), /PDF/);

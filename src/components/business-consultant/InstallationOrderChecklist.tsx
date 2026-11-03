@@ -32,7 +32,18 @@ export const InstallationOrderChecklist = forwardRef<
     );
     if (activeScope.current !== scope) return null;
     setBoard(next);
-    setDrafts(Object.fromEntries(next.orders.map((order) => [order.id, order.items])));
+    setDrafts(
+      Object.fromEntries(
+        next.orders.map((order) => [
+          order.id,
+          // Unconfirmed orders start with every item ticked as received; the
+          // associate unticks anything that did not arrive.
+          order.confirmed_at
+            ? order.items
+            : order.items.map((item) => ({ ...item, received: true })),
+        ]),
+      ),
+    );
     setDirty({});
     setReviewed({});
     return next;
@@ -197,11 +208,19 @@ export const InstallationOrderChecklist = forwardRef<
                         const label = `${item.label}${item.model ? ` (${item.model})` : ""}${item.count > 1 ? ` · ${item.number} of ${item.count}` : ""}`;
                         return (
                           <tr key={item.key} className="border-b border-border/50">
-                            <td className="p-2 font-medium">{label}</td>
+                            <td className="p-2 font-medium">
+                              {label}
+                              {item.from_extra && (
+                                <span className="block text-[11px] font-normal text-lime">
+                                  From your extra stock (already with you)
+                                </span>
+                              )}
+                            </td>
                             <td className="p-2">
                               <div className="flex justify-center">
                                 <Checkbox
                                   checked={item.received}
+                                  disabled={item.from_extra}
                                   onCheckedChange={(value) =>
                                     change(order.id, item.key, "received", value)
                                   }
@@ -238,6 +257,7 @@ export const InstallationOrderChecklist = forwardRef<
               <p className="text-xs text-text-secondary">
                 {counts.received} received · {counts.used} used · {counts.extra} extra ·{" "}
                 {counts.missing} not received
+                {counts.fromExtra ? ` · ${counts.fromExtra} from your extra stock` : ""}
               </p>
               {canEdit && (
                 <>

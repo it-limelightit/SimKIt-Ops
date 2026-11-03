@@ -29,6 +29,11 @@ export function withAttendanceReviewReason(row: AttendanceRow, events: Scan[] = 
 
 export function attendanceReviewExplanation(row: AttendanceRow) {
   if (row.status !== "needs_review") return null;
+  if (row.review_reason === "before_tracking_start") return {
+    title: "Before tracking start",
+    reason: "Attendance is counted from 15 October 2026. Days before that are not counted as office, late or absent.",
+    fix: "No action needed. Record approved leave or WFH separately if required.",
+  };
   if (row.time_review_reason) return scanTimeExplanation(row.time_review_reason);
   if (row.leave_conflict) return {
     title: "Scan conflicts with approved leave",

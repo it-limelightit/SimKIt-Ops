@@ -25,7 +25,7 @@ import {
   type History,
 } from "@/lib/device-attendance";
 import { AttendanceEvidenceDialogs, type AttendancePhoto, type AttendanceRecordView } from "./AttendanceEvidenceDialogs";
-import { attendanceSummary, formatAttendanceDuration } from "@/lib/attendance-analytics";
+import { attendanceSummary, formatAttendanceDuration, formatLateLabel } from "@/lib/attendance-analytics";
 import { requestCalendarStyle } from "@/lib/request-calendar";
 import { attendanceReviewExplanation, withAttendanceReviewReason } from "@/lib/attendance-review";
 import {
@@ -40,8 +40,8 @@ const colors: Record<string, string> = {
   present: "border-mint/30 bg-mint/10 text-mint",
   late: "border-warning/30 bg-warning/10 text-warning",
   absent: "border-coral/30 bg-coral/10 text-coral",
-  on_leave: "border-violet/30 bg-violet/10 text-violet",
-  work_from_home: "border-indigo-500/30 bg-indigo-500/10 text-indigo-700",
+  on_leave: "border-green-400 bg-green-100 text-green-800",
+  work_from_home: "border-green-400 bg-green-100 text-green-800",
   needs_review: "border-lime/30 bg-lime/10 text-lime",
   awaiting_scan: "border-border bg-surface-raised text-text-secondary",
   off_day: "border-border bg-surface text-text-secondary",
@@ -517,6 +517,11 @@ export function EmployeeAttendance({ employee, board, boardDate, onBack }: Props
                       {statusLabels[status] || status}
                     </span>
                   )}
+                  {status === "late" && (day?.row?.late_minutes ?? 0) > 0 && (
+                    <span className="mx-auto mt-0.5 block w-fit max-w-full truncate rounded bg-amber-600 px-1 text-[8px] font-bold leading-4 text-white sm:text-[9px]">
+                      {formatLateLabel(day!.row!.late_minutes)}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -532,8 +537,8 @@ export function EmployeeAttendance({ employee, board, boardDate, onBack }: Props
               </span>
             ))}
             <span className="text-[11px] text-text-secondary">
-              Request colors: purple leave approved · indigo WFH approved · red rejected · amber
-              pending. Faded: unavailable.
+              Request colors: green leave/WFH approved · red rejected · amber pending. Late days
+              show how late (hours once over 60 min). Days before 15 Oct 2026 are not counted. Faded: unavailable.
             </span>
           </div>
           <p className="mt-2 text-[11px] text-text-secondary">
@@ -545,7 +550,6 @@ export function EmployeeAttendance({ employee, board, boardDate, onBack }: Props
                 <p className="font-medium">
                   {dateLabel(selectedDay.date)} · {attendanceReviewExplanation(selectedDay.row)?.title || statusLabels[selectedDay.row.status]}
                 </p>
-                {selectedDay.row.entry_source === "manager_adjusted" && <p className="mt-1 text-xs text-text-secondary">Entry time adjusted by manager · Late penalty waived</p>}
                 {selectedDay.row.request_status && (
                   <p
                     className={`mt-1 inline-flex rounded-full border px-2 py-1 text-xs ${requestCalendarStyle(selectedDay.row.request_type, selectedDay.row.request_status)?.tone || ""}`}

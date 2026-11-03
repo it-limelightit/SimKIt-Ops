@@ -31,6 +31,8 @@ export type AttendanceRow = {
   leave_conflict: boolean;
   status: string;
   time_review_reason?: string | null;
+  /** "before_tracking_start": day precedes the attendance tracking start and is not counted. */
+  review_reason?: string | null;
   entry_source?: "scan" | "manager_adjusted";
   adjustment_reason?: string | null;
   request_type?: "leave" | "wfh" | null;

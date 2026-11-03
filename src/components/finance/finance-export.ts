@@ -136,7 +136,7 @@ export function statementBytes(
 
   heading("Salary calculation", 79);
   row("Monthly salary", salary ? amount(Number(salary.base_salary)) : "Not recorded", 91);
-  row("Working days in month", salary ? String(salary.working_days) : "-", 100);
+  row("Days in month (off days paid)", salary ? String(salary.working_days) : "-", 100);
   row(
     salary?.status === "approved" ? "Approved payable days" : "Payable days (pending approval)",
     salary ? `${salary.payable_days} day equivalents` : "-",
@@ -148,7 +148,7 @@ export function statementBytes(
     118,
   );
   row(
-    "Salary per working day",
+    "Salary per day",
     salary
       ? amount(salary.working_days ? Number(salary.base_salary) / salary.working_days : 0)
       : "-",

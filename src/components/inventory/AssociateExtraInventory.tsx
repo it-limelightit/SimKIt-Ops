@@ -56,7 +56,7 @@ const companyBreakdown = (item: AssociateExtraItem): AssociateExtraCompany[] => 
 function ItemsTable({ items }: { items: AssociateExtraItem[] }) {
   return (
     <div className="overflow-x-auto rounded-[8px] border border-border">
-      <table className="w-full min-w-[640px] text-sm text-left">
+      <table className="w-full min-w-[820px] text-sm text-left">
         <thead>
           <tr className="border-b border-border bg-surface-raised/40 font-mono text-[10px] uppercase tracking-widest text-text-secondary">
             <th className="px-3 py-2.5 font-semibold">Item</th>
@@ -65,6 +65,7 @@ function ItemsTable({ items }: { items: AssociateExtraItem[] }) {
             <th className="px-3 py-2.5 text-right font-semibold">Total value</th>
             <th className="px-3 py-2.5 font-semibold">Sent / confirmed</th>
             <th className="px-3 py-2.5 font-semibold">Source company</th>
+            <th className="px-3 py-2.5 font-semibold">Used on orders</th>
           </tr>
         </thead>
         <tbody>
@@ -106,6 +107,33 @@ function ItemsTable({ items }: { items: AssociateExtraItem[] }) {
                           </span>
                           <span className="shrink-0 whitespace-nowrap font-mono text-xs font-semibold text-lime">
                             {Number.isNaN(row.quantity) ? "—" : `${row.quantity} ${item.unit}`}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-text-secondary">—</span>
+                  )}
+                </td>
+                <td className="px-3 py-3">
+                  {item.usage_history?.length ? (
+                    <div className="space-y-1">
+                      {item.usage_history.map((use) => (
+                        <div
+                          key={use.order_id}
+                          className="rounded-[4px] bg-surface-raised px-2 py-1 text-xs"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="min-w-0 text-text-primary" title={use.company}>
+                              {use.company}
+                              {use.device_id ? ` · ${use.device_id}` : ""}
+                            </span>
+                            <span className="shrink-0 whitespace-nowrap font-mono font-semibold text-warning">
+                              −{use.quantity} {item.unit}
+                            </span>
+                          </div>
+                          <span className="block text-[10px] text-text-secondary">
+                            {formatDate(use.used_at) ?? "—"} · by {use.selected_by}
                           </span>
                         </div>
                       ))}
@@ -177,12 +205,26 @@ export function AssociateExtraInventory({ manager = false }: { manager?: boolean
   const groups = useMemo(() => {
     const map = new Map<
       string,
-      { id: string; name: string; items: AssociateExtraItem[]; units: number; total: number; totalKnown: boolean }
+      {
+        id: string;
+        name: string;
+        items: AssociateExtraItem[];
+        units: number;
+        total: number;
+        totalKnown: boolean;
+      }
     >();
     for (const item of filtered) {
       let group = map.get(item.associate_id);
       if (!group) {
-        group = { id: item.associate_id, name: item.associate_name, items: [], units: 0, total: 0, totalKnown: true };
+        group = {
+          id: item.associate_id,
+          name: item.associate_name,
+          items: [],
+          units: 0,
+          total: 0,
+          totalKnown: true,
+        };
         map.set(item.associate_id, group);
       }
       group.items.push(item);
@@ -201,7 +243,8 @@ export function AssociateExtraInventory({ manager = false }: { manager?: boolean
             {manager ? "Field Associate Extra Inventory" : "My Extra Inventory"}
           </h2>
           <p className="text-sm text-text-secondary mt-1">
-            Devices and sensors confirmed as received but unused during installation.
+            Devices and sensors confirmed as received but unused during installation, less any units
+            logistics reused on later orders.
           </p>
         </div>
         <Button
@@ -256,7 +299,8 @@ export function AssociateExtraInventory({ manager = false }: { manager?: boolean
             {units} extra {units === 1 ? "item" : "items"} · Total value: {price(total)}
             {manager && (
               <span className="text-text-secondary font-normal">
-                {" "}· {groups.length} field {groups.length === 1 ? "associate" : "associates"}
+                {" "}
+                · {groups.length} field {groups.length === 1 ? "associate" : "associates"}
               </span>
             )}
           </p>
@@ -266,7 +310,10 @@ export function AssociateExtraInventory({ manager = false }: { manager?: boolean
               {groups.map((group) => {
                 const open = expanded.has(group.id);
                 return (
-                  <div key={group.id} className="rounded-[8px] border border-border overflow-hidden">
+                  <div
+                    key={group.id}
+                    className="rounded-[8px] border border-border overflow-hidden"
+                  >
                     <button
                       type="button"
                       onClick={() => toggle(group.id)}
@@ -284,7 +331,10 @@ export function AssociateExtraInventory({ manager = false }: { manager?: boolean
                         </span>
                         <span className="block text-xs text-text-secondary">
                           {group.units} {group.units === 1 ? "item" : "items"} ·{" "}
-                          {group.items.length} {group.items.length === 1 ? "type" : "types"}
+                          {group.items.filter((item) => Number(item.quantity) > 0).length}{" "}
+                          {group.items.filter((item) => Number(item.quantity) > 0).length === 1
+                            ? "type"
+                            : "types"}
                         </span>
                       </span>
                       <span className="shrink-0 text-right">

@@ -6,6 +6,8 @@ export function salaryDeductionGroups(days: FinanceDay[]) {
     if (
       !day.working_day ||
       ["scheduled", "not_employed"].includes(day.status) ||
+      // Approved leave is paid in full, so it never needs a deduction allowance.
+      (day.status === "on_leave" && day.request_status === "approved") ||
       day.automatic_units === null ||
       day.automatic_units >= 1
     )

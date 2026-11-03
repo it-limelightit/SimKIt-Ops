@@ -43,7 +43,7 @@ function ManagerLayout() {
       navigate({ to: role === "supervisor" ? "/manager" : role === "employee" ? "/employee" : "/business-consultant" });
     else if (leaveRoute && !leaveAllowed)
       navigate({ to: role === "employee" ? "/employee" : role === "supervisor" ? "/manager" : "/business-consultant" });
-    else if (role && role !== "supervisor" && !scopedAccess && !(attendanceRoute && attendanceAllowed) && !(leaveRoute && leaveAllowed) && !(financeRoute && financeAllowed))
+    else if (role && role !== "supervisor" && !scopedAccess && !(attendanceRoute && attendanceAllowed) && !(leaveRoute && leaveAllowed) && !(financeRoute && financeAllowed) && !(hrRoute && hrAllowed))
       navigate({ to: role === "employee" ? "/employee" : "/business-consultant" });
   }, [ready, userId, role, email, navigate, moduleAllowed, scopedAccess, attendanceRoute, attendanceAllowed, leaveRoute, leaveAllowed, financeRoute, financeAllowed, hrRoute, hrAllowed]);
 
@@ -169,7 +169,7 @@ function ManagerLayout() {
     (financeRoute && !financeAllowed) ||
     (hrRoute && !hrAllowed) ||
     (leaveRoute && !leaveAllowed) ||
-    (role !== "supervisor" && !scopedAccess && !(attendanceRoute && attendanceAllowed) && !(leaveRoute && leaveAllowed) && !(financeRoute && financeAllowed))
+    (role !== "supervisor" && !scopedAccess && !(attendanceRoute && attendanceAllowed) && !(leaveRoute && leaveAllowed) && !(financeRoute && financeAllowed) && !(hrRoute && hrAllowed))
   )
     return null;
   return (
