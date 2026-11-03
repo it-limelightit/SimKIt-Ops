@@ -25,6 +25,7 @@ import { canReviewLeave } from "@/lib/attendance-access";
 import { FirmwareInventory } from "@/components/inventory/FirmwareInventory";
 import { firmwareInventoryRpc } from "@/lib/firmware-inventory";
 import "@/components/attendance/employee-portal.css";
+import { formatLateLabel } from "@/lib/attendance-analytics";
 
 export const Route = createFileRoute("/employee")({ ssr: false, component: EmployeePortal });
 type Account = { id: string; name: string; enroll_id: string; active: boolean };
@@ -42,7 +43,7 @@ function EntryStatus({ entry }: { entry: Entry }) {
       {status === "review"
         ? "Needs review"
         : status === "late"
-          ? `${entry.late_minutes} min late`
+          ? formatLateLabel(entry.late_minutes)
           : "On time"}
     </span>
   );

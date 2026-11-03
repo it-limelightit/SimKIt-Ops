@@ -12,6 +12,8 @@ export type InstallationEquipmentItem = {
   unit_price: number | null;
   received: boolean;
   used: boolean;
+  /** Taken from the associate's own extra stock instead of central stock. */
+  from_extra?: boolean;
 };
 export type InstallationEquipmentOrder = {
   id: string;
@@ -49,6 +51,35 @@ export type AssociateExtraItem = {
   company_list?: string[] | null;
   company_breakdown?: AssociateExtraCompany[] | null;
   last_confirmed_at?: string | null;
+  received_quantity?: number;
+  used_quantity?: number;
+  usage_history?: AssociateExtraUsage[] | null;
+};
+export type AssociateExtraUsage = {
+  order_id: string;
+  company: string;
+  device_id: string | null;
+  quantity: number;
+  used_at: string | null;
+  selected_by: string;
+};
+export type ExtraStockOption = {
+  group_key: string;
+  label: string;
+  model: string;
+  required: number;
+  available: number;
+  selected: number;
+  status: "planned" | "applied";
+};
+export type ExtraStockOptions = {
+  order_id: string;
+  associate_id: string | null;
+  associate_name: string;
+  locked: boolean;
+  eligible: boolean;
+  reason: string | null;
+  items: ExtraStockOption[];
 };
 
 export async function associateInventoryRpc<T>(
@@ -65,6 +96,7 @@ export function equipmentCounts(items: InstallationEquipmentItem[]) {
     received: items.filter((item) => item.received).length,
     used: items.filter((item) => item.used).length,
     extra: items.filter((item) => item.received && !item.used).length,
+    fromExtra: items.filter((item) => item.from_extra).length,
     missing: items.filter((item) => !item.received).length,
   };
 }

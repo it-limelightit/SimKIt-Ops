@@ -97,10 +97,10 @@ test("single-page salary statement shows combined totals and separates pending a
   assert.equal([...pdf.matchAll(/\/Type\s*\/Page\b/g)].length, 1);
   assert.ok(pdf.includes("LimelightIT Research Pvt. Ltd."));
   assert.ok(pdf.includes("/Subtype /Image"));
-  assert.ok(pdf.includes("Working days in month"));
+  assert.ok(pdf.includes("Days in month \\(off days paid\\)"));
   assert.ok(pdf.includes("Payable days \\(pending approval\\)"));
   assert.ok(pdf.includes("24.5 day equivalents"));
-  assert.ok(pdf.includes("Salary per working day"));
+  assert.ok(pdf.includes("Salary per day"));
   assert.doesNotMatch(pdf, /Approved payable days|Approval & payment details/);
   assert.doesNotMatch(pdf, /NaN|Infinity/);
   mkdirSync(".tmp", { recursive: true });

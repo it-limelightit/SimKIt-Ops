@@ -8,7 +8,19 @@ export function formatAttendanceDuration(minutes: number | null | undefined) {
   return hours ? `${hours}h${remainder ? ` ${remainder}m` : ""}` : `${remainder}m`;
 }
 
-export function attendanceSummary(rows: AttendanceRow[]) {
+/** "45 min late", or "1 hr 15 min late" once the delay reaches 60 minutes. */
+export function formatLateLabel(minutes: number | null | undefined) {
+  if (minutes == null || !Number.isFinite(minutes) || minutes <= 0) return "";
+  const total = Math.floor(minutes);
+  if (total < 60) return `${total} min late`;
+  const hours = Math.floor(total / 60);
+  const rest = total % 60;
+  return `${hours} hr${rest ? ` ${rest} min` : ""} late`;
+}
+
+export function attendanceSummary(allRows: AttendanceRow[]) {
+  // Days before the attendance tracking start are not counted.
+  const rows = allRows.filter((row) => row.review_reason !== "before_tracking_start");
   const recorded = rows.filter((row) => row.entry_at);
   const late = recorded.filter((row) => row.late_minutes != null && row.late_minutes > 0);
   const onTime = recorded.filter((row) => row.late_minutes === 0);

@@ -6,10 +6,7 @@ export function requestCalendarStyle(
   if (decision === "approved")
     return {
       label: `${kind} approved`,
-      tone:
-        type === "wfh"
-          ? "border-indigo-300 bg-indigo-50 text-indigo-800"
-          : "border-violet-300 bg-violet-50 text-violet-800",
+      tone: "border-green-400 bg-green-100 text-green-800",
     };
   if (decision === "rejected")
     return { label: `${kind} rejected`, tone: "border-rose-300 bg-rose-50 text-rose-800" };

@@ -73,3 +73,11 @@ test("allowance rejects fractional, negative, non-finite and excessive counts", 
     assert.throws(() => waiveSalaryDays(late, {}, count), /whole number/);
   }
 });
+
+test("approved leave is never offered as an unpaid deduction", () => {
+  const groups = salaryDeductionGroups([
+    { ...day("2026-10-17", "on_leave", 0), request_status: "approved" },
+    day("2026-10-19"),
+  ]);
+  assert.deepEqual(groups.map((g) => g.status), ["late"]);
+});

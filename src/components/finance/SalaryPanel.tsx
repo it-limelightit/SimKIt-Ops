@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui-kit";
 import {
@@ -26,6 +26,8 @@ import {
 import { indiaDate, money, paymentPeriod } from "@/lib/field-operations";
 import { salaryDeductionGroups, waiveSalaryDays } from "@/lib/salary-deductions";
 import { AuditTrail, Field, Metric, Pill, type Confirm } from "./FinanceUi";
+import { formatLateLabel } from "@/lib/attendance-analytics";
+import { requestCalendarStyle } from "@/lib/request-calendar";
 
 export function SalaryPanel({
   employee,
@@ -75,6 +77,20 @@ export function SalaryPanel({
   }, [load]);
   const totals = salaryTotals(Number(base) || 0, days, overrides);
   const deductionGroups = salaryDeductionGroups(days);
+  // For a month that has not been saved yet, default every "days without deduction"
+  // dropdown to its highest value (all days allowed). Saved salaries keep their choice.
+  const defaultedFor = useRef<string | null>(null);
+  useEffect(() => {
+    const key = `${employee.id}:${month}`;
+    if (loading || salary || !days.length || defaultedFor.current === key) return;
+    defaultedFor.current = key;
+    setOverrides((current) =>
+      salaryDeductionGroups(days).reduce(
+        (next, group) => waiveSalaryDays(group.days, next, group.days.length),
+        current,
+      ),
+    );
+  }, [days, loading, salary, employee.id, month]);
   const changed =
     Number(base) !== Number(salary?.base_salary) ||
     JSON.stringify(overrides) !== JSON.stringify(salary?.overrides ?? {});
@@ -133,7 +149,7 @@ export function SalaryPanel({
     <section>
       <h2>Office attendance & salary</h2>
       <p className="finance-muted mt-1">
-        Automatic calculation: late = half day, approved WFH = full paid day, leave = unpaid. Choose
+        Automatic calculation: late = half day, approved WFH and approved leave = full paid day (no deduction). Choose
         how many days to allow without deduction for this month.
       </p>
       {loading ? (
@@ -170,6 +186,7 @@ export function SalaryPanel({
                 type="button"
                 className="finance-day"
                 data-status={day.status}
+                data-request={day.request_status === "approved" ? "approved" : undefined}
                 disabled={
                   !!salary?.paid_at ||
                   !day.working_day ||
@@ -179,15 +196,25 @@ export function SalaryPanel({
                 title={`${day.date}: ${readable(day.status)}${day.request_status ? ` · ${day.request_status} ${day.request_type}` : ""}`}
               >
                 <strong>{Number(day.date.slice(-2))}</strong>
+                {requestCalendarStyle(day.request_type, day.request_status) && (
+                  <span className="block text-[10px] font-semibold">
+                    {requestCalendarStyle(day.request_type, day.request_status)!.label}
+                  </span>
+                )}
                 <span>{readable(day.status)}</span>
+                {day.status === "late" && (day.late_minutes ?? 0) > 0 && (
+                  <span className="mt-0.5 block w-fit max-w-full truncate rounded bg-amber-600 px-1 text-[9px] font-bold leading-4 text-white">
+                    {formatLateLabel(day.late_minutes)}
+                  </span>
+                )}
                 <span className="block mt-1">
                   {overrides[day.date]
-                    ? `${overrides[day.date].units} day · Edited`
+                    ? `${overrides[day.date].units} day`
                     : day.units === null
                       ? "Needs review"
                       : day.working_day
                         ? `${day.units} day`
-                        : "Off"}
+                        : "Off · paid"}
                 </span>
               </button>
             ))}
@@ -195,14 +222,20 @@ export function SalaryPanel({
           <div className="finance-notice flex flex-wrap gap-4">
             <span>Full day: 1</span>
             <span>Late / half day: 0.5</span>
-            <span>Absent / unpaid leave: 0</span>
+            <span>Approved leave: 1 (no deduction)</span>
+            <span>Absent: 0</span>
+            <span>Sundays / off days: paid (salary = monthly salary ÷ days in month × payable days)</span>
             <span>Click a working day to adjust.</span>
+            <span>
+              Attendance is counted from 15 Oct 2026; earlier working days show as needs review and
+              are paid as a full day unless adjusted.
+            </span>
           </div>
           {deductionGroups.length > 0 && (
             <div className="rounded-xl border border-border bg-surface p-5 space-y-4">
               <h3>Salary deductions</h3>
               <p className="finance-muted">
-                Choose how many days to allow without deduction. Approved WFH is fully paid.
+                Choose how many days to allow without deduction. Approved WFH and approved leave are fully paid.
               </p>
               {deductionGroups.map((group) => {
                 const allowed = group.days.filter((day) => overrides[day.date]?.units === 1).length;
@@ -243,11 +276,16 @@ export function SalaryPanel({
                           setOverrides((current) => waiveSalaryDays(group.days, current, count));
                         }}
                       >
-                        {Array.from({ length: group.days.length + 1 }, (_, count) => (
-                          <option key={count} value={String(count)}>
-                            {count} {count === 1 ? "day" : "days"}
-                          </option>
-                        ))}
+                        {/* Descending: highest allowance (no deduction for all days) first. */}
+                        {Array.from({ length: group.days.length + 1 }, (_, i) => {
+                          const count = group.days.length - i;
+                          return (
+                            <option key={count} value={String(count)}>
+                              {count} {count === 1 ? "day" : "days"}
+                              {count === group.days.length ? " (all, no deduction)" : ""}
+                            </option>
+                          );
+                        })}
                       </select>
                     </Field>
                   </div>
@@ -284,7 +322,8 @@ export function SalaryPanel({
                 <p className="finance-muted">Salary to pay</p>
                 <strong className="block text-2xl mt-2">{money(totals.amount)}</strong>
                 <p className="finance-muted">
-                  {money(totals.daily)} / day × {totals.payable} payable days
+                  {money(totals.daily)} / day ({totals.calendarDays} days in month, off days paid) ×{" "}
+                  {totals.payable} payable days
                 </p>
               </div>
             </div>

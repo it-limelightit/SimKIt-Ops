@@ -7,8 +7,16 @@ export type CalendarDay = {
   request_type: "leave" | "wfh" | null;
   request_status: string | null;
   reason: string | null;
+  review_reason?: string | null;
 };
-export type EmployeeCalendar = { month: string; today: string; days: CalendarDay[] };
+export type EmployeeCalendar = {
+  month: string;
+  today: string;
+  tracking_start?: string;
+  days: CalendarDay[];
+};
+/** Attendance is counted from this IST work date; earlier days are shown as needing review. */
+export const ATTENDANCE_TRACKING_START = "2026-10-15";
 export const calendarStatuses: Record<string, { label: string; color: string; tone: string }> = {
   present: {
     label: "Office",
@@ -18,13 +26,13 @@ export const calendarStatuses: Record<string, { label: string; color: string; to
   late: { label: "Late", color: "#d97706", tone: "border-amber-200 bg-amber-50 text-amber-800" },
   work_from_home: {
     label: "WFH",
-    color: "#4f46e5",
-    tone: "border-indigo-200 bg-indigo-50 text-indigo-800",
+    color: "#16a34a",
+    tone: "border-green-400 bg-green-100 text-green-800",
   },
   on_leave: {
     label: "Leave",
-    color: "#7c3aed",
-    tone: "border-violet-200 bg-violet-50 text-violet-800",
+    color: "#16a34a",
+    tone: "border-green-400 bg-green-100 text-green-800",
   },
   absent: { label: "Absent", color: "#dc2626", tone: "border-rose-200 bg-rose-50 text-rose-800" },
   off_day: {
@@ -58,7 +66,13 @@ export const calendarStatuses: Record<string, { label: string; color: string; to
     tone: "border-slate-100 bg-slate-50 text-slate-400",
   },
 };
-export function calendarSummary(days: CalendarDay[], today: string) {
+export function calendarSummary(
+  allDays: CalendarDay[],
+  today: string,
+  trackingStart = ATTENDANCE_TRACKING_START,
+) {
+  // Only days from the tracking start count toward workday totals.
+  const days = allDays.filter((d) => d.date >= trackingStart);
   return {
     working: days.filter((d) => d.working_day === true).length,
     office: days.filter((d) => d.status === "present" || d.status === "late").length,

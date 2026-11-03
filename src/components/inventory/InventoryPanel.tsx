@@ -38,6 +38,7 @@ import { actorName, recordActivityLog } from "@/lib/activity-log";
 import { isTruthy } from "@/lib/inventory-service";
 import { inventoryCtSensorCount, inventoryOrderIncludesDm } from "@/lib/inventory-components";
 import { LogisticsResultsPortal } from "./LogisticsResultsPortal";
+import { ExtraStockPicker } from "./ExtraStockPicker";
 import { companyCityMap, companyNameKey, formatSiteCityName, siteCityKey, siteCityOptions } from "@/utils/site-location";
 
 
@@ -2166,6 +2167,10 @@ export function OrderCard({
                         )}
                       </div>
 
+                      {material.order_source !== "upscale" && (
+                        <ExtraStockPicker orderId={material.id} editable={!packingStockLocked} refreshKey={material.notes} />
+                      )}
+
                       <div className="grid gap-4 sm:grid-cols-2 border-t border-border/50 pt-4">
                         <div>
                           <Label>Device Name / Model <span className="text-red-500">*</span></Label>
@@ -2249,6 +2254,10 @@ export function OrderCard({
                             </div>
                           ))}
                         </div>
+                      )}
+
+                      {material.order_source !== "upscale" && (
+                        <ExtraStockPicker orderId={material.id} editable={false} refreshKey={material.notes} />
                       )}
 
                       <div className="p-4 bg-surface-raised/40 border border-border/60 rounded-xl font-mono text-[11px] not-italic space-y-1.5">

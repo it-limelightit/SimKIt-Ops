@@ -25,6 +25,7 @@ import { Button, Card, Select } from "@/components/ui-kit";
 import { attendanceRpc, dateLabel, indiaDate, timeLabel } from "@/lib/device-attendance";
 import { useAuth } from "@/lib/auth-store";
 import { requestCalendarStyle } from "@/lib/request-calendar";
+import { formatLateLabel } from "@/lib/attendance-analytics";
 import {
   calendarStatuses,
   calendarSummary,
@@ -85,7 +86,7 @@ export function EmployeeCalendar() {
     };
   }, [month, refresh, userId]);
   const days = data?.days ?? [];
-  const summary = calendarSummary(days, data?.today ?? indiaDate());
+  const summary = calendarSummary(days, data?.today ?? indiaDate(), data?.tracking_start);
   const weeks = useMemo(
     () =>
       calendarWeeks(data?.days ?? []).filter(
@@ -327,6 +328,11 @@ export function EmployeeCalendar() {
                       <span className="mt-2 hidden max-w-full truncate text-[10px] font-medium sm:block">
                         {status.label}
                       </span>
+                      {day.status === "late" && (day.late_minutes ?? 0) > 0 && (
+                        <span className="mt-0.5 block max-w-full truncate rounded bg-amber-600 px-1 text-[9px] font-bold leading-4 text-white sm:text-[10px]">
+                          {formatLateLabel(day.late_minutes)}
+                        </span>
+                      )}
                       {requestStyle && (
                         <span className="mt-0.5 block max-w-full truncate text-[8px] font-semibold sm:text-[9px]">
                           {requestStyle.label}
@@ -349,9 +355,10 @@ export function EmployeeCalendar() {
                 })}
               </div>
               <p className="mt-4 text-[11px] leading-5 text-text-secondary">
-                Request colors: purple for approved leave, indigo for approved WFH, red for
-                rejected, and amber for pending. Attendance labels remain visible. Decisions refresh
-                automatically every 15 seconds.
+                Request colors: green for approved leave or WFH, red for rejected, and amber for
+                pending. Late days show how late (in hours once over 60 minutes). Attendance is counted from{" "}
+                {dateLabel(data?.tracking_start ?? "2026-10-15")}; earlier days show as needs
+                review. Decisions refresh automatically every 15 seconds.
               </p>
             </Card>
             <aside className="space-y-3 xl:sticky xl:top-4">
@@ -365,6 +372,13 @@ export function EmployeeCalendar() {
                     >
                       {(calendarStatuses[chosen.status] ?? calendarStatuses.needs_review).label}
                     </span>
+                    {chosen.review_reason === "before_tracking_start" && (
+                      <p className="mt-2 text-xs leading-5 text-text-secondary">
+                        Attendance is counted from{" "}
+                        {dateLabel(data?.tracking_start ?? "2026-10-15")}. This earlier day is not
+                        counted as office, late or absent.
+                      </p>
+                    )}
                     <dl className="mt-4 space-y-3 text-sm">
                       <div>
                         <dt className="text-xs text-text-secondary">Office schedule</dt>
@@ -388,11 +402,15 @@ export function EmployeeCalendar() {
                         <div>
                           <dt className="text-xs text-text-secondary">Arrival</dt>
                           <dd className="mt-1 font-medium">
-                            {chosen.late_minutes === null
-                              ? "Needs review"
-                              : chosen.late_minutes > 0
-                                ? `${chosen.late_minutes} minutes late`
-                                : "On time"}
+                            {chosen.late_minutes === null ? (
+                              "Needs review"
+                            ) : chosen.late_minutes > 0 ? (
+                              <span className="text-warning">
+                                {formatLateLabel(chosen.late_minutes)}
+                              </span>
+                            ) : (
+                              "On time"
+                            )}
                           </dd>
                         </div>
                       )}
@@ -630,7 +648,7 @@ export function EmployeeCalendar() {
                     <span className="text-sm font-medium">{dateLabel(day.date)}</span>
                     <span className="text-xs text-text-secondary">
                       {day.entry_at
-                        ? `${timeLabel(day.entry_at)} IST`
+                        ? `${timeLabel(day.entry_at)} IST${(day.late_minutes ?? 0) > 0 ? ` · ${formatLateLabel(day.late_minutes)}` : ""}`
                         : day.request_status
                           ? `${day.request_type === "wfh" ? "WFH" : "Leave"} ${day.request_status}`
                           : "No scan"}
