@@ -515,6 +515,9 @@ export function FieldFinancePanel({
   const [board, setBoard] = useState<FieldFinance | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [commissioning, setCommissioning] = useState("");
+  const [assessmentRate, setAssessmentRate] = useState("");
+  const [installationRate, setInstallationRate] = useState("");
+  const [allPhases, setAllPhases] = useState(false);
   const [busy, setBusy] = useState(false);
   const [earning, setEarning] = useState<FieldFinance["earnings"][number] | null>(null);
   const [amount, setAmount] = useState("");
@@ -533,6 +536,9 @@ export function FieldFinancePanel({
       }
       setBoard(data);
       setCommissioning(String(data.rates?.commissioning ?? ""));
+      setAssessmentRate(String(data.rates?.assessment ?? ""));
+      setInstallationRate(String(data.rates?.installation ?? ""));
+      setAllPhases(Boolean(data.rates?.all_phases));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load field earnings");
@@ -548,10 +554,8 @@ export function FieldFinancePanel({
     (!!board?.earnings.length && board.earnings.every((earning) => earning.paid));
   const paymentOpen = indiaDate() >= due;
   const earnings =
-    board?.earnings.filter(
-      (earning) =>
-        earning.phase === "commissioning" && earning.date >= start && earning.date <= end,
-    ) ?? [];
+    // The server returns commissioning only, or every phase for all-phase (dual-role) people.
+    board?.earnings.filter((earning) => earning.date >= start && earning.date <= end) ?? [];
   const total = earnings.reduce((sum, earning) => sum + Number(earning.amount ?? 0), 0);
   const paid = earnings.filter((earning) => earning.paid);
   const remaining = earnings.filter((earning) => !earning.paid);
@@ -594,9 +598,9 @@ export function FieldFinancePanel({
       </p>
     );
   return (
-    <section aria-label="Commissioning incentives">
+    <section aria-label={allPhases ? "Field incentives" : "Commissioning incentives"}>
       <div className="finance-incentive-heading">
-        <h2>Commissioning incentives</h2>
+        <h2>{allPhases ? "Field incentives" : "Commissioning incentives"}</h2>
         <span className="finance-muted">
           {new Date(`${month}-01T12:00:00Z`).toLocaleDateString("en-IN", {
             month: "long",
@@ -606,29 +610,30 @@ export function FieldFinancePanel({
       </div>
       <div className="finance-metrics finance-incentive-summary">
         <Metric
-          label="Commissionings this month"
+          label={allPhases ? "Work done this month" : "Commissionings this month"}
           value={earnings.length}
-          detail="Approved commissionings"
+          detail={allPhases ? phaseSummary(earnings) : "Approved commissionings"}
         />
         <Metric
           label="Total incentives"
           value={money(total)}
-          detail={`${earnings.length} approved ${earnings.length === 1 ? "commissioning" : "commissionings"}`}
+          detail={`${earnings.length} ${itemWord(earnings.length, allPhases)}`}
         />
         <Metric
           label="Incentives paid"
           value={money(paidAmount)}
-          detail={`${paid.length} ${paid.length === 1 ? "commissioning" : "commissionings"} paid`}
+          detail={`${paid.length} ${itemWord(paid.length, allPhases)} paid`}
         />
         <Metric
           label="Incentives outstanding"
           value={money(total - paidAmount)}
-          detail={`${remaining.length} ${remaining.length === 1 ? "commissioning" : "commissionings"} unpaid · Due ${new Date(`${due}T12:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}`}
+          detail={`${remaining.length} ${itemWord(remaining.length, allPhases)} unpaid · Due ${new Date(`${due}T12:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}`}
         />
       </div>
       {remaining.some((earning) => earning.amount === null) && (
         <p className="finance-notice" role="status">
-          {remaining.filter((earning) => earning.amount === null).length} commissionings need a
+          {remaining.filter((earning) => earning.amount === null).length}{" "}
+          {itemWord(remaining.filter((earning) => earning.amount === null).length, allPhases)} need a
           rate. Totals exclude unpriced work. Set rates to continue approval.
         </p>
       )}
@@ -704,15 +709,20 @@ export function FieldFinancePanel({
         onSubmit={(e) => {
           e.preventDefault();
           setBusy(true);
-          void financeRpc("finance_field_rates", {
+          const price = (value: string) => (value.trim() === "" ? null : Number(value));
+          void financeRpc("finance_field_rates_v2", {
             _associate: person.id,
-            _assessment: 0,
-            _commissioning: Number(commissioning),
-            _reason: "Commissioning rate updated from Salary / Expense",
+            _assessment: allPhases ? price(assessmentRate) : 0,
+            _installation: allPhases ? price(installationRate) : 0,
+            _commissioning: price(commissioning),
+            _all_phases: allPhases,
+            _reason: allPhases
+              ? "All-phase rates updated from Salary / Expense"
+              : "Commissioning rate updated from Salary / Expense",
           })
             .then(async () => {
               toast.success(
-                "Rates saved. Existing priced work stays unchanged; use Edit amount for corrections.",
+                "Rates saved. Unpaid work at the old rate was re-priced; paid, approved and hand-edited amounts stay as they are.",
               );
               await load();
             })
@@ -720,13 +730,51 @@ export function FieldFinancePanel({
             .finally(() => setBusy(false));
         }}
       >
+        <label className="finance-phase-switch">
+          <input
+            type="checkbox"
+            checked={allPhases}
+            onChange={(e) => setAllPhases(e.target.checked)}
+          />
+          <span>
+            <strong>Pay for assessment & installation too</strong>
+            <small>
+              For dual-role people who also do field work. Each phase they complete is paid at its
+              own price.
+            </small>
+          </span>
+        </label>
+        {allPhases && (
+          <>
+            <Field label="Assessment rate (INR)">
+              <input
+                className="finance-input"
+                type="number"
+                step="0.01"
+                min="0"
+                value={assessmentRate}
+                onChange={(e) => setAssessmentRate(e.target.value)}
+              />
+            </Field>
+            <Field label="Installation rate (INR)">
+              <input
+                className="finance-input"
+                type="number"
+                step="0.01"
+                min="0"
+                value={installationRate}
+                onChange={(e) => setInstallationRate(e.target.value)}
+              />
+            </Field>
+          </>
+        )}
         <Field label="Commissioning rate (INR)">
           <input
             className="finance-input"
             type="number"
             step="0.01"
             min="0"
-            required
+            required={!allPhases}
             value={commissioning}
             onChange={(e) => setCommissioning(e.target.value)}
           />
@@ -739,7 +787,8 @@ export function FieldFinancePanel({
         <table className="finance-table !min-w-[650px]">
           <thead>
             <tr>
-              <th>Commissioning date</th>
+              <th>{allPhases ? "Date" : "Commissioning date"}</th>
+              {allPhases && <th>Phase</th>}
               <th>Approval</th>
               <th>Company</th>
               <th>Amount</th>
@@ -751,6 +800,13 @@ export function FieldFinancePanel({
             {earnings.map((e) => (
               <tr key={e.id}>
                 <td>{e.date}</td>
+                {allPhases && (
+                  <td>
+                    <span className="finance-phase-tag" data-phase={e.phase}>
+                      {e.phase}
+                    </span>
+                  </td>
+                )}
                 <td>
                   <Pill value="approved" />
                 </td>
@@ -940,4 +996,21 @@ function LateJustificationList({ days }: { days: FinanceDay[] }) {
       </ul>
     </div>
   );
+}
+
+/** "commissioning(s)" for commissioning-only people, "work item(s)" for all-phase people. */
+function itemWord(count: number, allPhases: boolean) {
+  if (allPhases) return count === 1 ? "work item" : "work items";
+  return count === 1 ? "commissioning" : "commissionings";
+}
+/** e.g. "1 assessment · 2 installations · 3 commissionings". */
+function phaseSummary(earnings: { phase: string }[]) {
+  const text = ["assessment", "installation", "commissioning"]
+    .map((phase) => {
+      const n = earnings.filter((e) => e.phase === phase).length;
+      return n ? `${n} ${phase}${n === 1 ? "" : "s"}` : null;
+    })
+    .filter(Boolean)
+    .join(" · ");
+  return text || "No completed work yet";
 }

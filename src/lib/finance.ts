@@ -181,7 +181,13 @@ export type FieldFinance = {
     reason: string | null;
     snapshot: unknown;
   } | null;
-  rates: { assessment: number; commissioning: number } | null;
+  rates: {
+    assessment: number | null;
+    installation: number | null;
+    commissioning: number | null;
+    /** Dual-role people (e.g. Hitesh bhai) earn for every phase they complete. */
+    all_phases?: boolean;
+  } | null;
   payments: { id: string; amount: number; paid_on: string; reference: string }[];
   calendar: { date: string; online: boolean; last_online: boolean | null; off_day: boolean }[];
   leaves: { date: string; status: string; reason: string }[];

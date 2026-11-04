@@ -11,6 +11,7 @@ import {
   LogOut,
   Receipt,
   ShieldCheck,
+  Users,
 } from "lucide-react";
 import { FinanceWorkspace } from "@/components/finance/FinanceWorkspace";
 import { canManageFinance } from "@/lib/finance";
@@ -25,6 +26,8 @@ import { canReviewLeave } from "@/lib/attendance-access";
 import { FirmwareInventory } from "@/components/inventory/FirmwareInventory";
 import { firmwareInventoryRpc } from "@/lib/firmware-inventory";
 import "@/components/attendance/employee-portal.css";
+import { TeamAttendance } from "@/components/attendance/TeamAttendance";
+import { isTeamLead } from "@/lib/attendance-access";
 import { formatLateLabel } from "@/lib/attendance-analytics";
 
 export const Route = createFileRoute("/employee")({ ssr: false, component: EmployeePortal });
@@ -59,7 +62,7 @@ function EmployeePortal() {
   const [firmwareInventory, setFirmwareInventory] = useState(false);
   const reviewer = canReviewLeave(email);
   const [selectedTab, setTab] = useState<
-    "overview" | "review" | "leave" | "attendance" | "expense" | "inventory" | null
+    "overview" | "review" | "leave" | "attendance" | "team" | "expense" | "inventory" | null
   >(null);
   const tab = selectedTab ?? (reviewer ? "overview" : "leave");
 
@@ -201,6 +204,7 @@ function EmployeePortal() {
               { key: "review", label: "Team approvals", icon: ShieldCheck },
               { key: "leave", label: "Leave & WFH", icon: House },
               { key: "attendance", label: "My attendance", icon: Clock3 },
+              { key: "team", label: "Team attendance", icon: Users },
               { key: "expense", label: "Expense", icon: Receipt },
               { key: "inventory", label: "Inventory Own", icon: Boxes },
             ] as const
@@ -209,7 +213,8 @@ function EmployeePortal() {
               ({ key }) =>
                 ((key !== "overview" && key !== "review") || reviewer) &&
                 (key !== "expense" || !canManageFinance(email)) &&
-                (key !== "inventory" || firmwareInventory),
+                (key !== "inventory" || firmwareInventory) &&
+                (key !== "team" || isTeamLead(email)),
             )
             .map(({ key, label, icon: Icon }) => (
               <button
@@ -287,6 +292,10 @@ function EmployeePortal() {
           <section id="employee-inventory" aria-label="My testing inventory">
             <FirmwareInventory />
           </section>
+        ) : tab === "team" && isTeamLead(email) ? (
+          <div id="employee-team">
+            <TeamAttendance />
+          </div>
         ) : tab === "expense" ? (
           <section id="employee-expense" aria-label="My expenses">
             <FinanceWorkspace personal embedded />

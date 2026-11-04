@@ -34,3 +34,16 @@ export function canReviewLeave(email: string | null | undefined) {
     leaveReviewEmails.some((allowed) => allowed === email?.trim().toLowerCase())
   );
 }
+
+/**
+ * Team leads who get a "Team attendance" view. Their actual members (and access)
+ * come from the attendance_team_members table on the server.
+ */
+export const teamLeadEmails = [
+  "associatelimelight@gmail.com",
+  "kuldeepshrimali.limelight@gmail.com",
+] as const;
+
+export function isTeamLead(email: string | null | undefined) {
+  return teamLeadEmails.some((lead) => lead === email?.trim().toLowerCase());
+}

@@ -198,7 +198,7 @@ export function FinanceWorkspace({
       id: employee.auth_user_id ?? `employee:${employee.id}`,
       name: employee.name,
       email: employee.email,
-      field: false,
+      field: (board?.people ?? []).some((p) => p.id === employee.auth_user_id && p.field),
     },
   }));
   const linked = new Set(officePeople.map((p) => p.user.id));
@@ -768,6 +768,17 @@ export function FinanceWorkspace({
                         Attendance account is not linked for this person. Expense review is
                         available below.
                       </p>
+                    )}
+                    {person.employee && person.user.field && (
+                      <FieldFinancePanel
+                        key={`field:${person.user.id}:${month}`}
+                        person={person.user}
+                        month={month}
+                        role={board.role}
+                        confirm={confirm}
+                        reload={reload}
+                        events={board.events}
+                      />
                     )}
                   </>
                 )}
