@@ -22,6 +22,7 @@ import {
   YAxis,
 } from "recharts";
 import { Button, Card, Select } from "@/components/ui-kit";
+import { LateJustificationPanel } from "./LateJustification";
 import { attendanceRpc, dateLabel, indiaDate, timeLabel } from "@/lib/device-attendance";
 import { useAuth } from "@/lib/auth-store";
 import {
@@ -54,6 +55,8 @@ export function EmployeeCalendar({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
+  // Late day picked from the calendar for the "Justify late arrival" card.
+  const [justifyDate, setJustifyDate] = useState<string | null>(null);
   const loadedKey = useRef<string | null>(null);
   useEffect(() => {
     const update = () => setRefresh((value) => value + 1);
@@ -419,11 +422,23 @@ export function EmployeeCalendar({
                         </p>
                       </div>
                     ) : chosen.status === "late" && !viewingTeam ? (
-                      <p className="mt-2 text-xs leading-5 text-text-secondary">
-                        Late for a reason? Open <strong className="text-text-primary">Leave → Justify late arrival</strong>{" "}
-                        this month (or by the 7th of next month). If Tarun accepts, this day
-                        counts as a full day.
-                      </p>
+                      <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
+                        <p className="text-xs leading-5 text-text-secondary">
+                          Late for a reason? If Tarun accepts, this day counts as a full day.
+                        </p>
+                        <Button
+                          size="sm"
+                          className="mt-2 w-full"
+                          onClick={() => {
+                            setJustifyDate(chosen.date);
+                            document
+                              .getElementById("justify-late-arrival")
+                              ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                          }}
+                        >
+                          Justify this day
+                        </Button>
+                      </div>
                     ) : null}
                     {chosen.review_reason === "before_tracking_start" && (
                       <p className="mt-2 text-xs leading-5 text-text-secondary">
@@ -520,6 +535,15 @@ export function EmployeeCalendar({
               </Card>
             </aside>
           </div>
+          {!viewingTeam && (
+            <LateJustificationPanel
+              preselect={justifyDate}
+              onSubmitted={() => {
+                setJustifyDate(null);
+                setRefresh((n) => n + 1);
+              }}
+            />
+          )}
           <div className="grid gap-4 lg:grid-cols-2">
             <Card className="min-w-0 rounded-2xl p-4">
               <h3>Weekly activity</h3>
