@@ -14,6 +14,10 @@ import { Toaster } from "sonner";
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { useAuthInit } from "@/lib/auth-store";
+import { installStaleBuildRecovery, isStaleBuildError, reloadForNewBuild } from "@/lib/stale-build";
+
+// Recover tabs left on an old build after a deployment (missing chunk files).
+installStaleBuildRecovery();
 import { OfflineBanner } from "@/components/OfflineBanner";
 import { ImpersonationBanner } from "@/components/staff/ImpersonateUser";
 
@@ -48,9 +52,12 @@ function NotFoundComponent() {
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
   const router = useRouter();
+  const staleBuild = isStaleBuildError(error);
   useEffect(() => {
+    // A new version was deployed while this tab was open: load it.
+    if (staleBuild && reloadForNewBuild()) return;
     reportLovableError(error, { boundary: "tanstack_root_error_component" });
-  }, [error]);
+  }, [error, staleBuild]);
 
   return (
     <div className="flex min-h-screen items-center justify-center px-6">
@@ -58,11 +65,17 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
         <SimKitLogo className="mb-6" />
         <h1 className="text-3xl">Something went wrong</h1>
         <p className="mt-3 text-sm text-muted-foreground">
-          The page failed to load. Try again or head home.
+          {staleBuild
+            ? "A new version of SimKit was released. Reloading to update…"
+            : "The page failed to load. Try again or head home."}
         </p>
         <div className="mt-8 flex justify-center gap-3">
           <button
             onClick={() => {
+              if (staleBuild) {
+                window.location.reload();
+                return;
+              }
               router.invalidate();
               reset();
             }}
