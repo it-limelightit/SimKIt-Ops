@@ -3,7 +3,8 @@ import { ChevronLeft, ChevronRight, LoaderCircle } from "lucide-react";
 import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 import { Button } from "@/components/ui-kit";
 
-export function PdfReceiptPreview({ bytes }: { bytes: Uint8Array }) {
+/** Renders a PDF receipt; `zoom` scales the fitted page width (1 = fit width). */
+export function PdfReceiptPreview({ bytes, zoom = 1 }: { bytes: Uint8Array; zoom?: number }) {
   const [document, setDocument] = useState<PDFDocumentProxy | null>(null);
   const [page, setPage] = useState(1);
   const [width, setWidth] = useState(0);
@@ -60,7 +61,7 @@ export function PdfReceiptPreview({ bytes }: { bytes: Uint8Array }) {
         const pdfPage = await document.getPage(page);
         if (disposed) return;
         const original = pdfPage.getViewport({ scale: 1 });
-        const scale = Math.max(0.1, (width - 24) / original.width);
+        const scale = Math.max(0.1, ((width - 24) / original.width) * zoom);
         const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
         const viewport = pdfPage.getViewport({ scale: scale * pixelRatio });
         target.width = Math.ceil(viewport.width);
@@ -81,7 +82,7 @@ export function PdfReceiptPreview({ bytes }: { bytes: Uint8Array }) {
       disposed = true;
       task?.cancel();
     };
-  }, [document, page, width]);
+  }, [document, page, width, zoom]);
 
   return (
     <div className="flex h-full w-full min-w-0 flex-col">

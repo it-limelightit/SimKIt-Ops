@@ -2767,3 +2767,99 @@
   border-color: color-mix(in oklab, #10b981 40%, var(--surface));
   background: color-mix(in oklab, #10b981 12%, var(--surface));
 }
+
+/* Receipt viewer: zoom / rotate / download (Hardik, Tarun and employees). */
+.finance-receipt-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.finance-receipt-toolbar-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-raised);
+}
+.finance-receipt-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 34px;
+  height: 32px;
+  padding: 0 9px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+.finance-receipt-toolbar-group button:hover:not(:disabled) {
+  background: var(--surface);
+  color: var(--text-primary);
+}
+.finance-receipt-toolbar button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.finance-receipt-toolbar button:focus-visible {
+  outline: 2px solid var(--lime);
+  outline-offset: 1px;
+}
+.finance-receipt-zoom {
+  min-width: 48px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+.finance-receipt-toolbar .finance-receipt-download {
+  border: 1px solid var(--lime);
+  background: var(--lime);
+  color: var(--primary-fg);
+  padding: 0 14px;
+}
+.finance-receipt-toolbar .finance-receipt-download:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.finance-receipt-viewer {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  overscroll-behavior: contain;
+}
+.finance-receipt-viewer.is-zoomed {
+  cursor: grab;
+}
+.finance-receipt-viewer.is-zoomed:active {
+  cursor: grabbing;
+}
+.finance-receipt-full {
+  display: block;
+  margin: auto;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  transition: transform 0.2s ease;
+  user-select: none;
+  cursor: zoom-in;
+}
+.finance-receipt-viewer.is-zoomed .finance-receipt-full {
+  max-width: none;
+  max-height: none;
+  height: auto;
+  margin: 0;
+  cursor: inherit;
+}
