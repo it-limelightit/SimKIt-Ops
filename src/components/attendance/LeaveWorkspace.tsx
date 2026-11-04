@@ -5,13 +5,16 @@ import {
   Check,
   House,
   LoaderCircle,
+  MapPin,
+  MessageSquareText,
   RefreshCw,
   Send,
   ShieldCheck,
   X,
 } from "lucide-react";
 import { Button, Card, Input, Label, Select, Textarea } from "@/components/ui-kit";
-import { attendanceRpc, dateLabel, indiaDate } from "@/lib/device-attendance";
+import { attendanceRpc, dateLabel, indiaDate, timeLabel } from "@/lib/device-attendance";
+import type { EmployeeCalendar } from "@/lib/employee-calendar";
 import { useAuth } from "@/lib/auth-store";
 import { canAccessLeave, canReviewLeave, isTarunLeaveReviewer } from "@/lib/attendance-access";
 import { LeaveReviewTable } from "./LeaveReviewTable";
@@ -22,6 +25,7 @@ import {
   prepareLeaveSubmission,
   lateArrivalReasons,
   lateArrivalClosed,
+  lateJustificationTags,
   requestTypeLabel,
 } from "@/lib/leave-request";
 
@@ -31,7 +35,11 @@ export type LeaveRequest = {
   employee_id: string | null;
   employee_name?: string;
   department?: string;
-  request_type?: "leave" | "wfh" | "late";
+  request_type?: "leave" | "wfh" | "late" | "site_visit";
+  /** "justification" = late arrival justified after the fact (decided by Tarun). */
+  kind?: "advance" | "justification";
+  tags?: string[];
+  late_minutes?: number | null;
   expected_arrival?: string;
   is_half_day?: boolean;
   category?: string;
@@ -45,6 +53,8 @@ export type LeaveRequest = {
   days?: DayDecision[];
 };
 const categories = ["Marriage", "Family medical", "Personal health", "Other"] as const;
+type RequestType = "leave" | "wfh" | "late" | "justify" | "site_visit";
+type LateDay = { date: string; entry_at: string | null; late_minutes: number };
 
 function dayCount(from: string, to: string) {
   if (!from || !to) return 0;
@@ -80,7 +90,11 @@ function LeaveWorkspaceContent({
   const [to, setTo] = useState("");
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
-  const [requestType, setRequestType] = useState<"leave" | "wfh" | "late">("leave");
+  const [requestType, setRequestType] = useState<RequestType>("leave");
+  const [officeStaff, setOfficeStaff] = useState(false);
+  const [lateDays, setLateDays] = useState<LateDay[]>([]);
+  const [justifyDate, setJustifyDate] = useState("");
+  const [justifyTags, setJustifyTags] = useState<string[]>([]);
   const [expectedArrival, setExpectedArrival] = useState("");
   const [halfDay, setHalfDay] = useState(false);
   const [now, setNow] = useState(() => new Date());
@@ -129,6 +143,28 @@ function LeaveWorkspaceContent({
         ? false
         : await attendanceRpc<boolean>("attendance_my_wfh_eligibility").catch(() => false);
       setWfhEligible(eligible);
+      // Office staff (linked attendance account) can justify late days and request site visits.
+      const account = reviewerOnly
+        ? null
+        : await attendanceRpc<{ id: string } | null>("attendance_my_account").catch(() => null);
+      setOfficeStaff(Boolean(account?.id));
+      if (account?.id) {
+        const calendar = await attendanceRpc<EmployeeCalendar>("attendance_my_calendar", {
+          _month: `${indiaDate().slice(0, 7)}-01`,
+        }).catch(() => null);
+        setLateDays(
+          (calendar?.days ?? [])
+            .filter(
+              (day) =>
+                day.status === "late" &&
+                (day.late_minutes ?? 0) > 0 &&
+                day.date <= indiaDate() &&
+                !(day.late_justification && day.late_justification.status !== "rejected"),
+            )
+            .map((day) => ({ date: day.date, entry_at: day.entry_at, late_minutes: day.late_minutes ?? 0 }))
+            .sort((a, b) => b.date.localeCompare(a.date)),
+        );
+      } else setLateDays([]);
       if (reviewer) {
         const pending = await attendanceRpc<LeaveRequest[]>("attendance_leave_review_queue");
         const late = await attendanceRpc<LeaveRequest[]>("attendance_late_requests", {
@@ -164,13 +200,28 @@ function LeaveWorkspaceContent({
     setSubmitError(null);
     setSubmitSuccess(null);
     try {
-      const submission = prepareLeaveSubmission(
-        { requestType, from, to, category, description, expectedArrival, halfDay },
-        indiaDate(),
-      );
+      let submission: { name: string; args: Record<string, unknown> };
+      if (requestType === "justify") {
+        if (!justifyDate) throw new Error("Choose the late day you want to justify.");
+        if (!justifyTags.length) throw new Error("Pick at least one reason tag.");
+        if (justifyTags.includes("Other") && description.trim().length < 5)
+          throw new Error("Describe your reason (at least 5 characters).");
+        submission = {
+          name: "attendance_submit_late_justification",
+          args: { _date: justifyDate, _tags: justifyTags, _note: description.trim() },
+        };
+      } else {
+        submission = prepareLeaveSubmission(
+          { requestType, from, to, category, description, expectedArrival, halfDay },
+          indiaDate(),
+        );
+      }
       setSubmitting(true);
       await attendanceRpc(submission.name, submission.args);
-      const message = `${requestTypeLabel(requestType, halfDay)} request sent for review. Track its status in Your requests.`;
+      const message =
+        requestType === "justify"
+          ? "Late justification sent to Tarun. If accepted, the day counts as a full day."
+          : `${requestTypeLabel(requestType, halfDay)} request sent for review. Track its status in Your requests.`;
       setSubmitSuccess(message);
       setFormOpen(false);
       toast.success(message);
@@ -180,6 +231,8 @@ function LeaveWorkspaceContent({
       setDescription("");
       setExpectedArrival("");
       setHalfDay(false);
+      setJustifyDate("");
+      setJustifyTags([]);
       await reload();
     } catch (failure) {
       const message =
@@ -333,9 +386,25 @@ function LeaveWorkspaceContent({
               <div className="border-b border-border bg-surface-raised/50 px-4 py-3">
                 <div className="flex flex-wrap items-center gap-3">
                   <div
-                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${requestType === "wfh" ? "bg-indigo-500/15 text-violet" : "bg-lime/15 text-lime"}`}
+                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+                      requestType === "wfh"
+                        ? "bg-indigo-500/15 text-violet"
+                        : requestType === "site_visit"
+                          ? "bg-teal-500/15 text-teal-600 dark:text-teal-300"
+                          : requestType === "justify"
+                            ? "bg-amber-500/15 text-amber-600 dark:text-amber-300"
+                            : "bg-lime/15 text-lime"
+                    }`}
                   >
-                    {requestType === "wfh" ? <House size={19} /> : <CalendarDays size={19} />}
+                    {requestType === "wfh" ? (
+                      <House size={19} />
+                    ) : requestType === "site_visit" ? (
+                      <MapPin size={19} />
+                    ) : requestType === "justify" ? (
+                      <MessageSquareText size={19} />
+                    ) : (
+                      <CalendarDays size={19} />
+                    )}
                   </div>
                   <div>
                     <h2 className="text-lg font-semibold leading-snug text-text-primary">
@@ -343,10 +412,16 @@ function LeaveWorkspaceContent({
                         ? "Request late / half-day arrival"
                         : requestType === "wfh"
                           ? "Request work from home"
-                          : "Request leave"}
+                          : requestType === "site_visit"
+                            ? "Request a site visit"
+                            : requestType === "justify"
+                              ? "Justify a late arrival"
+                              : "Request leave"}
                     </h2>
                     <p className="mt-1 text-xs text-text-secondary">
-                      Choose your dates and share a short reason.
+                      {requestType === "justify"
+                        ? "Pick the late day, tag the reason and add a short note for Tarun."
+                        : "Choose your dates and share a short reason."}
                     </p>
                   </div>
                   <Button
@@ -378,15 +453,21 @@ function LeaveWorkspaceContent({
                       <legend className="mb-2 text-xs font-semibold text-text-secondary">
                         Request type
                       </legend>
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
                         {(
                           [
                             { value: "leave", label: "Leave", icon: CalendarDays },
                             { value: "wfh", label: "Work from home", icon: House },
                             { value: "late", label: "Late / half-day arrival", icon: Clock3 },
+                            { value: "justify", label: "Justify late arrival", icon: MessageSquareText },
+                            { value: "site_visit", label: "Site visit", icon: MapPin },
                           ] as const
                         )
-                          .filter(({ value }) => value !== "wfh" || wfhEligible)
+                          .filter(
+                            ({ value }) =>
+                              (value !== "wfh" || wfhEligible) &&
+                              (!["justify", "site_visit"].includes(value) || officeStaff),
+                          )
                           .map(({ value, label, icon: Icon }) => (
                             <button
                               key={value}
@@ -411,7 +492,23 @@ function LeaveWorkspaceContent({
                       </div>
                     </fieldset>
                   }
-                  <div className={requestType === "wfh" ? "md:col-span-2" : ""}>
+                  {requestType === "justify" && (
+                    <LateJustificationFields
+                      lateDays={lateDays}
+                      date={justifyDate}
+                      tags={justifyTags}
+                      onDate={(value) => {
+                        setJustifyDate(value);
+                        setSubmitError(null);
+                      }}
+                      onTags={(value) => {
+                        setJustifyTags(value);
+                        setSubmitError(null);
+                      }}
+                    />
+                  )}
+                  {requestType !== "justify" && (
+                  <div className={["wfh", "site_visit"].includes(requestType) ? "md:col-span-2" : ""}>
                     <div className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2">
                       <div className="min-w-0">
                         <Label htmlFor="leave-from">
@@ -462,6 +559,7 @@ function LeaveWorkspaceContent({
                       </div>
                     )}
                   </div>
+                  )}
                   {requestType === "late" && (
                     <>
                       <div>
@@ -499,7 +597,7 @@ function LeaveWorkspaceContent({
                       </p>
                     </>
                   )}
-                  {requestType !== "wfh" && (
+                  {(requestType === "leave" || requestType === "late") && (
                     <div>
                       <Label htmlFor="leave-category">Reason category</Label>
                       <Select
@@ -524,11 +622,21 @@ function LeaveWorkspaceContent({
                     <Label htmlFor="leave-description">
                       {requestType === "wfh"
                         ? "Reason for working from home"
-                        : "Tell your manager more"}
+                        : requestType === "site_visit"
+                          ? "Site / client and purpose of the visit"
+                          : requestType === "justify"
+                            ? justifyTags.includes("Other")
+                              ? "Explain what happened"
+                              : "Note for Tarun (optional)"
+                            : "Tell your manager more"}
                     </Label>
                     <Textarea
                       id="leave-description"
-                      required={requestType !== "late" || category === "Other"}
+                      required={
+                        requestType === "justify"
+                          ? justifyTags.includes("Other")
+                          : requestType !== "late" || category === "Other"
+                      }
                       minLength={5}
                       maxLength={1800}
                       rows={3}
@@ -536,8 +644,12 @@ function LeaveWorkspaceContent({
                       placeholder={
                         requestType === "wfh"
                           ? "Explain why you need to work from home..."
-                          : requestType === "late"
-                            ? "Explain your late or half-day arrival..."
+                          : requestType === "site_visit"
+                            ? "e.g. Vision Enviro, Raikhad — panel installation and testing"
+                            : requestType === "justify"
+                              ? "e.g. Heavy traffic at Raikhad junction after the client call"
+                              : requestType === "late"
+                                ? "Explain your late or half-day arrival..."
                             : "Add a short explanation for your leave..."
                       }
                       value={description}
@@ -551,7 +663,8 @@ function LeaveWorkspaceContent({
                       className="mt-2 flex justify-between gap-2 text-[11px] text-text-dim"
                     >
                       <span>
-                        {requestType === "late" && category !== "Other"
+                        {(requestType === "late" && category !== "Other") ||
+                        (requestType === "justify" && !justifyTags.includes("Other"))
                           ? "Additional details (optional)"
                           : "At least 5 characters"}
                       </span>
@@ -561,8 +674,25 @@ function LeaveWorkspaceContent({
                   <div className="flex items-start gap-2.5 md:col-span-2 rounded-xl border border-border bg-surface-raised/50 p-3 text-xs leading-5 text-text-secondary">
                     <ShieldCheck size={17} className="mt-0.5 shrink-0 text-text-dim" />
                     <span>
-                      Your manager will review each requested date. Follow the decision in{" "}
-                      <strong className="font-medium text-text-primary">Your requests</strong>.
+                      {requestType === "justify" ? (
+                        <>
+                          <strong className="font-medium text-text-primary">Tarun</strong> decides
+                          and Hardik can see it. If accepted, this day counts as a{" "}
+                          <strong className="font-medium text-text-primary">full day</strong> instead
+                          of a half day.
+                        </>
+                      ) : requestType === "site_visit" ? (
+                        <>
+                          <strong className="font-medium text-text-primary">Tarun</strong> approves
+                          site visits. Approved days count as a full working day; no office face
+                          scan is needed.
+                        </>
+                      ) : (
+                        <>
+                          Your manager will review each requested date. Follow the decision in{" "}
+                          <strong className="font-medium text-text-primary">Your requests</strong>.
+                        </>
+                      )}
                     </span>
                   </div>
                 </fieldset>
@@ -597,7 +727,9 @@ function LeaveWorkspaceContent({
                     ? "Sending request…"
                     : lateClosed
                       ? "Deadline passed for this date"
-                      : `Submit ${requestTypeLabel(requestType, halfDay).toLowerCase()} request`}
+                      : requestType === "justify"
+                        ? "Send justification to Tarun"
+                        : `Submit ${requestTypeLabel(requestType, halfDay).toLowerCase()} request`}
                 </Button>
               </form>
             </Card>
@@ -605,5 +737,95 @@ function LeaveWorkspaceContent({
         </div>
       )}
     </main>
+  );
+}
+
+/** Pick one late day of this month and 1-4 reason tags for a late justification. */
+function LateJustificationFields({
+  lateDays,
+  date,
+  tags,
+  onDate,
+  onTags,
+}: {
+  lateDays: LateDay[];
+  date: string;
+  tags: string[];
+  onDate: (date: string) => void;
+  onTags: (tags: string[]) => void;
+}) {
+  const toggle = (tag: string) =>
+    onTags(
+      tags.includes(tag)
+        ? tags.filter((item) => item !== tag)
+        : tags.length >= 4
+          ? tags
+          : [...tags, tag],
+    );
+  return (
+    <div className="space-y-4 md:col-span-2">
+      <fieldset>
+        <legend className="mb-2 text-xs font-semibold text-text-secondary">
+          Which late day? <span className="font-normal">(this month)</span>
+        </legend>
+        {lateDays.length ? (
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3" role="radiogroup">
+            {lateDays.map((day) => {
+              const active = date === day.date;
+              return (
+                <button
+                  key={day.date}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => onDate(day.date)}
+                  className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime ${active ? "border-lime/60 bg-lime/10" : "border-border bg-surface hover:border-border-bright"}`}
+                >
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-text-primary">
+                      {dateLabel(day.date)}
+                    </span>
+                    <span className="mt-0.5 block text-xs text-text-secondary">
+                      Arrived {day.entry_at ? `${timeLabel(day.entry_at)} IST` : "—"}
+                    </span>
+                  </span>
+                  <span className="shrink-0 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] font-bold text-amber-700 dark:text-amber-300">
+                    {day.late_minutes} min late
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="rounded-xl border border-border bg-surface-raised px-3 py-3 text-xs text-text-secondary">
+            No late days to justify this month. Days already justified (pending or accepted) are
+            not listed.
+          </p>
+        )}
+      </fieldset>
+      <fieldset>
+        <legend className="mb-2 text-xs font-semibold text-text-secondary">
+          Reason tags <span className="font-normal">(choose 1–4)</span>
+        </legend>
+        <div className="flex flex-wrap gap-2">
+          {lateJustificationTags.map((tag) => {
+            const active = tags.includes(tag);
+            return (
+              <button
+                key={tag}
+                type="button"
+                aria-pressed={active}
+                onClick={() => toggle(tag)}
+                disabled={!active && tags.length >= 4}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime disabled:opacity-40 ${active ? "border-lime/60 bg-lime/15 text-text-primary" : "border-border bg-surface text-text-secondary hover:border-border-bright hover:text-text-primary"}`}
+              >
+                {active && <Check size={12} className="text-lime" />}
+                {tag}
+              </button>
+            );
+          })}
+        </div>
+      </fieldset>
+    </div>
   );
 }

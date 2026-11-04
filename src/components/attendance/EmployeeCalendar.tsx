@@ -24,7 +24,11 @@ import {
 import { Button, Card, Select } from "@/components/ui-kit";
 import { attendanceRpc, dateLabel, indiaDate, timeLabel } from "@/lib/device-attendance";
 import { useAuth } from "@/lib/auth-store";
-import { requestCalendarStyle, requestKindLabel } from "@/lib/request-calendar";
+import {
+  lateJustificationStyle,
+  requestCalendarStyle,
+  requestKindLabel,
+} from "@/lib/request-calendar";
 import { formatLateLabel } from "@/lib/attendance-analytics";
 import {
   calendarStatuses,
@@ -125,6 +129,7 @@ export function EmployeeCalendar() {
   const categories = [
     { key: "office", label: "Office", color: "#059669" },
     { key: "work_from_home", label: "WFH", color: "#4f46e5" },
+    { key: "site_visit", label: "Site visit", color: "#0d9488" },
     { key: "on_leave", label: "Leave", color: "#7c3aed" },
     { key: "late", label: "Late", color: "#d97706" },
     { key: "absent", label: "Absent", color: "#dc2626" },
@@ -333,6 +338,13 @@ export function EmployeeCalendar() {
                           {formatLateLabel(day.late_minutes)}
                         </span>
                       )}
+                      {day?.late_justification && lateJustificationStyle(day.late_justification.status) && (
+                        <span
+                          className={`mt-0.5 block max-w-full truncate rounded border px-1 text-[8px] font-semibold leading-4 sm:text-[9px] ${lateJustificationStyle(day.late_justification.status)!.tone}`}
+                        >
+                          {lateJustificationStyle(day.late_justification.status)!.label}
+                        </span>
+                      )}
                       {requestStyle && (
                         <span className="mt-0.5 block max-w-full truncate text-[8px] font-semibold sm:text-[9px]">
                           {requestStyle.label}
@@ -372,6 +384,31 @@ export function EmployeeCalendar() {
                     >
                       {(calendarStatuses[chosen.status] ?? calendarStatuses.needs_review).label}
                     </span>
+                    {chosen.late_justification ? (
+                      <div className="mt-3 rounded-xl border border-border bg-surface-raised p-3 text-xs">
+                        <p className="font-semibold text-text-primary">
+                          {lateJustificationStyle(chosen.late_justification.status)?.label}
+                        </p>
+                        <p className="mt-1 text-text-secondary">
+                          {chosen.late_justification.tags.join(" · ")}
+                        </p>
+                        <p className="mt-1 whitespace-pre-wrap break-words text-text-secondary">
+                          {chosen.late_justification.reason}
+                        </p>
+                        <p className="mt-1 text-[11px] text-text-dim">
+                          {chosen.late_justification.status === "approved"
+                            ? "Accepted by Tarun — counted as a full day."
+                            : chosen.late_justification.status === "pending"
+                              ? "Waiting for Tarun. If accepted, this day counts as a full day."
+                              : "Not accepted — the late rule applies."}
+                        </p>
+                      </div>
+                    ) : chosen.status === "late" ? (
+                      <p className="mt-2 text-xs leading-5 text-text-secondary">
+                        Late for a reason? Open <strong className="text-text-primary">Leave → Justify late arrival</strong>{" "}
+                        before the month ends. If Tarun accepts, this day counts as a full day.
+                      </p>
+                    ) : null}
                     {chosen.review_reason === "before_tracking_start" && (
                       <p className="mt-2 text-xs leading-5 text-text-secondary">
                         Attendance is counted from{" "}

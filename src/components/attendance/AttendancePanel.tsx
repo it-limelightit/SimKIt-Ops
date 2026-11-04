@@ -71,6 +71,8 @@ function Status({ value, lateMinutes, label }: { value: string; lateMinutes?: nu
         ? "border-violet/20 bg-violet/10 text-violet"
         : value === "work_from_home"
           ? "border-indigo-500/20 bg-indigo-500/10 text-indigo-700"
+        : value === "site_visit"
+          ? "border-teal-500/25 bg-teal-500/10 text-teal-700"
         : ["failed", "absent", "rejected"].includes(value)
           ? "border-coral/20 bg-coral/10 text-coral"
           : value === "needs_review"
@@ -655,7 +657,7 @@ export function AttendancePanel() {
                   </>
                 )}
                 {(tab !== "leave"
-                  ? ["present", "late", "on_leave", "work_from_home", "absent", "off_day"]
+                  ? ["present", "late", "on_leave", "work_from_home", "site_visit", "absent", "off_day"]
                   : ["pending", "needs_review", "approved", "rejected", "cancelled"]
                 ).map((s) => (
                   <option key={s} value={s}>

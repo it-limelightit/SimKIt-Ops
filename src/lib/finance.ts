@@ -71,6 +71,8 @@ export type FinanceDay = {
   request_type?: string;
   request_status?: string;
   reason?: string;
+  arrival_approved?: boolean;
+  late_justification?: import("@/lib/device-attendance").LateJustification;
 };
 export type DayOverrides = Record<string, { units: number; reason: string }>;
 export type Salary = {

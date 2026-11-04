@@ -1269,7 +1269,8 @@ export function Overview() {
         e.stopPropagation();
         handleLatestKpiClick(kpiId);
       }}
-      className="rounded-md border border-border/80 bg-surface-raised/80 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-[0.08em] text-text-secondary shadow-xs transition-[border-color,background-color,color,transform] duration-200 ease-out hover:-translate-y-px hover:border-lime/60 hover:bg-lime/5 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/30"
+      className="overview-kpi-latest rounded-md border border-border/80 bg-surface-raised/80 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-[0.08em] text-text-secondary shadow-xs transition-[border-color,background-color,color,transform] duration-200 ease-out hover:-translate-y-px hover:border-lime/60 hover:bg-lime/5 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/30"
+      aria-label={`Show latest ${kpiLabel} activity`}
       title={`Show latest ${kpiLabel} activity`}
     >
       Latest Update
@@ -2309,15 +2310,18 @@ export function Overview() {
                   const active = selectedKpi === k.id;
                   const Icon = k.icon;
                   const cardBorder = active
-                    ? "border-blue-500 ring-2 ring-blue-500/10 bg-white scale-[1.01] shadow-md"
-                    : "border-border bg-gradient-to-br from-white via-white to-indigo-500/[0.025] hover:border-blue-400 hover:shadow-[0_14px_28px_-16px_rgba(79,70,229,0.48)] hover:-translate-y-0.5 transition-[border-color,box-shadow,transform] duration-200 ease-out";
+                    ? "border-blue-500 ring-2 ring-blue-500/10 bg-surface-raised scale-[1.01] shadow-md"
+                    : "border-border bg-gradient-to-br from-surface-raised via-surface-raised to-indigo-500/[0.025] hover:border-blue-400 hover:shadow-[0_14px_28px_-16px_rgba(79,70,229,0.48)] hover:-translate-y-0.5 transition-[border-color,box-shadow,transform] duration-200 ease-out";
                   return (
                     <button
+                      type="button"
+                      aria-pressed={active}
+                      data-kpi={k.id}
                       onClick={() => handleKpiClick(k.id)}
                       className={`overview-kpi-card flex flex-col justify-between w-full text-left p-4 lg:p-3.5 border rounded-xl shadow-[0_3px_10px_-7px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow,transform] duration-200 group cursor-pointer h-full min-h-[124px] ${cardBorder}`}
                     >
                       <div className="flex items-start justify-between w-full">
-                        <div className={`p-2.5 rounded-xl border shadow-xs transition-transform duration-200 ease-out group-hover:scale-110 ${k.badgeStyle}`}>
+                        <div className={`overview-kpi-icon p-2.5 rounded-xl border shadow-xs transition-transform duration-200 ease-out group-hover:scale-110 ${k.badgeStyle}`}>
                           <Icon size={17} strokeWidth={2.25} />
                         </div>
                         <div className="flex flex-col items-end gap-2">
@@ -2352,15 +2356,18 @@ export function Overview() {
                       const active = selectedKpi === k.id;
                       const Icon = k.icon;
                       const cardBorder = active
-                        ? "border-emerald-500 ring-2 ring-emerald-500/10 bg-white scale-[1.01] shadow-md"
-                        : "border-border bg-gradient-to-br from-white via-white to-indigo-500/[0.025] hover:border-emerald-400 hover:shadow-[0_14px_28px_-16px_rgba(79,70,229,0.48)] hover:-translate-y-0.5 transition-[border-color,box-shadow,transform] duration-200 ease-out";
+                        ? "border-emerald-500 ring-2 ring-emerald-500/10 bg-surface-raised scale-[1.01] shadow-md"
+                        : "border-border bg-gradient-to-br from-surface-raised via-surface-raised to-indigo-500/[0.025] hover:border-emerald-400 hover:shadow-[0_14px_28px_-16px_rgba(79,70,229,0.48)] hover:-translate-y-0.5 transition-[border-color,box-shadow,transform] duration-200 ease-out";
                       return (
                         <button
+                          type="button"
+                          aria-pressed={active}
+                          data-kpi={k.id}
                           onClick={() => handleKpiClick(k.id)}
                           className={`overview-kpi-card flex flex-col justify-between w-full text-left p-4 lg:p-3.5 border rounded-xl shadow-[0_3px_10px_-7px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow,transform] duration-200 group cursor-pointer h-full min-h-[124px] ${cardBorder}`}
                         >
                           <div className="flex items-start justify-between w-full">
-                            <div className={`p-2.5 rounded-xl border shadow-xs transition-transform duration-200 ease-out group-hover:scale-110 ${k.badgeStyle}`}>
+                            <div className={`overview-kpi-icon p-2.5 rounded-xl border shadow-xs transition-transform duration-200 ease-out group-hover:scale-110 ${k.badgeStyle}`}>
                               <Icon size={17} strokeWidth={2.25} />
                             </div>
                             <div className="flex flex-col items-end gap-2">
@@ -2396,17 +2403,20 @@ export function Overview() {
                       const hoverColor = isPurple ? "hover:border-purple-400" : "hover:border-orange-400";
                       const cardBorder = active
                         ? (isPurple
-                          ? "border-purple-500 ring-2 ring-purple-500/10 bg-white scale-[1.01] shadow-md"
-                          : "border-orange-500 ring-2 ring-orange-500/10 bg-white scale-[1.01] shadow-md")
-                        : `border-border bg-gradient-to-br from-white via-white to-indigo-500/[0.025] ${hoverColor} hover:shadow-[0_14px_28px_-16px_rgba(79,70,229,0.48)] hover:-translate-y-0.5 transition-[border-color,box-shadow,transform] duration-200 ease-out`;
+                          ? "border-purple-500 ring-2 ring-purple-500/10 bg-surface-raised scale-[1.01] shadow-md"
+                          : "border-orange-500 ring-2 ring-orange-500/10 bg-surface-raised scale-[1.01] shadow-md")
+                        : `border-border bg-gradient-to-br from-surface-raised via-surface-raised to-indigo-500/[0.025] ${hoverColor} hover:shadow-[0_14px_28px_-16px_rgba(79,70,229,0.48)] hover:-translate-y-0.5 transition-[border-color,box-shadow,transform] duration-200 ease-out`;
                       return (
                         <button
                           key={k.id}
+                          type="button"
+                          aria-pressed={active}
+                          data-kpi={k.id}
                           onClick={() => handleKpiClick(k.id)}
                           className={`overview-kpi-card flex min-h-[76px] items-center justify-between w-full text-left px-3 py-2 border rounded-xl shadow-[0_3px_10px_-7px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow,transform] duration-200 group cursor-pointer ${cardBorder}`}
                         >
                           <div className="flex items-center gap-3">
-                            <div className={`p-2 rounded-lg border shadow-xs shrink-0 transition-transform duration-200 ease-out group-hover:scale-110 ${k.badgeStyle}`}>
+                            <div className={`overview-kpi-icon p-2 rounded-lg border shadow-xs shrink-0 transition-transform duration-200 ease-out group-hover:scale-110 ${k.badgeStyle}`}>
                               <Icon size={14} strokeWidth={2.25} />
                             </div>
                             <div>
@@ -2447,17 +2457,20 @@ export function Overview() {
                   const hoverColor = isIndigo ? "hover:border-blue-400" : "hover:border-red-400";
                   const cardBorder = active
                     ? (isIndigo
-                      ? "border-blue-500 ring-2 ring-blue-500/10 bg-white scale-[1.01] shadow-md"
-                      : "border-red-500 ring-2 ring-red-500/10 bg-white scale-[1.01] shadow-md")
-                    : `border-border bg-gradient-to-br from-white via-white to-indigo-500/[0.025] ${hoverColor} hover:shadow-[0_14px_28px_-16px_rgba(79,70,229,0.48)] hover:-translate-y-0.5 transition-[border-color,box-shadow,transform] duration-200 ease-out`;
+                      ? "border-blue-500 ring-2 ring-blue-500/10 bg-surface-raised scale-[1.01] shadow-md"
+                      : "border-red-500 ring-2 ring-red-500/10 bg-surface-raised scale-[1.01] shadow-md")
+                    : `border-border bg-gradient-to-br from-surface-raised via-surface-raised to-indigo-500/[0.025] ${hoverColor} hover:shadow-[0_14px_28px_-16px_rgba(79,70,229,0.48)] hover:-translate-y-0.5 transition-[border-color,box-shadow,transform] duration-200 ease-out`;
                   return (
                     <button
                       key={k.id}
+                      type="button"
+                      aria-pressed={active}
+                      data-kpi={k.id}
                       onClick={() => handleKpiClick(k.id)}
                       className={`overview-kpi-card flex items-center justify-between w-full text-left px-3.5 py-3 border rounded-xl shadow-[0_3px_10px_-7px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow,transform] duration-200 group cursor-pointer flex-1 ${cardBorder}`}
                     >
                       <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-lg border shadow-xs shrink-0 transition-transform duration-200 ease-out group-hover:scale-110 ${k.badgeStyle}`}>
+                        <div className={`overview-kpi-icon p-2 rounded-lg border shadow-xs shrink-0 transition-transform duration-200 ease-out group-hover:scale-110 ${k.badgeStyle}`}>
                           <Icon size={14} strokeWidth={2.25} />
                         </div>
                         <div>
@@ -2493,17 +2506,20 @@ export function Overview() {
                   const hoverColor = isAmber ? "hover:border-amber-400" : "hover:border-indigo-400";
                   const cardBorder = active
                     ? (isAmber
-                      ? "border-amber-500 ring-2 ring-amber-500/10 bg-white scale-[1.01] shadow-md"
-                      : "border-indigo-500 ring-2 ring-indigo-500/10 bg-white scale-[1.01] shadow-md")
-                    : `border-border bg-gradient-to-br from-white via-white to-indigo-500/[0.025] ${hoverColor} hover:shadow-[0_14px_28px_-16px_rgba(79,70,229,0.48)] hover:-translate-y-0.5 transition-[border-color,box-shadow,transform] duration-200 ease-out`;
+                      ? "border-amber-500 ring-2 ring-amber-500/10 bg-surface-raised scale-[1.01] shadow-md"
+                      : "border-indigo-500 ring-2 ring-indigo-500/10 bg-surface-raised scale-[1.01] shadow-md")
+                    : `border-border bg-gradient-to-br from-surface-raised via-surface-raised to-indigo-500/[0.025] ${hoverColor} hover:shadow-[0_14px_28px_-16px_rgba(79,70,229,0.48)] hover:-translate-y-0.5 transition-[border-color,box-shadow,transform] duration-200 ease-out`;
                   return (
                     <button
                       key={k.id}
+                      type="button"
+                      aria-pressed={active}
+                      data-kpi={k.id}
                       onClick={() => handleKpiClick(k.id)}
                       className={`overview-kpi-card flex items-center justify-between w-full text-left px-3.5 py-3 border rounded-xl shadow-[0_3px_10px_-7px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow,transform] duration-200 group cursor-pointer flex-1 ${cardBorder}`}
                     >
                       <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-lg border shadow-xs shrink-0 transition-transform duration-200 ease-out group-hover:scale-110 ${k.badgeStyle}`}>
+                        <div className={`overview-kpi-icon p-2 rounded-lg border shadow-xs shrink-0 transition-transform duration-200 ease-out group-hover:scale-110 ${k.badgeStyle}`}>
                           <Icon size={14} strokeWidth={2.25} />
                         </div>
                         <div>
@@ -2528,7 +2544,7 @@ export function Overview() {
               </div>
 
               {/* Column 3: Assessment/dispatch and completion workflow */}
-              <div className="lg:col-span-6 rounded-2xl border border-border/80 bg-white p-2">
+              <div className="overview-workflow lg:col-span-6 rounded-2xl border border-border/80 bg-surface p-2">
                 <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                   {[
                     [
@@ -2544,7 +2560,7 @@ export function Overview() {
                     <div
                       key={groupIndex}
                       className={groupIndex === 0
-                        ? "grid grid-cols-1 gap-1.5 rounded-xl border border-border bg-white p-2"
+                        ? "grid grid-cols-1 gap-1.5 rounded-xl border border-border bg-surface p-2"
                         : "grid grid-cols-1 gap-1.5"}
                     >
                       {group.filter(Boolean).map((k) => {
@@ -2567,12 +2583,12 @@ export function Overview() {
                               }
                               : k.id === "commissioned"
                                 ? {
-                                  active: "border-emerald-500 ring-2 ring-emerald-500/10 bg-white shadow-md",
-                                  idle: "border-border bg-white hover:border-emerald-400",
+                                  active: "border-emerald-500 ring-2 ring-emerald-500/10 bg-surface-raised shadow-md",
+                                  idle: "border-border bg-surface-raised hover:border-emerald-400",
                                 }
                                 : {
-                                  active: "border-blue-500 ring-2 ring-blue-500/10 bg-white shadow-md",
-                                  idle: "border-border bg-white hover:border-blue-400",
+                                  active: "border-blue-500 ring-2 ring-blue-500/10 bg-surface-raised shadow-md",
+                                  idle: "border-border bg-surface-raised hover:border-blue-400",
                                 };
                         const cardBorder = active
                           ? `${statusStyle.active} scale-[1.01]`
@@ -2580,11 +2596,14 @@ export function Overview() {
                         return (
                           <button
                             key={k.id}
+                            type="button"
+                            aria-pressed={active}
+                            data-kpi={k.id}
                             onClick={() => handleKpiClick(k.id)}
                             className={`overview-kpi-card flex min-h-[52px] flex-col justify-between w-full text-left px-2 py-1.5 border rounded-lg shadow-[0_3px_10px_-7px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow,transform] duration-200 group cursor-pointer ${cardBorder}`}
                           >
                             <div className="flex items-start gap-2.5 min-w-0">
-                              <div className={`p-1.5 rounded-md border shadow-xs shrink-0 transition-transform duration-200 ease-out group-hover:scale-110 ${k.badgeStyle}`}>
+                              <div className={`overview-kpi-icon p-1.5 rounded-md border shadow-xs shrink-0 transition-transform duration-200 ease-out group-hover:scale-110 ${k.badgeStyle}`}>
                                 <Icon size={14} strokeWidth={2.25} />
                               </div>
                               <div className="min-w-0">

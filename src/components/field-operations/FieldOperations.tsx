@@ -1615,7 +1615,7 @@ export function ManagerAttendanceBox() {
   const visibleUsers = state.board.users.filter((u) => !isJenilThakar(u.name));
   const associate = visibleUsers.find((u) => u.id === selected);
   return (
-    <section className={panel}>
+    <section className={`manager-attendance ${panel}`}>
       <h2 className="mb-4 flex items-center gap-2 font-semibold">
         <Activity size={18} /> Field associates · Today
       </h2>
@@ -1625,8 +1625,10 @@ export function ManagerAttendanceBox() {
           .map((u) => (
             <button
               key={u.id}
+              type="button"
+              data-online={u.online}
               onClick={() => setSelected(u.id)}
-              className={`rounded-xl border px-4 py-3 text-sm font-semibold ${u.online ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-red-300 bg-red-50 text-red-800"}`}
+              className={`manager-attendance-person rounded-xl border px-4 py-3 text-sm font-semibold ${u.online ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-red-300 bg-red-50 text-red-800"}`}
             >
               {u.name} · {u.online ? "Online" : "Offline"}
             </button>

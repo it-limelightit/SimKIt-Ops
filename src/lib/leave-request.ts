@@ -1,5 +1,5 @@
 export type LeaveRequestInput = {
-  requestType: "leave" | "wfh" | "late";
+  requestType: "leave" | "wfh" | "late" | "site_visit";
   from: string;
   to: string;
   category: string;
@@ -24,14 +24,42 @@ export function lateArrivalClosed(date: string, now = new Date()) {
   return Boolean(date) && now.getTime() > lateArrivalDeadline(date).getTime();
 }
 
-export function requestTypeLabel(type?: string, halfDay = false) {
+/** Reason tags an employee can pick when justifying a late arrival after the fact. */
+export const lateJustificationTags = [
+  "Traffic",
+  "Transport delay",
+  "Site / client work",
+  "Medical",
+  "Family emergency",
+  "Weather",
+  "Personal work",
+  "Other",
+] as const;
+
+export function requestTypeLabel(type?: string, halfDay = false, kind?: string) {
+  if (type === "late" && kind === "justification") return "Late justification";
   return type === "late"
     ? halfDay
       ? "Half-day arrival"
       : "Late arrival"
     : type === "wfh"
       ? "WFH"
-      : "Leave";
+      : type === "site_visit"
+        ? "Site visit"
+        : "Leave";
+}
+
+/** Badge colours per request type; readable in light and dark mode. */
+export function requestTypeTone(type?: string, kind?: string) {
+  if (type === "late" && kind === "justification")
+    return "border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+  if (type === "site_visit")
+    return "border border-teal-500/30 bg-teal-500/10 text-teal-700 dark:text-teal-300";
+  if (type === "wfh")
+    return "border border-indigo-500/30 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300";
+  if (type === "late")
+    return "border border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300";
+  return "border border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300";
 }
 
 export function arrivalTimeLabel(time?: string) {
@@ -96,7 +124,12 @@ export function prepareLeaveSubmission(input: LeaveRequestInput, today: string, 
   };
   if (input.requestType === "leave") args._category = input.category;
   return {
-    name: input.requestType === "wfh" ? "attendance_submit_my_wfh" : "attendance_submit_my_leave",
+    name:
+      input.requestType === "wfh"
+        ? "attendance_submit_my_wfh"
+        : input.requestType === "site_visit"
+          ? "attendance_submit_my_site_visit"
+          : "attendance_submit_my_leave",
     args,
   };
 }
