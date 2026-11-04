@@ -28,11 +28,14 @@ import { Route as ManagerHrHiringRouteImport } from './routes/manager.hr-hiring'
 import { Route as ManagerInventoryRouteImport } from './routes/manager.inventory'
 import { Route as ManagerLeaveRouteImport } from './routes/manager.leave'
 import { Route as ManagerLogisticRouteImport } from './routes/manager.logistic'
+import { Route as ManagerMyAttendanceRouteImport } from './routes/manager.my-attendance'
+import { Route as ManagerMyIncentivesRouteImport } from './routes/manager.my-incentives'
 import { Route as ManagerPerformanceRouteImport } from './routes/manager.performance'
 import { Route as ManagerReportsRouteImport } from './routes/manager.reports'
 import { Route as ManagerSalaryExpenseRouteImport } from './routes/manager.salary-expense'
 import { Route as ManagerSitesRouteImport } from './routes/manager.sites'
 import { Route as ManagerTasksRouteImport } from './routes/manager.tasks'
+import { Route as ManagerTeamAttendanceRouteImport } from './routes/manager.team-attendance'
 import { Route as ManagerAttendanceIndexRouteImport } from './routes/manager.attendance.index'
 import { Route as ManagerAttendanceHistoryEmployeeIdRouteImport } from './routes/manager.attendance.history.$employeeId'
 
@@ -133,6 +136,16 @@ const ManagerLogisticRoute = ManagerLogisticRouteImport.update({
   path: '/logistic',
   getParentRoute: () => ManagerRoute,
 } as any)
+const ManagerMyAttendanceRoute = ManagerMyAttendanceRouteImport.update({
+  id: '/my-attendance',
+  path: '/my-attendance',
+  getParentRoute: () => ManagerRoute,
+} as any)
+const ManagerMyIncentivesRoute = ManagerMyIncentivesRouteImport.update({
+  id: '/my-incentives',
+  path: '/my-incentives',
+  getParentRoute: () => ManagerRoute,
+} as any)
 const ManagerPerformanceRoute = ManagerPerformanceRouteImport.update({
   id: '/performance',
   path: '/performance',
@@ -156,6 +169,11 @@ const ManagerSitesRoute = ManagerSitesRouteImport.update({
 const ManagerTasksRoute = ManagerTasksRouteImport.update({
   id: '/tasks',
   path: '/tasks',
+  getParentRoute: () => ManagerRoute,
+} as any)
+const ManagerTeamAttendanceRoute = ManagerTeamAttendanceRouteImport.update({
+  id: '/team-attendance',
+  path: '/team-attendance',
   getParentRoute: () => ManagerRoute,
 } as any)
 const ManagerAttendanceIndexRoute = ManagerAttendanceIndexRouteImport.update({
@@ -189,11 +207,14 @@ export interface FileRoutesByFullPath {
   '/manager/inventory': typeof ManagerInventoryRoute
   '/manager/leave': typeof ManagerLeaveRoute
   '/manager/logistic': typeof ManagerLogisticRoute
+  '/manager/my-attendance': typeof ManagerMyAttendanceRoute
+  '/manager/my-incentives': typeof ManagerMyIncentivesRoute
   '/manager/performance': typeof ManagerPerformanceRoute
   '/manager/reports': typeof ManagerReportsRoute
   '/manager/salary-expense': typeof ManagerSalaryExpenseRoute
   '/manager/sites': typeof ManagerSitesRoute
   '/manager/tasks': typeof ManagerTasksRoute
+  '/manager/team-attendance': typeof ManagerTeamAttendanceRoute
   '/manager/': typeof ManagerIndexRoute
   '/manager/attendance/': typeof ManagerAttendanceIndexRoute
   '/manager/attendance/history/$employeeId': typeof ManagerAttendanceHistoryEmployeeIdRoute
@@ -215,11 +236,14 @@ export interface FileRoutesByTo {
   '/manager/inventory': typeof ManagerInventoryRoute
   '/manager/leave': typeof ManagerLeaveRoute
   '/manager/logistic': typeof ManagerLogisticRoute
+  '/manager/my-attendance': typeof ManagerMyAttendanceRoute
+  '/manager/my-incentives': typeof ManagerMyIncentivesRoute
   '/manager/performance': typeof ManagerPerformanceRoute
   '/manager/reports': typeof ManagerReportsRoute
   '/manager/salary-expense': typeof ManagerSalaryExpenseRoute
   '/manager/sites': typeof ManagerSitesRoute
   '/manager/tasks': typeof ManagerTasksRoute
+  '/manager/team-attendance': typeof ManagerTeamAttendanceRoute
   '/manager': typeof ManagerIndexRoute
   '/manager/attendance': typeof ManagerAttendanceIndexRoute
   '/manager/attendance/history/$employeeId': typeof ManagerAttendanceHistoryEmployeeIdRoute
@@ -244,11 +268,14 @@ export interface FileRoutesById {
   '/manager/inventory': typeof ManagerInventoryRoute
   '/manager/leave': typeof ManagerLeaveRoute
   '/manager/logistic': typeof ManagerLogisticRoute
+  '/manager/my-attendance': typeof ManagerMyAttendanceRoute
+  '/manager/my-incentives': typeof ManagerMyIncentivesRoute
   '/manager/performance': typeof ManagerPerformanceRoute
   '/manager/reports': typeof ManagerReportsRoute
   '/manager/salary-expense': typeof ManagerSalaryExpenseRoute
   '/manager/sites': typeof ManagerSitesRoute
   '/manager/tasks': typeof ManagerTasksRoute
+  '/manager/team-attendance': typeof ManagerTeamAttendanceRoute
   '/manager/': typeof ManagerIndexRoute
   '/manager/attendance/': typeof ManagerAttendanceIndexRoute
   '/manager/attendance/history/$employeeId': typeof ManagerAttendanceHistoryEmployeeIdRoute
@@ -274,11 +301,14 @@ export interface FileRouteTypes {
     | '/manager/inventory'
     | '/manager/leave'
     | '/manager/logistic'
+    | '/manager/my-attendance'
+    | '/manager/my-incentives'
     | '/manager/performance'
     | '/manager/reports'
     | '/manager/salary-expense'
     | '/manager/sites'
     | '/manager/tasks'
+    | '/manager/team-attendance'
     | '/manager/'
     | '/manager/attendance/'
     | '/manager/attendance/history/$employeeId'
@@ -300,11 +330,14 @@ export interface FileRouteTypes {
     | '/manager/inventory'
     | '/manager/leave'
     | '/manager/logistic'
+    | '/manager/my-attendance'
+    | '/manager/my-incentives'
     | '/manager/performance'
     | '/manager/reports'
     | '/manager/salary-expense'
     | '/manager/sites'
     | '/manager/tasks'
+    | '/manager/team-attendance'
     | '/manager'
     | '/manager/attendance'
     | '/manager/attendance/history/$employeeId'
@@ -328,11 +361,14 @@ export interface FileRouteTypes {
     | '/manager/inventory'
     | '/manager/leave'
     | '/manager/logistic'
+    | '/manager/my-attendance'
+    | '/manager/my-incentives'
     | '/manager/performance'
     | '/manager/reports'
     | '/manager/salary-expense'
     | '/manager/sites'
     | '/manager/tasks'
+    | '/manager/team-attendance'
     | '/manager/'
     | '/manager/attendance/'
     | '/manager/attendance/history/$employeeId'
@@ -484,6 +520,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ManagerLogisticRouteImport
       parentRoute: typeof ManagerRoute
     }
+    '/manager/my-attendance': {
+      id: '/manager/my-attendance'
+      path: '/my-attendance'
+      fullPath: '/manager/my-attendance'
+      preLoaderRoute: typeof ManagerMyAttendanceRouteImport
+      parentRoute: typeof ManagerRoute
+    }
+    '/manager/my-incentives': {
+      id: '/manager/my-incentives'
+      path: '/my-incentives'
+      fullPath: '/manager/my-incentives'
+      preLoaderRoute: typeof ManagerMyIncentivesRouteImport
+      parentRoute: typeof ManagerRoute
+    }
     '/manager/performance': {
       id: '/manager/performance'
       path: '/performance'
@@ -517,6 +567,13 @@ declare module '@tanstack/react-router' {
       path: '/tasks'
       fullPath: '/manager/tasks'
       preLoaderRoute: typeof ManagerTasksRouteImport
+      parentRoute: typeof ManagerRoute
+    }
+    '/manager/team-attendance': {
+      id: '/manager/team-attendance'
+      path: '/team-attendance'
+      fullPath: '/manager/team-attendance'
+      preLoaderRoute: typeof ManagerTeamAttendanceRouteImport
       parentRoute: typeof ManagerRoute
     }
     '/manager/attendance/': {
@@ -561,11 +618,14 @@ interface ManagerRouteChildren {
   ManagerInventoryRoute: typeof ManagerInventoryRoute
   ManagerLeaveRoute: typeof ManagerLeaveRoute
   ManagerLogisticRoute: typeof ManagerLogisticRoute
+  ManagerMyAttendanceRoute: typeof ManagerMyAttendanceRoute
+  ManagerMyIncentivesRoute: typeof ManagerMyIncentivesRoute
   ManagerPerformanceRoute: typeof ManagerPerformanceRoute
   ManagerReportsRoute: typeof ManagerReportsRoute
   ManagerSalaryExpenseRoute: typeof ManagerSalaryExpenseRoute
   ManagerSitesRoute: typeof ManagerSitesRoute
   ManagerTasksRoute: typeof ManagerTasksRoute
+  ManagerTeamAttendanceRoute: typeof ManagerTeamAttendanceRoute
   ManagerIndexRoute: typeof ManagerIndexRoute
 }
 
@@ -580,11 +640,14 @@ const ManagerRouteChildren: ManagerRouteChildren = {
   ManagerInventoryRoute: ManagerInventoryRoute,
   ManagerLeaveRoute: ManagerLeaveRoute,
   ManagerLogisticRoute: ManagerLogisticRoute,
+  ManagerMyAttendanceRoute: ManagerMyAttendanceRoute,
+  ManagerMyIncentivesRoute: ManagerMyIncentivesRoute,
   ManagerPerformanceRoute: ManagerPerformanceRoute,
   ManagerReportsRoute: ManagerReportsRoute,
   ManagerSalaryExpenseRoute: ManagerSalaryExpenseRoute,
   ManagerSitesRoute: ManagerSitesRoute,
   ManagerTasksRoute: ManagerTasksRoute,
+  ManagerTeamAttendanceRoute: ManagerTeamAttendanceRoute,
   ManagerIndexRoute: ManagerIndexRoute,
 }
 

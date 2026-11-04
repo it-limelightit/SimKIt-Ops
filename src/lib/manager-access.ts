@@ -13,7 +13,7 @@ export function isRestrictedManager(email: string | null | undefined) {
 
 export function canAccessManagerPath(email: string | null | undefined, path: string) {
   const paths = email?.trim().toLowerCase() === restrictedEmployeeEmail
-    ? ["/manager/leave", "/manager/logistic", "/manager/inventory"]
+    ? ["/manager/leave", "/manager/logistic", "/manager/inventory", "/manager/my-attendance"]
     : operationsManagerPaths;
   return !isRestrictedManager(email) || paths.some(
     (allowed) => path === allowed || path.startsWith(`${allowed}/`),

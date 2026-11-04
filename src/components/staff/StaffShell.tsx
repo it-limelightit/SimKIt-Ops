@@ -4,14 +4,16 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { useAuth } from "@/lib/auth-store";
 import { canAccessManagerPath, isRestrictedManager, managerHomePath } from "@/lib/manager-access";
 import { canManageAttendance } from "@/lib/attendance-access";
+import { attendanceRpc } from "@/lib/device-attendance";
 import { canManageFinance, isSalaryManager } from "@/lib/finance";
 import { canManageHr } from "@/lib/hr-access";
 import { FinanceWorkspace } from "@/components/finance/FinanceWorkspace";
-import { canAccessLeave, canReviewLeave, isTarunLeaveReviewer } from "@/lib/attendance-access";
+import { canAccessLeave, canReviewLeave, isTarunLeaveReviewer, isTeamLead } from "@/lib/attendance-access";
 import {
   LayoutDashboard,
   MapPin,
   Users,
+  IndianRupee,
   BarChart3,
   LogOut,
   Activity,
@@ -40,6 +42,38 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
   const [isOpen, setIsOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [expenseOpen, setExpenseOpen] = useState(false);
+  // Office staff in the manager workspace (e.g. Hitesh bhai, Aryan) get a "My attendance" page.
+  const [hasOfficeAccount, setHasOfficeAccount] = useState(false);
+  // Dual-role staff with field incentives (e.g. Hitesh bhai) get a "My incentives" page.
+  const [hasIncentives, setHasIncentives] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    if (!email || isSalaryManager(email)) {
+      setHasIncentives(false);
+      return;
+    }
+    attendanceRpc<{ enabled: boolean }>("field_ops_my_incentives", {
+      _month: `${new Date().toISOString().slice(0, 7)}-01`,
+    })
+      .then((data) => !cancelled && setHasIncentives(Boolean(data?.enabled)))
+      .catch(() => !cancelled && setHasIncentives(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [email]);
+  useEffect(() => {
+    let cancelled = false;
+    if (!email || canManageAttendance(email) || isSalaryManager(email)) {
+      setHasOfficeAccount(false);
+      return;
+    }
+    attendanceRpc<{ id: string } | null>("attendance_my_account")
+      .then((account) => !cancelled && setHasOfficeAccount(Boolean(account?.id)))
+      .catch(() => !cancelled && setHasOfficeAccount(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [email]);
   useEffect(()=>setExpenseOpen(false),[path]);
   const base = "/manager";
   const home = managerHomePath(email);
@@ -88,6 +122,11 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
     { to: `${base}/company-tracker`, label: "Company Tracker", icon: KanbanSquare },
     { to: `${base}/field-visit-tracker`, label: "Field Visit Tracker", icon: CalendarDays },
     { to: `${base}/attendance`, label: "Attendance", icon: Clock3 },
+    ...(hasOfficeAccount && !canManageAttendance(email)
+      ? [{ to: `${base}/my-attendance`, label: "My attendance", icon: Clock3 }]
+      : []),
+    ...(isTeamLead(email) ? [{ to: `${base}/team-attendance`, label: "Team attendance", icon: Users }] : []),
+    ...(hasIncentives ? [{ to: `${base}/my-incentives`, label: "My incentives", icon: IndianRupee }] : []),
     ...(canManageFinance(email) ? [{ to: `${base}/salary-expense`, label: "Salary / Expense", icon: BarChart3 }] : []),
     ...(canManageHr(email) ? [{ to: `${base}/hr-hiring`, label: "HR / Hiring", icon: Users }] : []),
     ...(!canManageFinance(email) ? [{ to: "/expenses", label: "Expense", icon: Folder }] : []),
@@ -107,7 +146,7 @@ export function StaffShell({ children, role }: { children: React.ReactNode; role
             ? [{ to: `${base}/leave`, label: "My leave", icon: CalendarCheck }]
             : []),
           ...allItems.filter(
-            (item) => (item.to === `${base}/attendance` && canManageAttendance(email)) || (item.to === `${base}/salary-expense` && canManageFinance(email)) || item.to === "/expenses",
+            (item) => (item.to === `${base}/attendance` && canManageAttendance(email)) || item.to === `${base}/team-attendance` || item.to === `${base}/my-attendance` || item.to === `${base}/my-incentives` || (item.to === `${base}/salary-expense` && canManageFinance(email)) || item.to === "/expenses",
           ),
         ];
 

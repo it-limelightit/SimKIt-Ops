@@ -2713,3 +2713,57 @@
     white-space: normal;
   }
 }
+
+/* Field rates: all-phases switch and phase tags (dual-role people such as Hitesh bhai). */
+.finance-phase-switch {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex-basis: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  cursor: pointer;
+}
+.finance-phase-switch input {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  accent-color: var(--lime);
+  flex-shrink: 0;
+}
+.finance-phase-switch strong {
+  display: block;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.finance-phase-switch small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+.finance-phase-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+}
+.finance-phase-tag[data-phase="assessment"] {
+  border-color: color-mix(in oklab, #8b5cf6 40%, var(--surface));
+  background: color-mix(in oklab, #8b5cf6 12%, var(--surface));
+}
+.finance-phase-tag[data-phase="installation"] {
+  border-color: color-mix(in oklab, #f59e0b 40%, var(--surface));
+  background: color-mix(in oklab, #f59e0b 12%, var(--surface));
+}
+.finance-phase-tag[data-phase="commissioning"] {
+  border-color: color-mix(in oklab, #10b981 40%, var(--surface));
+  background: color-mix(in oklab, #10b981 12%, var(--surface));
+}

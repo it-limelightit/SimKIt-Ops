@@ -37,7 +37,15 @@ import {
   type EmployeeCalendar as CalendarData,
 } from "@/lib/employee-calendar";
 
-export function EmployeeCalendar() {
+/**
+ * Monthly work calendar. Without props it shows the signed-in employee.
+ * With `employeeId` it shows a team member (read-only) for their team lead.
+ */
+export function EmployeeCalendar({
+  employeeId,
+  employeeName,
+}: { employeeId?: string; employeeName?: string } = {}) {
+  const viewingTeam = Boolean(employeeId);
   const userId = useAuth((state) => state.userId);
   const [month, setMonth] = useState(indiaDate().slice(0, 7));
   const [data, setData] = useState<CalendarData | null>(null);
@@ -60,16 +68,23 @@ export function EmployeeCalendar() {
   }, [userId]);
   useEffect(() => {
     let cancelled = false;
-    if (loadedKey.current !== `${userId}:${month}`) {
+    if (loadedKey.current !== `${userId}:${employeeId ?? "me"}:${month}`) {
       setLoading(true);
       setData(null);
     }
     setError(null);
-    void attendanceRpc<CalendarData>("attendance_my_calendar", { _month: `${month}-01` })
+    void (
+      employeeId
+        ? attendanceRpc<CalendarData>("attendance_team_calendar", {
+            _employee: employeeId,
+            _month: `${month}-01`,
+          })
+        : attendanceRpc<CalendarData>("attendance_my_calendar", { _month: `${month}-01` })
+    )
       .then((next) => {
         if (cancelled) return;
         setData(next);
-        loadedKey.current = `${userId}:${month}`;
+        loadedKey.current = `${userId}:${employeeId ?? "me"}:${month}`;
         setSelected((current) =>
           current.startsWith(month)
             ? current
@@ -88,7 +103,7 @@ export function EmployeeCalendar() {
     return () => {
       cancelled = true;
     };
-  }, [month, refresh, userId]);
+  }, [month, refresh, userId, employeeId]);
   const days = data?.days ?? [];
   const summary = calendarSummary(days, data?.today ?? indiaDate(), data?.tracking_start);
   const weeks = useMemo(
@@ -141,7 +156,7 @@ export function EmployeeCalendar() {
     <main id="employee-attendance" className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2>My work calendar</h2>
+          <h2>{viewingTeam ? `${employeeName ?? "Team member"}'s work calendar` : "My work calendar"}</h2>
           <p className="mt-1 text-sm text-text-secondary">
             Office attendance, approved leave, and WFH in one monthly view.
           </p>
@@ -403,7 +418,7 @@ export function EmployeeCalendar() {
                               : "Not accepted — the late rule applies."}
                         </p>
                       </div>
-                    ) : chosen.status === "late" ? (
+                    ) : chosen.status === "late" && !viewingTeam ? (
                       <p className="mt-2 text-xs leading-5 text-text-secondary">
                         Late for a reason? Open <strong className="text-text-primary">Leave → Justify late arrival</strong>{" "}
                         before the month ends. If Tarun accepts, this day counts as a full day.

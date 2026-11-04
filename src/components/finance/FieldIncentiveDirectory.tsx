@@ -82,7 +82,8 @@ export function FieldIncentiveDirectory({
     .filter((person) => person.field)
     .map((person) => {
       const data = records[person.id];
-      const earnings = data?.earnings.filter((entry) => entry.phase === "commissioning") ?? [];
+      // Commissioning only, or every phase for all-phase (dual-role) people — filtered on the server.
+      const earnings = data?.earnings ?? [];
       const total = earnings.reduce((sum, entry) => sum + Number(entry.amount ?? 0), 0);
       const remaining = earnings
         .filter((entry) => !entry.paid)
@@ -121,7 +122,7 @@ export function FieldIncentiveDirectory({
             : action === "forward"
               ? "Verify incentives and forward to Tarun?"
               : "Record completed incentive payment?",
-      detail: `${row.person.name || row.person.email} · ${start} to ${end} · ${money(action === "pay" ? row.remaining : row.total)} · ${row.earnings.length} commissioning(s)`,
+      detail: `${row.person.name || row.person.email} · ${start} to ${end} · ${money(action === "pay" ? row.remaining : row.total)} · ${workSummary(row.earnings)}`,
       requireReason: action === "reject" || action === "pay",
       reasonLabel: action === "pay" ? "Payment reference / method" : "Rejection reason",
       execute: async (reason) => {
@@ -223,12 +224,11 @@ export function FieldIncentiveDirectory({
                         <div className="finance-incentive-cell-total">
                           <strong>{money(row.total)}</strong>
                           <span>
-                            {row.earnings.length}{" "}
-                            {row.earnings.length === 1 ? "commissioning" : "commissionings"}
+                            {workSummary(row.earnings)}
                           </span>
                         </div>
                         {!row.earnings.length && (
-                          <p className="finance-muted">No commissionings this month</p>
+                          <p className="finance-muted">No paid work this month</p>
                         )}
                       </>
                     ) : (
@@ -452,4 +452,17 @@ export function FieldIncentiveDirectory({
       </div>
     </section>
   );
+}
+
+/** "3 commissionings", or "1 assessment · 2 installations · 3 commissionings" for all-phase people. */
+function workSummary(earnings: { phase: string }[]) {
+  if (!earnings.length) return "0 commissionings";
+  const order = ["assessment", "installation", "commissioning"];
+  return order
+    .map((phase) => {
+      const n = earnings.filter((e) => e.phase === phase).length;
+      return n ? `${n} ${phase}${n === 1 ? "" : "s"}` : null;
+    })
+    .filter(Boolean)
+    .join(" · ");
 }
