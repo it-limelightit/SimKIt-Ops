@@ -85,16 +85,19 @@ const fixture = () => ({
   ],
 });
 
-test("single-page salary statement shows combined totals and separates pending amounts from approval", () => {
+test("statement summary shows salary, incentives and expenses with a combined total; itemised details follow", () => {
   const logo = `data:image/png;base64,${readFileSync(new URL("../public/brand/simkit-mark.png", import.meta.url)).toString("base64")}`;
   const bytes = statementBytes(fixture(), "2026-10", person, employee, undefined, logo);
   const pdf = Buffer.from(bytes).toString("latin1");
   assert.ok(pdf.startsWith("%PDF-"));
-  assert.ok(pdf.includes("SALARY + EXPENSES TOTAL"));
+  assert.ok(pdf.includes("SALARY + INCENTIVES + EXPENSES TOTAL"));
   assert.ok(pdf.includes("INR 15,500.00"));
   assert.ok(pdf.includes("Pending review:"));
   assert.ok(pdf.includes("Approved for payment"));
-  assert.equal([...pdf.matchAll(/\/Type\s*\/Page\b/g)].length, 1);
+  // Page 1 summary + 1 itemised page for the two active claims.
+  assert.equal([...pdf.matchAll(/\/Type\s*\/Page\b/g)].length, 2);
+  assert.ok(pdf.includes("Itemised details"));
+  assert.ok(pdf.includes("Field incentives"));
   assert.ok(pdf.includes("LimelightIT Research Pvt. Ltd."));
   assert.ok(pdf.includes("/Subtype /Image"));
   assert.ok(pdf.includes("Days in month \\(off days paid\\)"));
@@ -123,7 +126,7 @@ test("statement preserves paid versus approved amounts and zero-working-day calc
   assert.doesNotMatch(pdf, /NaN|Infinity/);
 });
 
-test("a month with many attendance and expense records remains one readable summary page", () => {
+test("a month with many expense records keeps a one-page summary and itemises every claim on following pages", () => {
   const board = fixture();
   board.claims = Array.from({ length: 100 }, (_, i) => claim(String(i), "approved", 10));
   board.salaries[0].days = Array.from({ length: 31 }, (_, i) => ({
@@ -135,8 +138,35 @@ test("a month with many attendance and expense records remains one readable summ
   }));
   const pdf = Buffer.from(statementBytes(board, "2026-10", person, employee)).toString("latin1");
   assert.ok(pdf.includes("INR 15,700.00"));
-  assert.equal([...pdf.matchAll(/\/Type\s*\/Page\b/g)].length, 1);
+  assert.ok([...pdf.matchAll(/\/Type\s*\/Page\b/g)].length > 1);
   assert.ok(pdf.includes("100 claims"));
+  assert.ok(pdf.includes("Expense 99"));
   assert.ok(pdf.includes("monthly ZIP"));
-  assert.doesNotMatch(pdf, /Expense 99|Detailed monthly attendance adjustment/);
+  assert.doesNotMatch(pdf, /Detailed monthly attendance adjustment/);
+});
+
+test("dual-role statement combines salary, field incentives by phase and expenses", () => {
+  const board = fixture();
+  const fieldPerson = { ...person, field: true };
+  const field = {
+    earnings: [
+      { id: "a", date: "2026-10-07", phase: "assessment", company: "M/S DEEPAK TECHNOCAST", amount: 1000, paid: false },
+      { id: "i", date: "2026-10-07", phase: "installation", company: "M/S DEEPAK TECHNOCAST", amount: 500, paid: false },
+      { id: "c", date: "2026-10-10", phase: "commissioning", company: "M/S DEEPAK TECHNOCAST", amount: 0, paid: false },
+    ],
+    review: null,
+    rates: { assessment: 1000, installation: 500, commissioning: 0, all_phases: true },
+    payments: [],
+    calendar: [],
+    leaves: [],
+  };
+  const pdf = Buffer.from(statementBytes(board, "2026-10", fieldPerson, employee, field)).toString("latin1");
+  assert.ok(pdf.includes("Assessment \\(1\\)"));
+  assert.ok(pdf.includes("Installation \\(1\\)"));
+  assert.ok(pdf.includes("Field incentives earned"));
+  assert.ok(pdf.includes("INR 1,500.00"));
+  // 14,700 salary + 1,500 incentives + 800 active expenses
+  assert.ok(pdf.includes("INR 17,000.00"));
+  assert.ok(pdf.includes("M/S DEEPAK TECHNOCAST"));
+  assert.doesNotMatch(pdf, /NaN|Infinity/);
 });
