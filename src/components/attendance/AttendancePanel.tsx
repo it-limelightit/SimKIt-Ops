@@ -73,6 +73,8 @@ function Status({ value, lateMinutes, label }: { value: string; lateMinutes?: nu
           ? "border-indigo-500/20 bg-indigo-500/10 text-indigo-700"
         : value === "site_visit"
           ? "border-teal-500/25 bg-teal-500/10 text-teal-700"
+        : value === "absence_justified"
+          ? "border-mint/20 bg-mint/10 text-mint"
         : ["failed", "absent", "rejected"].includes(value)
           ? "border-coral/20 bg-coral/10 text-coral"
           : value === "needs_review"

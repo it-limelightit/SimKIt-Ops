@@ -4,7 +4,15 @@ export type CalendarDay = {
   working_day: boolean | null;
   entry_at: string | null;
   late_minutes: number | null;
-  request_type: "leave" | "wfh" | "late" | "half_day" | "late_justified" | "site_visit" | null;
+  request_type:
+    | "leave"
+    | "wfh"
+    | "late"
+    | "half_day"
+    | "late_justified"
+    | "absence_justified"
+    | "site_visit"
+    | null;
   late_justification?: import("@/lib/device-attendance").LateJustification;
   arrival_approved?: boolean;
   arrival_half_day?: boolean;
@@ -29,6 +37,11 @@ export const calendarStatuses: Record<string, { label: string; color: string; to
   late: { label: "Late", color: "#d97706", tone: "border-amber-200 bg-amber-50 text-amber-800" },
   work_from_home: {
     label: "WFH",
+    color: "#16a34a",
+    tone: "border-green-400 bg-green-100 text-green-800",
+  },
+  absence_justified: {
+    label: "Absence justified",
     color: "#16a34a",
     tone: "border-green-400 bg-green-100 text-green-800",
   },
@@ -93,7 +106,7 @@ export function calendarSummary(
       (d) =>
         d.date <= today &&
         d.working_day === true &&
-        ["present", "late", "work_from_home", "site_visit"].includes(d.status),
+        ["present", "late", "work_from_home", "site_visit", "absence_justified"].includes(d.status),
     ).length,
     expected: days.filter(
       (d) => d.date <= today && d.working_day === true && d.status !== "on_leave",

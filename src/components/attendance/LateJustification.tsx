@@ -4,9 +4,23 @@ import { toast } from "sonner";
 import { Button, Card, Label, Textarea } from "@/components/ui-kit";
 import { attendanceRpc, dateLabel, indiaDate, timeLabel } from "@/lib/device-attendance";
 import type { EmployeeCalendar } from "@/lib/employee-calendar";
-import { lateJustificationTags } from "@/lib/leave-request";
+import { absenceJustificationTags, lateJustificationTags } from "@/lib/leave-request";
 
-export type LateDay = { date: string; entry_at: string | null; late_minutes: number };
+/** A day that can be justified: a late arrival or an absent working day. */
+export type LateDay = {
+  date: string;
+  kind: "late" | "absent";
+  entry_at: string | null;
+  late_minutes: number;
+};
+
+/** Send a justification for a late or absent day to Tarun. */
+export async function submitJustification(day: LateDay, tags: string[], note: string) {
+  return attendanceRpc(
+    day.kind === "absent" ? "attendance_submit_absence_justification" : "attendance_submit_late_justification",
+    { _date: day.date, _tags: tags, _note: note.trim() },
+  );
+}
 
 /** Months whose late days can still be justified: this month, and last month until the 7th (IST). */
 export function justificationMonths(today: string) {
@@ -37,12 +51,16 @@ export async function loadJustifiableLateDays(): Promise<LateDay[]> {
     .flatMap((calendar) => calendar?.days ?? [])
     .filter(
       (day) =>
-        day.status === "late" &&
-        (day.late_minutes ?? 0) > 0 &&
-        day.date <= today &&
+        ((day.status === "late" && (day.late_minutes ?? 0) > 0 && day.date <= today) ||
+          (day.status === "absent" && day.date < today)) &&
         !(day.late_justification && day.late_justification.status !== "rejected"),
     )
-    .map((day) => ({ date: day.date, entry_at: day.entry_at, late_minutes: day.late_minutes ?? 0 }))
+    .map((day) => ({
+      date: day.date,
+      kind: day.status === "absent" ? ("absent" as const) : ("late" as const),
+      entry_at: day.entry_at,
+      late_minutes: day.late_minutes ?? 0,
+    }))
     .sort((a, b) => b.date.localeCompare(a.date));
 }
 
@@ -88,12 +106,12 @@ export function LateJustificationPanel({
       return toast.error("Describe your reason (at least 5 characters).");
     setBusy(true);
     try {
-      await attendanceRpc("attendance_submit_late_justification", {
-        _date: date,
-        _tags: tags,
-        _note: note.trim(),
-      });
-      toast.success("Late justification sent to Tarun. If accepted, the day counts as a full day.");
+      const day = lateDays?.find((d) => d.date === date);
+      if (!day) throw new Error("Choose the day you want to justify.");
+      await submitJustification(day, tags, note);
+      toast.success(
+        `${day.kind === "absent" ? "Absence" : "Late"} justification sent to Tarun. If accepted, the day counts as a full day.`,
+      );
       setDate("");
       setTags([]);
       setNote("");
@@ -114,7 +132,7 @@ export function LateJustificationPanel({
             <MessageSquareText size={18} />
           </span>
           <div>
-            <h3>Justify late arrival</h3>
+            <h3>Justify late arrival or absence</h3>
             <p className="mt-0.5 text-xs text-text-secondary">
               Tarun decides; Hardik can see it. If accepted, the day counts as a full day instead of a
               half day.
@@ -123,7 +141,7 @@ export function LateJustificationPanel({
         </div>
         {lateDays && lateDays.length > 0 && (
           <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
-            {lateDays.length} late {lateDays.length === 1 ? "day" : "days"} to justify
+            {lateDays.length} {lateDays.length === 1 ? "day" : "days"} to justify
           </span>
         )}
       </div>
@@ -165,7 +183,7 @@ export function LateJustificationPanel({
   );
 }
 
-/** Pick one late day of this month and 1-4 reason tags for a late justification. */
+/** Pick one late or absent day and 1-4 reason tags for a justification. */
 export function LateJustificationFields({
   lateDays,
   date,
@@ -191,7 +209,7 @@ export function LateJustificationFields({
     <div className="space-y-4 md:col-span-2">
       <fieldset>
         <legend className="mb-2 text-xs font-semibold text-text-secondary">
-          Which late day?{" "}
+          Which day?{" "}
           <span className="font-normal">(this month, or last month until the 7th)</span>
         </legend>
         {lateDays.length ? (
@@ -223,12 +241,20 @@ export function LateJustificationFields({
                       {dateLabel(day.date)}
                     </span>
                     <span className="mt-0.5 block text-xs text-text-secondary">
-                      Arrived {day.entry_at ? `${timeLabel(day.entry_at)} IST` : "—"}
+                      {day.kind === "absent"
+                        ? "No scan recorded"
+                        : `Arrived ${day.entry_at ? `${timeLabel(day.entry_at)} IST` : "—"}`}
                     </span>
                   </span>
-                  <span className="shrink-0 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] font-bold text-amber-700 dark:text-amber-300">
-                    {day.late_minutes} min late
-                  </span>
+                  {day.kind === "absent" ? (
+                    <span className="shrink-0 rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-1 text-[11px] font-bold text-rose-700 dark:text-rose-300">
+                      Absent
+                    </span>
+                  ) : (
+                    <span className="shrink-0 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] font-bold text-amber-700 dark:text-amber-300">
+                      {day.late_minutes} min late
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -238,8 +264,8 @@ export function LateJustificationFields({
           </div>
         ) : (
           <p className="rounded-xl border border-border bg-surface-raised px-3 py-3 text-xs text-text-secondary">
-            No late days to justify. Late days from this month (and last month until the 7th) are
-            listed here; days already justified (pending or accepted) are not shown.
+            Nothing to justify. Late and absent days from this month (and last month until the 7th)
+            are listed here; days already justified (pending or accepted) are not shown.
           </p>
         )}
       </fieldset>
@@ -248,7 +274,10 @@ export function LateJustificationFields({
           Reason tags <span className="font-normal">(choose 1–4)</span>
         </legend>
         <div className="flex flex-wrap gap-2">
-          {lateJustificationTags.map((tag) => {
+          {(lateDays.find((d) => d.date === date)?.kind === "absent"
+            ? absenceJustificationTags
+            : lateJustificationTags
+          ).map((tag) => {
             const active = tags.includes(tag);
             return (
               <button

@@ -169,7 +169,7 @@ export function LeaveReviewTable({
                           >
                             {requestTypeLabel(request.request_type, request.is_half_day, request.kind)}
                           </span>
-                          {request.kind === "justification" && (
+                          {(request.kind === "justification" || request.kind === "absence_justification") && (
                             <p className="mt-1.5 text-[11px] leading-4 text-text-secondary">
                               Accept = full day
                               <br />
@@ -185,7 +185,9 @@ export function LeaveReviewTable({
                             )}
                           </p>
                           <p className="mt-1 text-xs text-text-secondary">
-                            {request.kind === "justification" ? (
+                            {request.kind === "absence_justification" ? (
+                              <span className="font-semibold text-rose-700 dark:text-rose-300">Absent · no scan</span>
+                            ) : request.kind === "justification" ? (
                               <>
                                 Arrived {arrivalTimeLabel(request.expected_arrival)}
                                 {request.late_minutes ? (
@@ -208,7 +210,7 @@ export function LeaveReviewTable({
                           >
                             {request.reason}
                           </p>
-                          {request.kind === "justification" && request.tags?.length ? (
+                          {(request.kind === "justification" || request.kind === "absence_justification") && request.tags?.length ? (
                             <div className="mt-1.5 flex flex-wrap gap-1">
                               {request.tags.map((tag) => (
                                 <span

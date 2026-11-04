@@ -356,11 +356,11 @@ export function EmployeeCalendar({
                           {formatLateLabel(day.late_minutes)}
                         </span>
                       )}
-                      {day?.late_justification && lateJustificationStyle(day.late_justification.status) && (
+                      {day?.late_justification && lateJustificationStyle(day.late_justification.status, day.late_justification.kind) && (
                         <span
-                          className={`mt-0.5 block max-w-full truncate rounded border px-1 text-[8px] font-semibold leading-4 sm:text-[9px] ${lateJustificationStyle(day.late_justification.status)!.tone}`}
+                          className={`mt-0.5 block max-w-full truncate rounded border px-1 text-[8px] font-semibold leading-4 sm:text-[9px] ${lateJustificationStyle(day.late_justification.status, day.late_justification.kind)!.tone}`}
                         >
-                          {lateJustificationStyle(day.late_justification.status)!.label}
+                          {lateJustificationStyle(day.late_justification.status, day.late_justification.kind)!.label}
                         </span>
                       )}
                       {requestStyle && (
@@ -405,7 +405,7 @@ export function EmployeeCalendar({
                     {chosen.late_justification ? (
                       <div className="mt-3 rounded-xl border border-border bg-surface-raised p-3 text-xs">
                         <p className="font-semibold text-text-primary">
-                          {lateJustificationStyle(chosen.late_justification.status)?.label}
+                          {lateJustificationStyle(chosen.late_justification.status, chosen.late_justification.kind)?.label}
                         </p>
                         <p className="mt-1 text-text-secondary">
                           {chosen.late_justification.tags.join(" · ")}
@@ -418,7 +418,9 @@ export function EmployeeCalendar({
                             ? "Accepted by Tarun — counted as a full day."
                             : chosen.late_justification.status === "pending"
                               ? "Waiting for Tarun. If accepted, this day counts as a full day."
-                              : "Not accepted — the late rule applies."}
+                              : chosen.late_justification.kind === "absence_justification"
+                                ? "Not accepted — the day stays absent."
+                                : "Not accepted — the late rule applies."}
                         </p>
                       </div>
                     ) : chosen.status === "late" && !viewingTeam ? (
@@ -437,6 +439,24 @@ export function EmployeeCalendar({
                           }}
                         >
                           Justify this day
+                        </Button>
+                      </div>
+                    ) : chosen.status === "absent" && !viewingTeam && chosen.date < (data?.today ?? "") ? (
+                      <div className="mt-3 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3">
+                        <p className="text-xs leading-5 text-text-secondary">
+                          Absent for a reason? If Tarun accepts, this day counts as a full day.
+                        </p>
+                        <Button
+                          size="sm"
+                          className="mt-2 w-full"
+                          onClick={() => {
+                            setJustifyDate(chosen.date);
+                            document
+                              .getElementById("justify-late-arrival")
+                              ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                          }}
+                        >
+                          Justify this absence
                         </Button>
                       </div>
                     ) : null}

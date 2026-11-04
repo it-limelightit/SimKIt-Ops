@@ -152,7 +152,7 @@ export function MyLeaveRequests({
                         >
                           {requestTypeLabel(request.request_type, request.is_half_day, request.kind)}
                         </span>
-                        {request.kind === "justification" && request.tags?.length ? (
+                        {(request.kind === "justification" || request.kind === "absence_justification") && request.tags?.length ? (
                           <p className="mt-1.5 text-[10.5px] font-medium text-text-primary">
                             {request.tags.join(" · ")}
                           </p>
@@ -169,7 +169,9 @@ export function MyLeaveRequests({
                         <p className="whitespace-nowrap">{dateLabel(request.start_date)}</p>
                         {request.request_type === "late" && (
                           <p className="mt-1 text-xs text-text-secondary">
-                            {request.kind === "justification"
+                            {request.kind === "absence_justification"
+                              ? "Absent · no scan"
+                              : request.kind === "justification"
                               ? `Arrived ${arrivalTimeLabel(request.expected_arrival)}${request.late_minutes ? ` · ${request.late_minutes} min late` : ""}`
                               : `Expected: ${arrivalTimeLabel(request.expected_arrival)}`}
                           </p>
@@ -238,7 +240,9 @@ export function MyLeaveRequests({
                   </p>
                   {request.request_type === "late" && (
                     <p className="text-xs font-medium text-text-primary">
-                      {request.kind === "justification"
+                      {request.kind === "absence_justification"
+                        ? `Absent${request.tags?.length ? ` · ${request.tags.join(", ")}` : ""}`
+                        : request.kind === "justification"
                         ? `Arrived ${arrivalTimeLabel(request.expected_arrival)}${request.late_minutes ? ` · ${request.late_minutes} min late` : ""}${request.tags?.length ? ` · ${request.tags.join(", ")}` : ""}`
                         : `Expected arrival: ${arrivalTimeLabel(request.expected_arrival)}`}
                     </p>

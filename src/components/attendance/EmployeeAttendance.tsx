@@ -43,6 +43,7 @@ const colors: Record<string, string> = {
   on_leave: "border-green-400 bg-green-100 text-green-800",
   work_from_home: "border-green-400 bg-green-100 text-green-800",
   site_visit: "border-teal-400 bg-teal-100 text-teal-800",
+  absence_justified: "border-green-400 bg-green-100 text-green-800",
   needs_review: "border-lime/30 bg-lime/10 text-lime",
   awaiting_scan: "border-border bg-surface-raised text-text-secondary",
   off_day: "border-border bg-surface text-text-secondary",
@@ -523,11 +524,11 @@ export function EmployeeAttendance({ employee, board, boardDate, onBack }: Props
                       {formatLateLabel(day!.row!.late_minutes)}
                     </span>
                   )}
-                      {day?.row?.late_justification && lateJustificationStyle(day?.row.late_justification.status) && (
+                      {day?.row?.late_justification && lateJustificationStyle(day?.row.late_justification.status, day?.row.late_justification.kind) && (
                         <span
-                          className={`mt-0.5 block max-w-full truncate rounded border px-1 text-[8px] font-semibold leading-4 sm:text-[9px] ${lateJustificationStyle(day?.row.late_justification.status)!.tone}`}
+                          className={`mt-0.5 block max-w-full truncate rounded border px-1 text-[8px] font-semibold leading-4 sm:text-[9px] ${lateJustificationStyle(day?.row.late_justification.status, day?.row.late_justification.kind)!.tone}`}
                         >
-                          {lateJustificationStyle(day?.row.late_justification.status)!.label}
+                          {lateJustificationStyle(day?.row.late_justification.status, day?.row.late_justification.kind)!.label}
                         </span>
                       )}
                 </button>
@@ -561,7 +562,7 @@ export function EmployeeAttendance({ employee, board, boardDate, onBack }: Props
                 {selectedDay.row.late_justification && (
                   <p className="mt-1 text-xs text-text-secondary">
                     <strong className="text-text-primary">
-                      {lateJustificationStyle(selectedDay.row.late_justification.status)?.label}
+                      {lateJustificationStyle(selectedDay.row.late_justification.status, selectedDay.row.late_justification.kind)?.label}
                     </strong>
                     {" · "}
                     {selectedDay.row.late_justification.tags.join(", ")} — {selectedDay.row.late_justification.reason}

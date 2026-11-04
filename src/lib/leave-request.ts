@@ -36,8 +36,23 @@ export const lateJustificationTags = [
   "Other",
 ] as const;
 
+/** Reason tags for justifying an absent working day. */
+export const absenceJustificationTags = [
+  "Sick / unwell",
+  "Family emergency",
+  "Medical",
+  "Site / client work",
+  "Forgot to scan",
+  "Scan device problem",
+  "Transport delay",
+  "Weather",
+  "Personal work",
+  "Other",
+] as const;
+
 export function requestTypeLabel(type?: string, halfDay = false, kind?: string) {
   if (type === "late" && kind === "justification") return "Late justification";
+  if (type === "late" && kind === "absence_justification") return "Absence justification";
   return type === "late"
     ? halfDay
       ? "Half-day arrival"
@@ -51,6 +66,8 @@ export function requestTypeLabel(type?: string, halfDay = false, kind?: string) 
 
 /** Badge colours per request type; readable in light and dark mode. */
 export function requestTypeTone(type?: string, kind?: string) {
+  if (type === "late" && kind === "absence_justification")
+    return "border border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300";
   if (type === "late" && kind === "justification")
     return "border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300";
   if (type === "site_visit")

@@ -36,7 +36,7 @@ export type LeaveRequest = {
   department?: string;
   request_type?: "leave" | "wfh" | "late" | "site_visit";
   /** "justification" = late arrival justified after the fact (decided by Tarun). */
-  kind?: "advance" | "justification";
+  kind?: "advance" | "justification" | "absence_justification";
   tags?: string[];
   late_minutes?: number | null;
   expected_arrival?: string;
@@ -185,12 +185,16 @@ function LeaveWorkspaceContent({
     try {
       let submission: { name: string; args: Record<string, unknown> };
       if (requestType === "justify") {
-        if (!justifyDate) throw new Error("Choose the late day you want to justify.");
+        if (!justifyDate) throw new Error("Choose the day you want to justify.");
         if (!justifyTags.length) throw new Error("Pick at least one reason tag.");
         if (justifyTags.includes("Other") && description.trim().length < 5)
           throw new Error("Describe your reason (at least 5 characters).");
+        const picked = lateDays.find((day) => day.date === justifyDate);
         submission = {
-          name: "attendance_submit_late_justification",
+          name:
+            picked?.kind === "absent"
+              ? "attendance_submit_absence_justification"
+              : "attendance_submit_late_justification",
           args: { _date: justifyDate, _tags: justifyTags, _note: description.trim() },
         };
       } else {
@@ -398,7 +402,7 @@ function LeaveWorkspaceContent({
                           : requestType === "site_visit"
                             ? "Request a site visit"
                             : requestType === "justify"
-                              ? "Justify a late arrival"
+                              ? "Justify a late arrival or absence"
                               : "Request leave"}
                     </h2>
                     <p className="mt-1 text-xs text-text-secondary">
@@ -442,7 +446,7 @@ function LeaveWorkspaceContent({
                             { value: "leave", label: "Leave", icon: CalendarDays },
                             { value: "wfh", label: "Work from home", icon: House },
                             { value: "late", label: "Late / half-day arrival", icon: Clock3 },
-                            { value: "justify", label: "Justify late arrival", icon: MessageSquareText },
+                            { value: "justify", label: "Justify late / absence", icon: MessageSquareText },
                             { value: "site_visit", label: "Site visit", icon: MapPin },
                           ] as const
                         )
