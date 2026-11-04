@@ -35,7 +35,15 @@ export type AttendanceRow = {
   review_reason?: string | null;
   entry_source?: "scan" | "manager_adjusted";
   adjustment_reason?: string | null;
-  request_type?: "leave" | "wfh" | "late" | "half_day" | "late_justified" | "site_visit" | null;
+  request_type?:
+    | "leave"
+    | "wfh"
+    | "late"
+    | "half_day"
+    | "late_justified"
+    | "absence_justified"
+    | "site_visit"
+    | null;
   late_justification?: LateJustification;
   arrival_approved?: boolean;
   arrival_half_day?: boolean;
@@ -97,6 +105,7 @@ export const statusLabels: Record<string, string> = {
   on_leave: "On leave",
   work_from_home: "Work from home",
   site_visit: "Site visit",
+  absence_justified: "Absence justified",
   awaiting_scan: "Awaiting scan",
   absent: "Absent",
   off_day: "Off day",
@@ -189,6 +198,8 @@ export async function attendanceFunction<T = unknown>(
 /** An after-the-fact late-arrival justification (decided by Tarun). */
 export type LateJustification = {
   id: string;
+  /** "justification" = late arrival, "absence_justification" = absent day. */
+  kind?: "justification" | "absence_justification";
   status: "pending" | "approved" | "rejected";
   tags: string[];
   reason: string;

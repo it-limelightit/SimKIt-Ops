@@ -209,12 +209,12 @@ export function SalaryPanel({
                     {formatLateLabel(day.late_minutes)}
                   </span>
                 )}
-                {day.late_justification && lateJustificationStyle(day.late_justification.status) && (
+                {day.late_justification && lateJustificationStyle(day.late_justification.status, day.late_justification.kind) && (
                   <span
-                    className={`mt-0.5 block w-fit max-w-full truncate rounded border px-1 text-[9px] font-semibold leading-4 ${lateJustificationStyle(day.late_justification.status)!.tone}`}
+                    className={`mt-0.5 block w-fit max-w-full truncate rounded border px-1 text-[9px] font-semibold leading-4 ${lateJustificationStyle(day.late_justification.status, day.late_justification.kind)!.tone}`}
                     title={`${day.late_justification.tags.join(", ")} — ${day.late_justification.reason}`}
                   >
-                    {lateJustificationStyle(day.late_justification.status)!.label}
+                    {lateJustificationStyle(day.late_justification.status, day.late_justification.kind)!.label}
                   </span>
                 )}
                 <span className="block mt-1">
@@ -961,13 +961,13 @@ function LateJustificationList({ days }: { days: FinanceDay[] }) {
   return (
     <div className="finance-justifications" aria-label="Late arrival justifications">
       <div className="finance-justifications-head">
-        <strong>Late arrival justifications</strong>
+        <strong>Late &amp; absence justifications</strong>
         <span>Tarun decides · accepted days count as a full day</span>
       </div>
       <ul>
         {items.map((day) => {
           const j = day.late_justification!;
-          const style = lateJustificationStyle(j.status);
+          const style = lateJustificationStyle(j.status, j.kind);
           return (
             <li key={day.date}>
               <span className="finance-justification-date">
@@ -979,7 +979,11 @@ function LateJustificationList({ days }: { days: FinanceDay[] }) {
                 })}
               </span>
               <span className="finance-justification-late">
-                {j.late_minutes ? formatLateLabel(j.late_minutes) : "Late"}
+                {j.kind === "absence_justification"
+                  ? "Absent"
+                  : j.late_minutes
+                    ? formatLateLabel(j.late_minutes)
+                    : "Late"}
               </span>
               <span className="finance-justification-tags">
                 {j.tags.map((tag) => (
