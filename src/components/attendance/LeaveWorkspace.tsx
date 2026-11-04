@@ -56,6 +56,22 @@ const categories = ["Marriage", "Family medical", "Personal health", "Other"] as
 type RequestType = "leave" | "wfh" | "late" | "justify" | "site_visit";
 type LateDay = { date: string; entry_at: string | null; late_minutes: number };
 
+/** Months whose late days can still be justified: this month, and last month until the 7th (IST). */
+function justificationMonths(today: string) {
+  const current = today.slice(0, 7);
+  if (Number(today.slice(8, 10)) > 7) return [current];
+  const date = new Date(`${current}-01T12:00:00Z`);
+  date.setUTCMonth(date.getUTCMonth() - 1);
+  return [current, date.toISOString().slice(0, 7)];
+}
+function monthTitle(month: string) {
+  return new Date(`${month}-01T12:00:00Z`).toLocaleDateString("en-IN", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
 function dayCount(from: string, to: string) {
   if (!from || !to) return 0;
   return (
@@ -149,11 +165,18 @@ function LeaveWorkspaceContent({
         : await attendanceRpc<{ id: string } | null>("attendance_my_account").catch(() => null);
       setOfficeStaff(Boolean(account?.id));
       if (account?.id) {
-        const calendar = await attendanceRpc<EmployeeCalendar>("attendance_my_calendar", {
-          _month: `${indiaDate().slice(0, 7)}-01`,
-        }).catch(() => null);
+        // This month, plus last month while it is still open (until the 7th).
+        const months = justificationMonths(indiaDate());
+        const calendars = await Promise.all(
+          months.map((month) =>
+            attendanceRpc<EmployeeCalendar>("attendance_my_calendar", { _month: `${month}-01` }).catch(
+              () => null,
+            ),
+          ),
+        );
         setLateDays(
-          (calendar?.days ?? [])
+          calendars
+            .flatMap((calendar) => calendar?.days ?? [])
             .filter(
               (day) =>
                 day.status === "late" &&
@@ -766,11 +789,23 @@ function LateJustificationFields({
     <div className="space-y-4 md:col-span-2">
       <fieldset>
         <legend className="mb-2 text-xs font-semibold text-text-secondary">
-          Which late day? <span className="font-normal">(this month)</span>
+          Which late day?{" "}
+          <span className="font-normal">(this month, or last month until the 7th)</span>
         </legend>
         {lateDays.length ? (
+          <div className="space-y-3">
+            {[...new Set(lateDays.map((day) => day.date.slice(0, 7)))].map((month) => (
+              <div key={month}>
+                <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-secondary">
+                  {monthTitle(month)}
+                  {month !== indiaDate().slice(0, 7) && (
+                    <span className="ml-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 normal-case tracking-normal text-amber-700 dark:text-amber-300">
+                      open until 7 {monthTitle(indiaDate().slice(0, 7)).split(" ")[0]}
+                    </span>
+                  )}
+                </p>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3" role="radiogroup">
-            {lateDays.map((day) => {
+            {lateDays.filter((day) => day.date.startsWith(month)).map((day) => {
               const active = date === day.date;
               return (
                 <button
@@ -796,10 +831,13 @@ function LateJustificationFields({
               );
             })}
           </div>
+              </div>
+            ))}
+          </div>
         ) : (
           <p className="rounded-xl border border-border bg-surface-raised px-3 py-3 text-xs text-text-secondary">
-            No late days to justify this month. Days already justified (pending or accepted) are
-            not listed.
+            No late days to justify. Late days from this month (and last month until the 7th) are
+            listed here; days already justified (pending or accepted) are not shown.
           </p>
         )}
       </fieldset>

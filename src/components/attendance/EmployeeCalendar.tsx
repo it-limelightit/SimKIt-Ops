@@ -421,7 +421,8 @@ export function EmployeeCalendar({
                     ) : chosen.status === "late" && !viewingTeam ? (
                       <p className="mt-2 text-xs leading-5 text-text-secondary">
                         Late for a reason? Open <strong className="text-text-primary">Leave → Justify late arrival</strong>{" "}
-                        before the month ends. If Tarun accepts, this day counts as a full day.
+                        this month (or by the 7th of next month). If Tarun accepts, this day
+                        counts as a full day.
                       </p>
                     ) : null}
                     {chosen.review_reason === "before_tracking_start" && (
