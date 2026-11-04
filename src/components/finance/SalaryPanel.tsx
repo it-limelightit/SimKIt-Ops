@@ -27,7 +27,7 @@ import { indiaDate, money, paymentPeriod } from "@/lib/field-operations";
 import { salaryDeductionGroups, waiveSalaryDays } from "@/lib/salary-deductions";
 import { AuditTrail, Field, Metric, Pill, type Confirm } from "./FinanceUi";
 import { formatLateLabel } from "@/lib/attendance-analytics";
-import { requestCalendarStyle } from "@/lib/request-calendar";
+import { lateJustificationStyle, requestCalendarStyle } from "@/lib/request-calendar";
 
 export function SalaryPanel({
   employee,
@@ -169,8 +169,10 @@ export function SalaryPanel({
             <Metric label="Late / half day" value={count("late")} />
             <Metric label="Absent" value={count("absent")} />
             <Metric label="WFH" value={count("work_from_home")} />
+            <Metric label="Site visit" value={count("site_visit")} />
             <Metric label="Payable day equivalents" value={totals.payable} />
           </div>
+          <LateJustificationList days={days} />
           <div className="finance-calendar" aria-label="Monthly salary attendance calendar">
             {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
               <span key={d} className="text-center text-xs finance-muted">
@@ -205,6 +207,14 @@ export function SalaryPanel({
                 {day.status === "late" && (day.late_minutes ?? 0) > 0 && (
                   <span className="mt-0.5 block w-fit max-w-full truncate rounded bg-amber-600 px-1 text-[9px] font-bold leading-4 text-white">
                     {formatLateLabel(day.late_minutes)}
+                  </span>
+                )}
+                {day.late_justification && lateJustificationStyle(day.late_justification.status) && (
+                  <span
+                    className={`mt-0.5 block w-fit max-w-full truncate rounded border px-1 text-[9px] font-semibold leading-4 ${lateJustificationStyle(day.late_justification.status)!.tone}`}
+                    title={`${day.late_justification.tags.join(", ")} — ${day.late_justification.reason}`}
+                  >
+                    {lateJustificationStyle(day.late_justification.status)!.label}
                   </span>
                 )}
                 <span className="block mt-1">
@@ -885,5 +895,49 @@ export function FieldFinancePanel({
         )}
       />
     </section>
+  );
+}
+
+/** Every late-arrival justification this month for the employee (Tarun decides; Hardik sees). */
+function LateJustificationList({ days }: { days: FinanceDay[] }) {
+  const items = days.filter((day) => day.late_justification);
+  if (!items.length) return null;
+  return (
+    <div className="finance-justifications" aria-label="Late arrival justifications">
+      <div className="finance-justifications-head">
+        <strong>Late arrival justifications</strong>
+        <span>Tarun decides · accepted days count as a full day</span>
+      </div>
+      <ul>
+        {items.map((day) => {
+          const j = day.late_justification!;
+          const style = lateJustificationStyle(j.status);
+          return (
+            <li key={day.date}>
+              <span className="finance-justification-date">
+                {new Date(`${day.date}T12:00:00Z`).toLocaleDateString("en-IN", {
+                  weekday: "short",
+                  day: "numeric",
+                  month: "short",
+                  timeZone: "UTC",
+                })}
+              </span>
+              <span className="finance-justification-late">
+                {j.late_minutes ? formatLateLabel(j.late_minutes) : "Late"}
+              </span>
+              <span className="finance-justification-tags">
+                {j.tags.map((tag) => (
+                  <em key={tag}>{tag}</em>
+                ))}
+              </span>
+              <span className="finance-justification-note" title={j.reason}>
+                {j.reason}
+              </span>
+              {style && <span className={`finance-justification-status ${style.tone}`}>{style.label}</span>}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }

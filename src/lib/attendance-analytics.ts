@@ -24,7 +24,9 @@ export function attendanceSummary(allRows: AttendanceRow[]) {
   const recorded = rows.filter((row) => row.entry_at);
   const late = recorded.filter((row) => row.late_minutes != null && row.late_minutes > 0);
   const onTime = recorded.filter((row) => row.late_minutes === 0);
-  const expected = rows.filter((row) => !["off_day", "on_leave", "work_from_home"].includes(row.status));
+  const expected = rows.filter(
+    (row) => !["off_day", "on_leave", "work_from_home", "site_visit"].includes(row.status),
+  );
   const assessed = late.length + onTime.length;
   const totalDelay = late.reduce((sum, row) => sum + row.late_minutes!, 0);
   return {
@@ -35,6 +37,7 @@ export function attendanceSummary(allRows: AttendanceRow[]) {
     late: late.length,
     onLeave: rows.filter((row) => row.status === "on_leave").length,
     workFromHome: rows.filter((row) => row.status === "work_from_home").length,
+    siteVisit: rows.filter((row) => row.status === "site_visit").length,
     absent: rows.filter((row) => row.status === "absent").length,
     awaiting: rows.filter((row) => row.status === "awaiting_scan").length,
     review: rows.filter((row) => row.status === "needs_review").length,

@@ -50,3 +50,8 @@
   .inventory-history .issue-company-table > thead th:first-child,.inventory-history .issue-company-table > tbody > tr:not(.issue-expanded-row) > td:first-child { position:sticky; left:0; background:var(--surface); z-index:2; }
   .inventory-history .issue-company-table > thead th:first-child { z-index:4; background:var(--surface-raised); }
 }
+/* Dark mode: status pills keep their colour family but stay readable. */
+:root:not(.light-theme) .inventory-history .issue-status-packing { background:color-mix(in oklab,#f59e0b 16%,var(--surface)); color:#fcd34d; }
+:root:not(.light-theme) .inventory-history .issue-status-transit,
+:root:not(.light-theme) .inventory-history .issue-status-in-transit { background:color-mix(in oklab,#3b82f6 16%,var(--surface)); color:#93c5fd; }
+:root:not(.light-theme) .inventory-history .issue-status-delivered { background:color-mix(in oklab,#10b981 16%,var(--surface)); color:#6ee7b7; }

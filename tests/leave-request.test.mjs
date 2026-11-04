@@ -28,8 +28,12 @@ test('Hardik has no leave section or review capability while attendance and othe
   assert.equal(canAccessLeave(null),false);
 });
 test('calendar decision colors distinguish approved leave/WFH, rejections and pending dates',()=>{
-  assert.match(requestCalendarStyle('leave','approved').tone,/violet/);
-  assert.match(requestCalendarStyle('wfh','approved').tone,/indigo/);
+  // Approved leave/WFH are green; approved site visits are teal; accepted late justifications read "Late justified".
+  assert.match(requestCalendarStyle('leave','approved').tone,/green/);
+  assert.match(requestCalendarStyle('wfh','approved').tone,/green/);
+  assert.match(requestCalendarStyle('site_visit','approved').tone,/teal/);
+  assert.equal(requestCalendarStyle('site_visit','approved').label,'Site visit approved');
+  assert.equal(requestCalendarStyle('late_justified','approved').label,'Late justified');
   for(const kind of ['leave','wfh']){
     assert.match(requestCalendarStyle(kind,'rejected').tone,/rose/);
     assert.match(requestCalendarStyle(kind,'pending').tone,/amber/);
@@ -50,7 +54,7 @@ test('calendar analytics distinguish approved WFH/leave from pending or rejected
     {date:'2026-10-06',status:'scheduled',working_day:true,request_status:'rejected'},
     {date:'2026-10-07',status:'off_day',working_day:false},
   ];
-  const summary=calendarSummary(days,'2026-10-05');
+  const summary=calendarSummary(days,'2026-10-05','2026-10-01');
   assert.equal(summary.office,2);assert.equal(summary.wfh,1);assert.equal(summary.leave,1);
   assert.equal(summary.absent,0);assert.equal(summary.late,1);assert.equal(summary.working,6);
   assert.equal(summary.completed,3);assert.equal(summary.expected,4);
@@ -76,4 +80,12 @@ test('invalid dates and descriptions produce actionable validation errors',()=>{
   assert.throws(()=>prepareLeaveSubmission({...input,to:'2026-10-25'},today),/end date/);
   assert.throws(()=>prepareLeaveSubmission({...input,to:'2027-02-01'},today),/91 calendar days/);
   assert.throws(()=>prepareLeaveSubmission({...input,description:'  abc  '},today),/5 and 1800/);
+});
+
+test('site visits submit to the site-visit endpoint and count as completed workdays',()=>{
+  const r=prepareLeaveSubmission({requestType:'site_visit',from:'2026-10-26',to:'2026-10-26',category:'',description:'Vision Enviro, Raikhad — panel install'},today);
+  assert.equal(r.name,'attendance_submit_my_site_visit');
+  assert.equal(r.args._category,undefined);
+  const summary=calendarSummary([{date:'2026-10-20',status:'site_visit',working_day:true}],'2026-10-21','2026-10-01');
+  assert.equal(summary.siteVisit,1);assert.equal(summary.completed,1);
 });

@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { Button, Card, Input, Select } from "@/components/ui-kit";
 import { dateLabel } from "@/lib/device-attendance";
-import { requestTypeLabel, arrivalTimeLabel } from "@/lib/leave-request";
+import { requestTypeLabel, requestTypeTone, arrivalTimeLabel } from "@/lib/leave-request";
 import type { LeaveRequest } from "./LeaveWorkspace";
 
 type Decision = "pending" | "approved" | "rejected";
@@ -88,7 +88,8 @@ export function LeaveReviewTable({
               <option value="all">All request types</option>
               <option value="leave">Leave</option>
               <option value="wfh">Work from home</option>
-              <option value="late">Late / half-day arrival</option>
+              <option value="late">Late arrival / justification</option>
+              <option value="site_visit">Site visit</option>
             </Select>
           </div>
           <div className="flex items-center gap-2 text-xs text-text-secondary">
@@ -164,10 +165,17 @@ export function LeaveReviewTable({
                         </th>
                         <td className="px-4 py-3">
                           <span
-                            className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-medium ${request.request_type === "wfh" ? "bg-violet/10 text-violet" : "bg-lime/10 text-lime"}`}
+                            className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold ${requestTypeTone(request.request_type, request.kind)}`}
                           >
-                            {requestTypeLabel(request.request_type, request.is_half_day)}
+                            {requestTypeLabel(request.request_type, request.is_half_day, request.kind)}
                           </span>
+                          {request.kind === "justification" && (
+                            <p className="mt-1.5 text-[11px] leading-4 text-text-secondary">
+                              Accept = full day
+                              <br />
+                              (no half-day cut)
+                            </p>
+                          )}
                         </td>
                         <td className="px-4 py-3">
                           <p className="whitespace-nowrap text-xs text-text-primary">
@@ -177,9 +185,20 @@ export function LeaveReviewTable({
                             )}
                           </p>
                           <p className="mt-1 text-xs text-text-secondary">
-                            {request.request_type === "late"
-                              ? `Expected: ${arrivalTimeLabel(request.expected_arrival)}`
-                              : `${days.length} ${days.length === 1 ? "day" : "days"}`}
+                            {request.kind === "justification" ? (
+                              <>
+                                Arrived {arrivalTimeLabel(request.expected_arrival)}
+                                {request.late_minutes ? (
+                                  <span className="ml-1 font-semibold text-amber-700 dark:text-amber-300">
+                                    · {request.late_minutes} min late
+                                  </span>
+                                ) : null}
+                              </>
+                            ) : request.request_type === "late" ? (
+                              `Expected: ${arrivalTimeLabel(request.expected_arrival)}`
+                            ) : (
+                              `${days.length} ${days.length === 1 ? "day" : "days"}`
+                            )}
                           </p>
                         </td>
                         <td className="max-w-64 px-4 py-3">
@@ -189,11 +208,22 @@ export function LeaveReviewTable({
                           >
                             {request.reason}
                           </p>
-                          {request.request_type === "late" && (
+                          {request.kind === "justification" && request.tags?.length ? (
+                            <div className="mt-1.5 flex flex-wrap gap-1">
+                              {request.tags.map((tag) => (
+                                <span
+                                  key={tag}
+                                  className="rounded-full border border-border bg-surface-raised px-2 py-0.5 text-[10.5px] font-semibold text-text-primary"
+                                >
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                          ) : request.request_type === "late" ? (
                             <p className="mt-1 text-xs font-medium text-text-primary">
                               {request.category}
                             </p>
-                          )}
+                          ) : null}
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 text-xs text-text-secondary">
                           {new Date(request.created_at).toLocaleDateString("en-IN", {
