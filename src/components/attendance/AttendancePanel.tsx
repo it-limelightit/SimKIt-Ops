@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import {
   CalendarDays,
@@ -28,6 +28,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useDeviceAttendance } from "@/hooks/use-device-attendance";
+import { MonthlyAttendanceRegister } from "./MonthlyAttendanceRegister";
+import { OfficeAttendanceSettings } from "./OfficeAttendanceSettings";
 import {
   attendanceFunction,
   attendanceRpc,
@@ -39,7 +41,6 @@ import {
   type AttendanceRow,
   type Employee,
   type Leave,
-  type Settings,
 } from "@/lib/device-attendance";
 import { AttendanceOverview } from "./AttendanceOverview";
 import { attendanceReviewExplanation } from "@/lib/attendance-review";
@@ -137,7 +138,7 @@ export function AttendancePanel() {
       : indiaDate();
   });
   const { board, error, loading, reload } = useDeviceAttendance(date);
-  const [tab, setTab] = useState<"daily" | "users" | "leave">("daily");
+  const [tab, setTab] = useState<"daily" | "monthly" | "users" | "leave">("daily");
   useEffect(() => {
     if (requestedTab === "leave" && leaveAllowed) setTab("leave");
   }, [requestedTab, leaveAllowed]);
@@ -151,6 +152,7 @@ export function AttendancePanel() {
   const [employeeOpen, setEmployeeOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [officeSaving, setOfficeSaving] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [review, setReview] = useState<{ leave: Leave; decision: string } | null>(null);
   const [activeChange, setActiveChange] = useState<Employee | null>(null);
@@ -256,6 +258,7 @@ export function AttendancePanel() {
   const deviceState = board?.device.state || "unknown";
   function chooseTab(value: typeof tab) {
     if (value === "leave" && !leaveAllowed) return;
+    if (value === "monthly" && !tarunReviewer) return;
     setTab(value);
     setStatus("all");
     setSearch("");
@@ -435,10 +438,11 @@ export function AttendancePanel() {
         {(
           [
             ["daily", "Daily attendance", CalendarDays],
+            ["monthly", "Monthly calendar", CalendarDays],
             ["users", "Employees", Users],
             ["leave", "Leave requests", Clock3],
           ] as const
-        ).filter(([key]) => key !== "leave" || leaveAllowed).map(([key, label, Icon]) => (
+        ).filter(([key]) => (key !== "leave" || leaveAllowed) && (key !== "monthly" || tarunReviewer)).map(([key, label, Icon]) => (
           <button
             key={key}
             type="button"
@@ -461,6 +465,9 @@ export function AttendancePanel() {
           </button>
         ))}
       </nav>
+      {tab === "monthly" && tarunReviewer && board && (
+        <MonthlyAttendanceRegister employees={board.employees} />
+      )}
       {tab === "leave" && leaveAllowed && <section>
         <LeaveWorkspace embedded />
         <Button variant="ghost" size="sm" className="mt-3" aria-expanded={showOtherLeaveRecords} aria-controls="other-attendance-leave-records" onClick={() => setShowOtherLeaveRecords((visible) => !visible)}>{showOtherLeaveRecords ? "Hide" : "Show"} other attendance leave records <ChevronRight size={14} className={showOtherLeaveRecords ? "rotate-90" : ""} /></Button>
@@ -578,7 +585,7 @@ export function AttendancePanel() {
           ))}
         </div>
       )}
-      {(tab !== "leave" || showOtherLeaveRecords) && <Card id={tab === "leave" ? "other-attendance-leave-records" : undefined} className="overflow-hidden rounded-xl p-0">
+      {tab !== "monthly" && (tab !== "leave" || showOtherLeaveRecords) && <Card id={tab === "leave" ? "other-attendance-leave-records" : undefined} className="overflow-hidden rounded-xl p-0">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
           <div>
             <h2 className="text-base font-semibold">
@@ -1191,21 +1198,24 @@ export function AttendancePanel() {
       <Dialog
         open={settingsOpen}
         onOpenChange={(open) => {
-          if (!busy) setSettingsOpen(open);
+          if (!busy && !officeSaving) setSettingsOpen(open);
         }}
       >
-        <DialogContent className="attendance-dialog max-h-[90vh] overflow-y-auto">
+        <DialogContent className="attendance-dialog attendance-office-settings max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Office attendance settings</DialogTitle>
+            <DialogTitle>Office attendance</DialogTitle>
             <DialogDescription>
-              Changes apply to new records. Existing entry policies remain preserved.
+              Manage office holidays, vacations, and your weekly schedule.
             </DialogDescription>
           </DialogHeader>
           {settingsOpen && (
-            <SettingsForm
+            <OfficeAttendanceSettings
               current={board?.settings || null}
               busy={busy}
-              submit={(input) =>
+              onSavingChange={setOfficeSaving}
+              staffCount={(board?.employees || []).filter(employee => employee.active).length}
+              onChange={reload}
+              saveSchedule={(input) =>
                 act(async () => {
                   await attendanceRpc("attendance_save_settings", input);
                   setSettingsOpen(false);
@@ -1481,89 +1491,6 @@ function EmployeeForm({
       )}
         </>
       )}
-    </form>
-  );
-}
-function SettingsForm({
-  current,
-  busy,
-  submit,
-}: {
-  current: Settings | null;
-  busy: boolean;
-  submit: (input: Record<string, unknown>) => Promise<void>;
-}) {
-  const [start, setStart] = useState(current?.shift_start.slice(0, 5) || "10:00");
-  const [grace, setGrace] = useState(current?.grace_minutes ?? 15);
-  const [days, setDays] = useState(current?.working_days ?? [1, 2, 3, 4, 5]);
-  const [holidays, setHolidays] = useState(current?.holidays.join(", ") || "");
-  function save(e: FormEvent) {
-    e.preventDefault();
-    const dates = holidays
-      .split(",")
-      .map((d) => d.trim())
-      .filter(Boolean);
-    if (dates.some((d) => !/^\d{4}-\d{2}-\d{2}$/.test(d))) {
-      toast.error("Enter holidays as YYYY-MM-DD, separated by commas.");
-      return;
-    }
-    if (!days.length) {
-      toast.error("Select at least one working day.");
-      return;
-    }
-    void submit({ _start: start, _grace: grace, _cutoff: null, _days: days, _holidays: dates });
-  }
-  return (
-    <form onSubmit={save} className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="Office start (IST)">
-          <Input type="time" required value={start} onChange={(e) => setStart(e.target.value)} />
-        </Field>
-        <Field label="Grace minutes">
-          <Input
-            type="number"
-            required
-            min={0}
-            max={120}
-            value={grace}
-            onChange={(e) => setGrace(Number(e.target.value))}
-          />
-        </Field>
-      </div>
-      <fieldset>
-        <legend className="mb-2 text-sm text-text-secondary">Confirm working days</legend>
-        <div className="flex flex-wrap gap-3">
-          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((label, i) => (
-            <label key={label} className="flex gap-1 text-xs">
-              <input
-                type="checkbox"
-                checked={days.includes(i)}
-                onChange={(e) =>
-                  setDays(e.target.checked ? [...days, i] : days.filter((d) => d !== i))
-                }
-              />
-              {label}
-            </label>
-          ))}
-        </div>
-      </fieldset>
-      <Field label="Holidays (YYYY-MM-DD, comma separated)">
-        <Input
-          value={holidays}
-          onChange={(e) => setHolidays(e.target.value)}
-          placeholder="2026-10-20, 2026-12-25"
-        />
-      </Field>
-      <p className="text-xs text-text-secondary">
-        A working day stays awaiting scan until midnight IST. If no valid face scan is recorded
-        during that day, it is marked absent. Approved leave, WFH, holidays and off days are exempt.
-        Late minutes are measured after office start plus the grace period. Needs review means a
-        scan time is unverified after a connection or device-clock issue, a scan conflicts with approved leave, its lateness cannot be calculated, or office settings
-        are unavailable for that date.
-      </p>
-      <Button type="submit" disabled={busy} className="w-full">
-        Save settings
-      </Button>
     </form>
   );
 }

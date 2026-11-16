@@ -78,7 +78,7 @@ export function ManagerExpenseReview({
           .reduce((sum, c) => sum + Number(c.amount), 0),
       };
     })
-    .sort((a, b) => b.awaiting.length - a.awaiting.length || a.name.localeCompare(b.name));
+    .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
   const person = groups.find((g) => g.id === owner);
   const scope = person ? person.rows : sent;
   const awaitingTotal = scope
@@ -353,7 +353,7 @@ export function ManagerExpenseReview({
             </thead>
             <tbody>
               {[...person.rows]
-                .sort((a, b) => a.expense_date.localeCompare(b.expense_date))
+                .sort((a, b) => Number(b.amount) - Number(a.amount) || a.expense_date.localeCompare(b.expense_date))
                 .map((c) => {
                   const reapplied = reapplications.get(c.id);
                   return (
