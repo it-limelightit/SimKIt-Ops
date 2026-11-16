@@ -11,6 +11,7 @@ const files = [
   "src/components/attendance/AttendancePanel.tsx",
   "src/hooks/use-device-attendance.ts",
   "src/lib/device-attendance.ts",
+  "src/lib/office-off-days.ts",
   "src/lib/attendance-review.ts",
   "src/components/field-operations/FieldAttendanceCalendar.tsx",
   "src/components/field-operations/FieldOperations.tsx",

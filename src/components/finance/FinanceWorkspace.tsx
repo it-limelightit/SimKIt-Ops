@@ -57,6 +57,7 @@ import {
 } from "@/lib/finance";
 import { SalaryPanel, FieldFinancePanel } from "./SalaryPanel";
 import { FieldIncentiveDirectory } from "./FieldIncentiveDirectory";
+import { SettledCompanyPayments } from "./SettledCompanyPayments";
 import { ManagerExpenseReview } from "./ManagerExpenseReview";
 import { ExpenseReceipt } from "./ExpenseReceipt";
 import { downloadFinanceBackup, downloadStatement } from "./finance-export";
@@ -778,6 +779,12 @@ export function FinanceWorkspace({
                         confirm={confirm}
                         reload={reload}
                         events={board.events}
+                      />
+                    )}
+                    {person.user.field && (
+                      <SettledCompanyPayments
+                        key={`settled:${person.user.id}`}
+                        associateId={person.user.id}
                       />
                     )}
                   </>

@@ -48,6 +48,12 @@ export default defineConfig({
   nitro: process.env.VERCEL ? { preset: "vercel" } : {},
   vite: {
     base: "/",
+    // Standalone UI previews in this workspace must not replace the app's optimized dependencies.
+    cacheDir: "node_modules/.vite/simkit-ops",
+    optimizeDeps: {
+      // Discover the command palette before lazy routes request it and trigger re-optimization.
+      include: ["cmdk"],
+    },
     server: {
       watch: {
         ignored: [

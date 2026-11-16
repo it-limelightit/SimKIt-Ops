@@ -57,6 +57,7 @@ import {
   type VisitType,
 } from "@/lib/field-operations";
 import logoUrl from "../../../public/brand/simkit-mark.png";
+import { SettledCompanyPayments } from "@/components/finance/SettledCompanyPayments";
 import { FieldVisitScheduler } from "@/components/field-visit-scheduler/FieldVisitScheduler";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -1238,6 +1239,7 @@ export function AssociateEarnings() {
       </h1>
       <p className="text-text-secondary">Earn incentives through approved commissioning.</p>
       <EarningsView board={state.board} associate={associate} reload={state.reload} />
+      <SettledCompanyPayments associateId={associate.id} own />
     </div>
   );
 }

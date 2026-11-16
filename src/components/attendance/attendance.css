@@ -17,10 +17,38 @@
 }
 
 .attendance-dialog input:focus-visible,
-.attendance-dialog select:focus-visible {
+.attendance-dialog select:focus-visible,
+.attendance-dialog textarea:focus-visible {
   border-color: var(--lime);
   outline: 2px solid color-mix(in srgb, var(--lime) 20%, transparent);
   outline-offset: 1px;
+}
+
+.attendance-office-settings {
+  width: min(680px, calc(100vw - 24px));
+  max-width: 680px;
+  border-radius: 20px;
+  background: var(--surface);
+  padding: 24px;
+  gap: 20px;
+  overscroll-behavior: contain;
+}
+
+.attendance-office-settings input[type="date"],
+.attendance-office-settings input[type="time"] {
+  color-scheme: dark;
+}
+
+.light-theme .attendance-office-settings input[type="date"],
+.light-theme .attendance-office-settings input[type="time"] {
+  color-scheme: light;
+}
+
+@media (max-width: 480px) {
+  .attendance-office-settings {
+    padding: 20px 16px;
+    border-radius: 16px;
+  }
 }
 
 .attendance-dialog > button:first-child {
