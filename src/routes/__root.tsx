@@ -19,6 +19,7 @@ import { installStaleBuildRecovery, isStaleBuildError, reloadForNewBuild } from 
 // Recover tabs left on an old build after a deployment (missing chunk files).
 installStaleBuildRecovery();
 import { OfflineBanner } from "@/components/OfflineBanner";
+import { PaymentAlerts } from "@/components/PaymentAlerts";
 import { ImpersonationBanner } from "@/components/staff/ImpersonateUser";
 
 function NotFoundComponent() {
@@ -160,6 +161,7 @@ function RootComponent() {
       <ImpersonationBanner />
       <OfflineBanner />
       <Outlet />
+      <PaymentAlerts />
       <Toaster
         position="bottom-right"
         toastOptions={{

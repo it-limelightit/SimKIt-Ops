@@ -1,0 +1,56 @@
+import {test,expect} from '@playwright/test';
+import {readFile} from 'node:fs/promises';
+test('global payment alerts retain seen reminders and require confirmation to resolve',async({page})=>{
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ let status='open';let paid=0;const calls=[];
+ const {browserHash}=JSON.parse(await readFile('node_modules/.vite/simkit-ops/deps/_metadata.json','utf8'));
+ await page.route('**/src/lib/auth-store.ts*',r=>r.fulfill({contentType:'application/javascript',body:`export const useAuth=()=>window.__paymentAuth;`}));
+ await page.route('**/src/integrations/supabase/client.ts*',r=>r.fulfill({contentType:'application/javascript',body:`export const supabase={rpc:async(name,args)=>{const r=await fetch('/__payment-rpc',{method:'POST',body:JSON.stringify({name,args})});return {data:await r.json(),error:null};}};`}));
+ await page.route('**/__payment-rpc',async route=>{
+  const {name,args}=route.request().postDataJSON();calls.push(name);
+  if(name==='set_payment_alert_status'){status=args._action;if(status==='paid')paid++;await route.fulfill({json:null});return;}
+  const alert={id:'alert-one',subject:'Contabo: Payment missing - Avoid service suspension and data loss! Act now!',preview:'Please pay your invoice.',received_at:new Date().toISOString(),status,seen_by_email:status==='open'?null:'tarun@limelightit.io',paid_by_email:status==='paid'?'tarun@limelightit.io':null,paid_at:status==='paid'?new Date().toISOString():null};
+  await route.fulfill({json:{active:status==='paid'?[]:[alert],history:status==='paid'?[alert]:[],monitor:{mailbox:'it@limelightit.io',last_checked_at:new Date().toISOString()}}});
+ });
+ await page.route('**/__payment-ui',r=>r.fulfill({contentType:'text/html',body:`<!doctype html><html><head><meta charset="utf-8"></head><body><main id="root"></main><script type="module">
+ import RefreshRuntime from '/@react-refresh';RefreshRuntime.injectIntoGlobalHook(window);window.$RefreshReg$=()=>{};window.$RefreshSig$=()=>type=>type;window.__vite_plugin_react_preamble_installed__=true;
+ const ReactModule=await import('/node_modules/.vite/simkit-ops/deps/react.js?v=${browserHash}');const React=ReactModule.default||ReactModule;
+ const Dom=await import('/node_modules/.vite/simkit-ops/deps/react-dom_client.js?v=${browserHash}');const {createRoot}=Dom.default||Dom;
+ const {QueryClient,QueryClientProvider}=await import('/node_modules/.vite/simkit-ops/deps/@tanstack_react-query.js?v=${browserHash}');
+ await import('/src/styles.css');const {PaymentAlerts}=await import('/src/components/PaymentAlerts.tsx');
+ const root=createRoot(document.getElementById('root'));const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ window.__paymentAuth={ready:true,userId:'tarun-id',email:'tarun@limelightit.io'};
+ window.__renderPayment=()=>root.render(React.createElement(QueryClientProvider,{client},React.createElement(PaymentAlerts)));
+ window.__renderPayment();
+ </script></body></html>`}));
+ await page.goto('/__payment-ui');
+ const redButton=page.getByRole('button',{name:'Payment alerts: 1 unpaid. Action required'});
+ await expect(redButton).toBeVisible();await expect(redButton).toHaveClass(/bg-red-700/);
+ const tint=page.getByTestId('payment-alert-tint');
+ await expect(tint).toBeVisible();
+ expect(await tint.evaluate(el=>getComputedStyle(el).pointerEvents)).toBe('none');
+ expect(await tint.evaluate(el=>getComputedStyle(el).animationName)).toBe('payment-alert-breathe');
+ expect(await page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue('--bg').trim())).toBe('#fee2e2');
+ expect(await page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue('--surface').trim())).toBe('#fff1f2');
+ const bounds=await tint.boundingBox();const viewport=page.viewportSize();
+ expect(bounds.width).toBe(viewport.width);expect(bounds.height).toBe(viewport.height);
+ await page.emulateMedia({reducedMotion:'reduce'});
+ expect(await tint.evaluate(el=>getComputedStyle(el).animationName)).toBe('none');
+ await page.screenshot({path:'.tmp/payment-alerts-browser/full-page-warning.png',fullPage:true});
+ await redButton.click();await page.getByRole('button',{name:'Mark as seen',exact:true}).click();
+ await expect(page.getByText('Seen by tarun@limelightit.io')).toBeVisible();expect(status).toBe('seen');expect(paid).toBe(0);
+ await expect(tint).toBeVisible();
+ await page.getByRole('button',{name:'Payment completed',exact:true}).click();expect(paid).toBe(0);
+ await page.getByRole('button',{name:'Confirm payment completed',exact:true}).click();
+ await expect(page.getByText('No active payment alerts.')).toBeVisible();expect(paid).toBe(1);
+ await expect(tint).toHaveCount(0);
+ expect(await page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue('--bg').trim())).not.toBe('#fee2e2');
+ await page.getByRole('tab',{name:'History'}).click();await expect(page.getByText(/Payment confirmed by tarun/)).toBeVisible();
+ await page.getByRole('button',{name:'Close',exact:true}).click();
+ await page.setViewportSize({width:390,height:844});await expect(page.getByRole('button',{name:'Payment alerts',exact:true})).toBeVisible();
+ await page.screenshot({path:'.tmp/payment-alerts-browser/payment-history.png',fullPage:true});
+ const before=calls.length;
+ await page.evaluate(()=>{window.__paymentAuth={ready:true,userId:'other-id',email:'other@example.com'};window.__renderPayment();});
+ await expect(page.getByRole('button',{name:'Payment alerts',exact:true})).toHaveCount(0);expect(calls.length).toBe(before);
+ expect(errors).toEqual([]);
+});

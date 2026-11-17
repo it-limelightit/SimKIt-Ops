@@ -590,3 +590,46 @@ select option {
 :root:not(.light-theme) body:not(:has(.employee-portal)) :is(.text-black) {
   color: var(--primary-fg);
 }
+
+/* Payment warnings recolour the actual app surfaces, including the sidebar/cards. */
+@media screen {
+  :root:has(.payment-alert-tint) {
+    --bg: #fee2e2;
+    --surface: #fff1f2;
+    --surface-raised: #fecdd3;
+    --border: #fca5a5;
+    --border-bright: #f87171;
+    --text-primary: #450a0a;
+    --text-secondary: #7f1d1d;
+    --text-dim: #9f4a4a;
+  }
+
+  :root:has(.payment-alert-tint) :is(.bg-white, .bg-slate-50, .bg-gray-50, .bg-slate-100, .bg-gray-100) {
+    background-color: var(--surface);
+  }
+}
+
+/* Gentle extra pulse over the light-red theme; never intercepts clicks. */
+.payment-alert-tint {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+  background: rgb(248 113 113);
+  box-shadow: inset 0 0 120px 24px rgb(220 38 38 / 30%);
+  opacity: 0.1;
+  animation: payment-alert-breathe 5s ease-in-out infinite;
+}
+
+@keyframes payment-alert-breathe {
+  0%, 100% { opacity: 0.07; }
+  50% { opacity: 0.16; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .payment-alert-tint { animation: none; }
+}
+
+@media print {
+  .payment-alert-tint, .payment-alert-banner { display: none; }
+}
