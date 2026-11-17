@@ -65,6 +65,10 @@ test('company-name lookup is scoped to the approved parent and refuses duplicate
   const folder = (id, name) => ({ id, name, mimeType: 'application/vnd.google-apps.folder' });
   const read = files => async () => ({ json: async () => ({ files }) });
   assert.equal(await resolveCompanyRoot('Acme Pvt Ltd', {}, 'parent', read([folder('acme', 'ACME Pvt. Ltd.')])), 'acme');
+  assert.equal(await resolveCompanyRoot('M/S PRISM COLOUR COATS', {}, 'parent', read([folder('prism', 'PRISM COLOUR COATS')])), 'prism');
+  assert.equal(await resolveCompanyRoot('PRISM COLOUR COATS', {}, 'parent', read([folder('prism', 'm / s PRISM COLOUR COATS')])), 'prism');
+  await assert.rejects(resolveCompanyRoot('MS PRISM COLOUR COATS', {}, 'parent', read([folder('prism', 'PRISM COLOUR COATS')])), /missing/);
+  await assert.rejects(resolveCompanyRoot('M/S PRISM COLOUR COATS', {}, 'parent', read([folder('a', 'PRISM COLOUR COATS'), folder('b', 'M/S PRISM COLOUR COATS')])), /ambiguous/);
   await assert.rejects(resolveCompanyRoot('Acme Pvt Ltd', {}, 'parent', read([folder('a', 'Acme Pvt Ltd'), folder('b', 'Acme Pvt Ltd')])), /ambiguous/);
   await assert.rejects(resolveCompanyRoot('Acme Pvt Ltd', {}, 'parent', read([folder('other', 'Other Company')])), /missing/);
 });

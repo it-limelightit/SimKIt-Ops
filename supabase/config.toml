@@ -27,3 +27,7 @@ verify_jwt = false
 # Verifies the user JWT and site access inside the handler; never approves commissioning.
 [functions.commissioning-drive-check]
 verify_jwt = false
+
+# Authenticates Google Apps Script payloads with timestamped HMAC signatures.
+[functions.payment-email-ingest]
+verify_jwt = false

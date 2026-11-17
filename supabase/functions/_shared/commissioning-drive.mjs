@@ -3,6 +3,8 @@ const FOLDER = 'application/vnd.google-apps.folder';
 const SHORTCUT = 'application/vnd.google-apps.shortcut';
 const FILE_FIELDS = 'id,name,mimeType,size,modifiedTime,version,md5Checksum,parents,videoMediaMetadata,trashed,resourceKey,shortcutDetails(targetId,targetMimeType,targetResourceKey)';
 const normalize = value => String(value ?? '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+// M/S is a business salutation, not part of the company folder name.
+const companyName = value => normalize(String(value ?? '').normalize('NFKC').trim().replace(/^m\s*\/\s*s\.?\s+/i, ''));
 const validId = value => typeof value === 'string' && /^[\w-]+$/.test(value);
 const letterName = name => /commission|commision|commison|comission|comision|certificate|letter|latter/.test(normalize(name).replaceAll(' ', ''));
 const mediaName = name => /\b(media|photos?|photographs?|images?|videos?|clips?)\b/.test(normalize(name));
@@ -52,9 +54,9 @@ export async function findCompanyRoot(company, mapping, parentId, request) {
     return target.id;
   }
   if (!validId(parentId)) throw new Error('Configure the parent Drive folder containing company folders');
-  const names = [company, ...(mapping.certificate_policy?.company_aliases ?? [])].map(normalize).filter(Boolean);
+  const names = [company, ...(mapping.certificate_policy?.company_aliases ?? [])].map(companyName).filter(Boolean);
   // Ignore unrelated shortcuts in the shared parent. Resolve only company-name matches.
-  const candidates = (await listDriveFolder(parentId, request, 2000)).filter(file => [FOLDER,SHORTCUT].includes(file.mimeType) && names.includes(normalize(file.name)));
+  const candidates = (await listDriveFolder(parentId, request, 2000)).filter(file => [FOLDER,SHORTCUT].includes(file.mimeType) && names.includes(companyName(file.name)));
   const matches = new Set();
   for (const candidate of candidates) {
     const {target}=await resolveShortcut(candidate,request);

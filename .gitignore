@@ -61,6 +61,7 @@ integrations/aiface-attendance-receiver/*.sqlite*
 # Local attendance adapter queue and command state contain employee metadata.
 integrations/attendance-mqtt-bridge/*.sqlite*
 .tmp/
+!docs/PAYMENT_ALERT_SETUP.md
 # Downloaded full database exports contain Auth data/password hashes.
 /bucket-database_export_*-files.zip
 /site-docs-export.zip
