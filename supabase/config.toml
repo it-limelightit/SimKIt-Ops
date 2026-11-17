@@ -23,3 +23,7 @@ verify_jwt = false
 # HR validates the session and the dedicated HR permission inside the handler.
 [functions.hr-employee-account]
 verify_jwt = false
+
+# Verifies the user JWT and site access inside the handler; never approves commissioning.
+[functions.commissioning-drive-check]
+verify_jwt = false

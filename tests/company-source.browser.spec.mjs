@@ -6,8 +6,8 @@ const locality='00000000-0000-4000-8000-000000000031';
 function site(id,name,source,status='Submitted'){
  return {id,name,company_name:name,...(source?{company_source:source}:{}),city:'Ahmedabad',district_id:district,locality_id:locality,address:'Factory Road',assigned_worker_id:worker,assigned_at:'2026-10-01T10:00:00Z',created_at:'2026-10-01T10:00:00Z',consultant_stage:status==='Submitted'?'Completion':null,task_notes:`[METADATA:${JSON.stringify({status,worker_ids:[worker]})}]`};
 }
-async function mock(page){
- const user={id:'00000000-0000-4000-8000-000000000001',email:'manager@example.test',role:'authenticated',aud:'authenticated',email_confirmed_at:'2026-01-01T00:00:00Z',app_metadata:{provider:'email'},user_metadata:{}};
+async function mock(page,email='manager@example.test'){
+ const user={id:'00000000-0000-4000-8000-000000000001',email,role:'authenticated',aud:'authenticated',email_confirmed_at:'2026-01-01T00:00:00Z',app_metadata:{provider:'email'},user_metadata:{}};
  const token=[Buffer.from('{"alg":"HS256"}').toString('base64url'),Buffer.from(JSON.stringify({sub:user.id,exp:Math.floor(Date.now()/1000)+3600,aud:'authenticated',role:'authenticated'})).toString('base64url'),'signature'].join('.');
  await page.addInitScript(({user,token})=>{sessionStorage.setItem('sb-finance-test-auth-token',JSON.stringify({access_token:token,refresh_token:'test',expires_at:Math.floor(Date.now()/1000)+3600,expires_in:3600,token_type:'bearer',user}));localStorage.setItem('themeMode','light');},{user,token});
  const sites=[site('npc-1','NPC One','npc'),site('npc-2','NPC Two','npc','Not Started Yet'),site('legacy-1','Legacy NPC',undefined),site('lead-1','Sales Lead One','lead'),site('lead-2','Sales Lead Two','lead','Not Started Yet')];
@@ -88,5 +88,13 @@ test('Add Site saves a lead source and shows NPC assessor fields only for NPC',a
  await expect(page.getByLabel('Company source *')).toHaveValue('lead');
  await page.getByRole('button',{name:'Save Details',exact:true}).click();
  await expect.poll(()=>writes.length).toBe(2);expect(writes[1].company_source).toBe('lead');
+ expect(errors).toEqual([]);
+});
+
+test('manager overview no longer offers manual commissioning request review',async({page})=>{
+ const {errors}=await mock(page,'nitsanghani1@gmail.com');await page.goto('/manager');
+ await expect(page.getByRole('heading',{name:'Overview',exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:/View Commissioning Requests/})).toHaveCount(0);
+ await expect(page.getByRole('heading',{name:'Pending Commissioning Requests'})).toHaveCount(0);
  expect(errors).toEqual([]);
 });
