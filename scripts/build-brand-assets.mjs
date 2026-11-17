@@ -1,4 +1,4 @@
-﻿// Build browser/export variants from the transparent logo; retain image copy.png as the original.
+// Build browser/export variants from the canonical transparent logo in public/brand.
 import { readFile, writeFile } from "node:fs/promises";
 
 const original = await readFile(new URL("../public/brand/simkit-mark.png", import.meta.url));

@@ -204,7 +204,6 @@ export function Overview() {
   const [rawInstallations, setRawInstallations] = useState<any[]>([]);
   const [rawCommissionings, setRawCommissionings] = useState<any[]>([]);
   const commissioningWorkDates = useCommissioningWorkDates();
-  const [rawCommissioningApprovalRequests, setRawCommissioningApprovalRequests] = useState<any[]>([]);
   const [rawProfiles, setRawProfiles] = useState<any[]>([]);
   const [rawMaterials, setRawMaterials] = useState<any[]>([]);
   const [rawActivityLogs, setRawActivityLogs] = useState<any[]>([]);
@@ -240,9 +239,6 @@ export function Overview() {
   const [clientShareEmail, setClientShareEmail] = useState("");
   const [generatedLink, setGeneratedLink] = useState("");
   const [sendingEmail, setSendingEmail] = useState(false);
-  const [showCommissioningRequests, setShowCommissioningRequests] = useState(false);
-  const [reviewingCommissioningRequestId, setReviewingCommissioningRequestId] = useState<string | null>(null);
-  const canReviewCommissioningRequests = ["nitsanghani1@gmail.com", "info@limelightit.io"].includes((email || "").toLowerCase());
 
   useEffect(() => {
     if (!consultantSiteId) return;
@@ -511,7 +507,7 @@ export function Overview() {
     setLoading(true);
     setLoadError(false);
     try {
-      const [sitesRes, assessmentsRes, installationsRes, commissioningsRes, approvalRequestsRes, profilesRes, materialsRes, rolesRes, activityLogsRes, districtRes] = await Promise.all([
+      const [sitesRes, assessmentsRes, installationsRes, commissioningsRes, profilesRes, materialsRes, rolesRes, activityLogsRes, districtRes] = await Promise.all([
         supabase
           .from("sites")
           .select("id,name,company_name,company_source,city,district_id,address,assigned_worker_id,assigned_at,appt_date,appt_time,created_at,task_notes,consultant_stage")
@@ -519,7 +515,6 @@ export function Overview() {
         supabase.from("assessment").select("data,updated_at,site_id"),
         supabase.from("installation").select("data,updated_at,site_id"),
         supabase.from("commissioning").select("data,updated_at,site_id"),
-        supabase.from("commissioning_approval_requests").select("id,site_id,requested_by,drive_link,status,requested_at"),
         supabase.from("profiles").select("id,name,mobile,is_active").order("created_at"),
         supabase
           .from("inventory_materials")
@@ -543,7 +538,6 @@ export function Overview() {
       setRawAssessments(assessmentsRes.data ?? []);
       setRawInstallations(installationsRes.data ?? []);
       setRawCommissionings(commissioningsRes.data ?? []);
-      setRawCommissioningApprovalRequests(approvalRequestsRes.data ?? []);
       setRawProfiles(profilesRes.data ?? []);
       setRawMaterials(materialsRes.data ?? []);
       setRawActivityLogs(activityLogsRes.data ?? []);
@@ -852,27 +846,6 @@ export function Overview() {
     if (!authReady || !userId) return;
     void loadData();
   }, [authReady, userId]);
-
-  const reviewCommissioningRequest = async (requestId: string, approved: boolean) => {
-    setReviewingCommissioningRequestId(requestId);
-    const { error } = await supabase.rpc("review_commissioning_approval_request", {
-      _request_id: requestId,
-      _approved: approved,
-    });
-    setReviewingCommissioningRequestId(null);
-    if (error) {
-      toast.error(error.message || "Could not review the commissioning request.");
-      return;
-    }
-    toast.success(approved ? "Commissioning approved." : "Commissioning request rejected.");
-    const request = rawCommissioningApprovalRequests.find((item) => item.id === requestId);
-    const site = rawSites.find((item) => item.id === request?.site_id);
-    if (approved && site) {
-      await updateSiteStatus(site.id, "Commissioned", site.task_notes, undefined, getSiteWorkerIds(site));
-      return;
-    }
-    await loadData();
-  };
 
   // Process data rows
   const executives = rawProfiles.filter((p) => workerIds.has(p.id));
@@ -2207,10 +2180,6 @@ export function Overview() {
     },
   ];
 
-  const pendingCommissioningRequests = canReviewCommissioningRequests
-    ? rawCommissioningApprovalRequests.filter((request) => request.status === "pending" && sourceSites.some((site) => site.id === request.site_id))
-    : [];
-
   return (
     <div className="manager-overview space-y-5 md:-mt-8">
       {addingAssessorSite && (
@@ -2231,17 +2200,6 @@ export function Overview() {
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <LeaveRequestsButton />
-          {canReviewCommissioningRequests && (
-            <Button
-              onClick={async () => {
-                await loadData();
-                setShowCommissioningRequests(true);
-              }}
-              className="w-full sm:w-auto"
-            >
-              View Commissioning Requests ({pendingCommissioningRequests.length})
-            </Button>
-          )}
         </div>
       </header>
 
@@ -2276,7 +2234,6 @@ export function Overview() {
                   setSelectedKpi("assigned");
                   setCurrentPage(1);
                   setConsultantSiteId(null);
-                  setShowCommissioningRequests(false);
                 }}
                 className={`min-w-20 rounded-lg px-4 py-2 text-sm font-bold transition-colors ${selectedSource === source.value ? "bg-lime text-primary-foreground shadow-sm" : "text-text-secondary hover:bg-surface hover:text-text-primary"}`}>
                 {source.label}
@@ -3099,57 +3056,6 @@ export function Overview() {
                 </div>
               </div>
             )}
-          </div>
-        )}
-
-        {showCommissioningRequests && canReviewCommissioningRequests && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-3xl overflow-hidden rounded-xl border border-border bg-surface shadow-2xl">
-              <div className="flex items-center justify-between border-b border-border bg-surface-raised/40 px-6 py-4">
-                <div>
-                  <h3 className="text-lg font-bold text-text-primary">Pending Commissioning Requests</h3>
-                  <p className="text-xs text-text-secondary">Only upcoming commissioning requests awaiting your decision are shown.</p>
-                </div>
-                <button
-                  onClick={() => setShowCommissioningRequests(false)}
-                  className="rounded-md border border-border bg-surface p-1 text-text-secondary transition-colors hover:text-text-primary"
-                  aria-label="Close commissioning requests"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-              <div className="max-h-[70vh] overflow-y-auto p-5">
-                {pendingCommissioningRequests.length === 0 ? (
-                  <p className="py-10 text-center text-sm text-text-secondary">No pending commissioning requests.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {pendingCommissioningRequests.map((request) => {
-                      const requestSite = rawSites.find((site) => site.id === request.site_id);
-                      const requester = rawProfiles.find((profile) => profile.id === request.requested_by);
-                      const isReviewing = reviewingCommissioningRequestId === request.id;
-                      return (
-                        <div key={request.id} className="rounded-lg border border-border bg-surface-raised/25 p-4">
-                          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                            <div className="min-w-0 space-y-1">
-                              <h4 className="font-bold text-text-primary">{requestSite?.company_name || requestSite?.name || "Upcoming company"}</h4>
-                              <p className="text-xs text-text-secondary">Field Associate: {requester?.name || requester?.mobile || "—"}</p>
-                              <p className="text-xs text-text-secondary">Requested: {new Date(request.requested_at).toLocaleString()}</p>
-                              <a href={request.drive_link} target="_blank" rel="noreferrer" className="block break-all text-sm text-lime underline">
-                                View Google Drive link
-                              </a>
-                            </div>
-                            <div className="flex shrink-0 gap-2">
-                              <Button disabled={isReviewing} onClick={() => void reviewCommissioningRequest(request.id, true)}>Approve</Button>
-                              <Button disabled={isReviewing} variant="danger" onClick={() => void reviewCommissioningRequest(request.id, false)}>Reject</Button>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
           </div>
         )}
 
