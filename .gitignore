@@ -42,6 +42,7 @@ dist-ssr
 !docs/HR-Hiring-Discussion.md
 !docs/HR-HIRING-DEPLOYMENT.md
 !docs/firmware-inventory.md
+!docs/device-testing.md
 !docs/COMMISSIONING_AUTOMATION_PROPOSAL.md
 !docs/COMMISSIONING_UI_SETUP.md
 !integrations/commissioning-verifier/README.md
@@ -61,6 +62,8 @@ integrations/aiface-attendance-receiver/*.sqlite*
 # Local attendance adapter queue and command state contain employee metadata.
 integrations/attendance-mqtt-bridge/*.sqlite*
 .tmp/
+# Local factory test captures contain device and network details.
+/factory_uart.csv
 !docs/PAYMENT_ALERT_SETUP.md
 # Downloaded full database exports contain Auth data/password hashes.
 /bucket-database_export_*-files.zip
