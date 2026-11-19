@@ -3,7 +3,14 @@ process.env.PW_TEST_SCREENSHOT_NO_FONTS_READY = "1";
 
 async function fixture(
   page,
-  { manager = false, firmware = true, failure = false, held = false, longText = false } = {},
+  {
+    manager = false,
+    firmware = true,
+    failure = false,
+    held = false,
+    longText = false,
+    deviceTests,
+  } = {},
 ) {
   const user = {
     id: "00000000-0000-4000-8000-000000000001",
@@ -90,7 +97,14 @@ async function fixture(
     else if (name === "attendance_my_account")
       data = { id: user.id, name: "Firmware Engineer", enroll_id: "1001", active: true };
     else if (name === "firmware_inventory_access") data = firmware;
-    else if (name === "firmware_inventory_data") {
+    else if (name === "device_test_devices" && deviceTests) {
+      const args = req.postDataJSON();
+      calls.push({ name, args });
+      data = args._search === "missing" ? [] : [deviceTests.device];
+    } else if (name === "device_test_history" && deviceTests) {
+      calls.push({ name, args: req.postDataJSON() });
+      data = deviceTests.history;
+    } else if (name === "firmware_inventory_data") {
       calls.push({ name, args: req.postDataJSON() });
       if (fail) {
         fail = false;
@@ -137,12 +151,111 @@ async function fixture(
   if (firmware || manager)
     await page
       .getByRole("button", {
-        name: manager ? "Firmware Inventory History" : "Inventory Own",
+        name: deviceTests
+          ? "Device Testing"
+          : manager
+            ? "Firmware Inventory History"
+            : "Inventory Own",
         exact: true,
       })
       .click();
   return { calls, errors };
 }
+
+test("Device Testing lets managers filter checkpoints and inspect earlier attempts", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 960 });
+  const mac = "020000000001";
+  const latest = {
+    id: "pass",
+    received_at: "2026-11-19T06:01:00Z",
+    tested_at: "2026-11-19T06:00:00Z",
+    report: {
+      existing_id: "DM-200",
+      session: "session-1",
+      test_fw: "1.0.0",
+      overall: "PASS",
+      duration_s: 32,
+      steps: { mqtt: "PASS", vibration: "SKIP" },
+    },
+  };
+  const prior = {
+    id: "fail",
+    received_at: "2026-11-19T05:00:00Z",
+    tested_at: null,
+    report: {
+      ...latest.report,
+      existing_id: "DM-OLD",
+      overall: "FAIL",
+      steps: { mqtt: "PASS", encoder: "FAIL" },
+      notes: { encoder: "No edges on channel B" },
+      readings: { encoder_counts: 1 },
+    },
+  };
+  const { calls, errors } = await fixture(page, {
+    manager: true,
+    deviceTests: {
+      device: {
+        mac,
+        dm_id: "DM-200",
+        overall: "PASS",
+        test_fw: "1.0.0",
+        tested_at: latest.tested_at,
+        received_at: latest.received_at,
+        run_count: 2,
+      },
+      history: [latest, prior],
+    },
+  });
+  const device = page.getByRole("button", { name: /DM-200.*2 runs/ });
+  await expect(page.getByRole("heading", { name: "Select a device" })).toBeVisible();
+  await device.click();
+  await expect(device).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "0 failed" })).toBeDisabled();
+  const skipped = page.getByRole("button", { name: "1 skipped" });
+  await skipped.click();
+  await expect(skipped).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByText("Vibration", { exact: true })).toBeVisible();
+  await expect(page.getByText("MQTT", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Show all checkpoints" }).click();
+  await expect(page.getByText("MQTT", { exact: true })).toBeVisible();
+  const previousRun = page.getByRole("button", { name: /Received.*IST.*FAIL/ });
+  await previousRun.click();
+  await expect(previousRun).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByText("No edges on channel B")).toBeVisible();
+  await expect(page.getByText("DM-OLD")).toBeVisible();
+  await expect(page.getByRole("button", { name: "1 failed" })).toBeEnabled();
+  expect(calls.find((call) => call.name === "device_test_history").args._mac).toBe(mac);
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(previousRun).toHaveAttribute("aria-pressed", "true");
+  await page.screenshot({
+    path: ".tmp/firmware-inventory-browser/device-testing-desktop.png",
+    fullPage: true,
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole("searchbox")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Back to devices" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page.screenshot({
+    path: ".tmp/firmware-inventory-browser/device-testing-mobile.png",
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Back to devices" }).click();
+  await expect(device).toBeFocused();
+  await device.press("Enter");
+  await expect(page.getByLabel("Device test details")).toBeFocused();
+  await page.getByRole("button", { name: "Back to devices" }).click();
+  await page.getByRole("searchbox").fill("missing");
+  await expect(page.getByText("No devices match your search.")).toBeVisible();
+  await page.getByRole("button", { name: "Clear search" }).click();
+  await expect(device).toBeVisible();
+  await expect(page.getByRole("searchbox")).toBeFocused();
+  expect(errors).toEqual([]);
+});
 
 test("firmware employee saves testing inventory and makes partial then full returns", async ({
   page,

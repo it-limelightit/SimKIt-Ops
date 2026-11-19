@@ -31,3 +31,7 @@ verify_jwt = false
 # Authenticates Google Apps Script payloads with timestamped HMAC signatures.
 [functions.payment-email-ingest]
 verify_jwt = false
+
+# Firmware authenticates with a dedicated ingest secret inside the handler.
+[functions.device-test-ingest]
+verify_jwt = false

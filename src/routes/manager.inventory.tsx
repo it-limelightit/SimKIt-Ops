@@ -3,6 +3,7 @@ import { InventoryStockPanel } from "@/components/inventory/InventoryStockPanel"
 import { AssociateExtraInventory } from "@/components/inventory/AssociateExtraInventory";
 import { InventoryHistoryPanel } from "@/components/inventory/InventoryHistoryPanel";
 import { FirmwareInventory } from "@/components/inventory/FirmwareInventory";
+import { DeviceTestingPanel } from "@/components/inventory/DeviceTestingPanel";
 import { Button } from "@/components/ui-kit";
 import { useState } from "react";
 
@@ -13,7 +14,9 @@ export const Route = createFileRoute("/manager/inventory")({
 });
 
 function ManagerInventoryPage() {
-  const [tab, setTab] = useState<"stock" | "history" | "associates" | "firmware">("stock");
+  const [tab, setTab] = useState<"stock" | "history" | "associates" | "firmware" | "testing">(
+    "stock",
+  );
   return (
     <div className="min-w-0 space-y-5">
       <div className="grid min-w-0 grid-cols-1 gap-2 border-b border-border pb-3 sm:grid-cols-2 xl:flex xl:flex-wrap [&>button]:min-w-0 [&>button]:whitespace-normal">
@@ -45,6 +48,13 @@ function ManagerInventoryPage() {
         >
           Firmware Inventory History
         </Button>
+        <Button
+          variant={tab === "testing" ? "primary" : "secondary"}
+          onClick={() => setTab("testing")}
+          aria-pressed={tab === "testing"}
+        >
+          Device Testing
+        </Button>
       </div>
       {tab === "stock" ? (
         <InventoryStockPanel />
@@ -52,6 +62,8 @@ function ManagerInventoryPage() {
         <InventoryHistoryPanel />
       ) : tab === "firmware" ? (
         <FirmwareInventory manager />
+      ) : tab === "testing" ? (
+        <DeviceTestingPanel />
       ) : (
         <AssociateExtraInventory manager />
       )}
