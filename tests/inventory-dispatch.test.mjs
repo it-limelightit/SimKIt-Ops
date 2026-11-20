@@ -396,6 +396,34 @@ test("Packing shortage rolls back stock and status atomically", async () => {
   assert.equal(await scalar("SELECT inventory_dispatch_notes(notes)->>'logistics_status' FROM inventory_materials WHERE id=$1", [id]), null);
 });
 
+test("scoped Logistics operators can update courier status and deduct stock once", async () => {
+  await activatePacking();
+  const logisticsOperator = "00000000-0000-4000-8000-000000000003";
+  await db.query("INSERT INTO profiles(id) VALUES($1)", [logisticsOperator]);
+  await db.exec(`CREATE FUNCTION public.has_scoped_manager_module(module text)
+    RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT module='logistic' AND auth.uid()='${logisticsOperator}'::uuid $$`);
+  const sql = migration("20261120133000_scoped_logistics_dispatch.sql")
+    .replace(/^BEGIN;\s*/, "").replace(/COMMIT;\s*$/, "");
+  await db.exec(sql);
+  await db.exec(sql);
+
+  const id = await packingOrder();
+  await asUser(worker);
+  await db.exec("SAVEPOINT ordinary_worker");
+  await assert.rejects(dispatch(id, "Packing"), /Inventory manager access required/);
+  await db.exec("ROLLBACK TO SAVEPOINT ordinary_worker");
+  assert.equal(await quantity("SIM CARD"), 100);
+
+  await asUser(logisticsOperator);
+  await dispatch(id, "Packing");
+  await dispatch(id, "Transit");
+  await dispatch(id, "Delivered");
+  assert.equal(await scalar("SELECT inventory_dispatch_notes(notes)->>'logistics_status' FROM inventory_materials WHERE id=$1", [id]), "Delivered");
+  assert.equal(await scalar("SELECT actor_id FROM inventory_dispatch_deductions WHERE order_id=$1", [id]), logisticsOperator);
+  assert.equal(await quantity("SIM CARD"), 99);
+  assert.equal(await scalar("SELECT count(*)::int FROM inventory_dispatch_deductions WHERE order_id=$1", [id]), 1);
+});
+
 test("Packing requires a manager and saved DM uplink; sensor-only orders do not require uplink", async () => {
   await activatePacking();
   const id = await order();
