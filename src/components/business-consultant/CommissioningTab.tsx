@@ -438,7 +438,7 @@ export function CommissioningTab({ siteId, workerId, hiddenSections, onSubmit, o
               approved: "Commissioned successfully." }[verification.status]}
           </p>
           {!detectedDriveLink && verification.photo_count != null && <p className="text-sm">Photos: {verification.photo_count} · Videos: {verification.video_count ?? 0}
-            {verification.video_average_seconds != null && ` · Average video: ${verification.video_average_seconds.toFixed(1)} seconds`}</p>}
+            {verification.video_total_seconds != null && ` · Total video: ${verification.video_total_seconds.toLocaleString("en", { maximumFractionDigits: 6 })} seconds`}</p>}
         </Card>
       )}
 

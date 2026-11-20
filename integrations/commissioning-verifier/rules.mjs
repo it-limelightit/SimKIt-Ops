@@ -1,9 +1,10 @@
-export const RULE_VERSION = 'media-average-v1';
+export const RULE_VERSION = 'media-total-v2';
+export const LEGACY_RULE_VERSION = 'media-average-v1';
 export const normalize = value => String(value ?? '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 export const contains = (text, phrase) => Boolean(normalize(phrase)) && ` ${normalize(text)} `.includes(` ${normalize(phrase)} `);
 
 
-export function evaluateMedia(files) {
+export function evaluateMedia(files, ruleVersion = RULE_VERSION) {
   const messages = [];
   const unique = new Map();
   for (const file of files) {
@@ -15,13 +16,19 @@ export function evaluateMedia(files) {
   const videos = [...unique.values()].filter(file => file.kind === 'video');
   const durations = videos.map(file => file.duration_seconds);
   const known = durations.every(duration => typeof duration === 'number' && Number.isFinite(duration) && duration > 0);
-  const average = known && videos.length ? durations.reduce((sum, duration) => sum + duration, 0) / videos.length : null;
+  // FFprobe reports durations to microsecond precision. Sum integer microseconds at the boundary.
+  const total = known ? durations.reduce((sum, duration) => sum + Math.round(duration * 1e6), 0) / 1e6 : null;
+  const average = total !== null && videos.length ? total / videos.length : null;
   if (photos.length < 4) messages.push(`Upload at least 4 unique readable photos; found ${photos.length}.`);
-  if (videos.length < 4) messages.push(`Upload at least 4 unique readable video clips; found ${videos.length}.`);
   if (!known) messages.push('A video duration could not be verified.');
-  if (average !== null && average < 120) messages.push(`Average video duration is ${average.toFixed(1)} seconds; at least 120 seconds is required.`);
+  if (ruleVersion === LEGACY_RULE_VERSION) {
+    if (videos.length < 4) messages.push(`Upload at least 4 unique readable video clips; found ${videos.length}.`);
+    if (average !== null && average < 120) messages.push('Video clips must average at least 120 seconds.');
+  } else if (total !== null && total < 120) {
+    messages.push('Upload readable video clips totaling at least 120 seconds.');
+  }
   return { passed: messages.length === 0, photo_count: photos.length, video_count: videos.length,
-    video_average_seconds: average, messages };
+    video_total_seconds: total, video_average_seconds: average, messages };
 }
 
 export function evaluateCertificate(text, company, policy, logoMatched, requestStamp) {

@@ -43,12 +43,12 @@ test('UI receives actionable missing-secret setup information without changing b
   assert.equal(data.messages.length,2);assert.equal(h.writes.length,0);
   assert.match(data.messages[0],/GOOGLE_SERVICE_ACCOUNT_JSON/);
 });
-test('UI precheck reads real handler paths, discovers root letter and reports average without approving',async()=>{
+test('UI precheck reads real handler paths, discovers root letter and reports total without approving',async()=>{
   const keys=await webcrypto.subtle.generateKey({name:'RSASSA-PKCS1-v1_5',modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},true,['sign','verify']);
   const key=Buffer.from(await webcrypto.subtle.exportKey('pkcs8',keys.privateKey)).toString('base64');
   const credential=JSON.stringify({client_email:'reader@example.iam.gserviceaccount.com',private_key:`-----BEGIN PRIVATE KEY-----\n${key}\n-----END PRIVATE KEY-----`});
   const media=[...Array.from({length:4},(_,i)=>({id:`p${i}`,name:`photo${i}.jpg`,mimeType:'image/jpeg',md5Checksum:`p${i}`})),
-    ...[60,120,120,180].map((s,i)=>({id:`v${i}`,name:`clip${i}.mp4`,mimeType:'video/mp4',md5Checksum:`v${i}`,videoMediaMetadata:{durationMillis:String(s*1000)}}))];
+    ...[45,75].map((s,i)=>({id:`v${i}`,name:`clip${i}.mp4`,mimeType:'video/mp4',md5Checksum:`v${i}`,videoMediaMetadata:{durationMillis:String(s*1000)}}))];
   const tree={parent:[{id:'company',name:'Acme Pvt Ltd',mimeType:'application/vnd.google-apps.folder'}],company:[{id:'media',name:'Media',mimeType:'application/vnd.google-apps.folder'},{id:'letter',name:'Commissioning Letter.pdf',mimeType:'application/pdf'}],media};
   const h=handler({env:{GOOGLE_SERVICE_ACCOUNT_JSON:credential,GOOGLE_DRIVE_COMPANIES_ROOT_ID:'parent'},fetch:async input=>{
     if(String(input).includes('oauth2.googleapis.com'))return Response.json({access_token:'temporary-google-token'});
@@ -56,8 +56,8 @@ test('UI precheck reads real handler paths, discovers root letter and reports av
     const parent=url.searchParams.get('q').match(/^'([^']+)'/)[1];return Response.json({files:tree[parent]});
   }});
   const response=await h.call();const data=await response.json();
-  assert.equal(data.status,'checked');assert.equal(data.photo_count,4);assert.equal(data.video_count,4);
-  assert.equal(data.video_average_seconds,120);assert.equal(data.certificate_count,1);
+  assert.equal(data.status,'checked');assert.equal(data.photo_count,4);assert.equal(data.video_count,2);
+  assert.equal(data.video_total_seconds,120);assert.equal(data.certificate_count,1);
   assert.equal(data.certificate_ocr_status,'not_run');assert.equal(data.read_only,true);
   assert.deepEqual(h.writes.map(write=>write.name),['reserve_commissioning_drive_check']);
   const automatic=await (await h.call({site_id:siteId,action:'commission'})).json();
@@ -76,9 +76,37 @@ test('UI precheck reads real handler paths, discovers root letter and reports av
 });
 test('precheck does not round short durations up or count identical uploaded copies',()=>{
   const groups={photo:Array.from({length:4},(_,i)=>({id:`p${i}`,md5Checksum:i<2?'duplicate':`p${i}`})),
-    video:Array.from({length:4},(_,i)=>({id:`v${i}`,md5Checksum:`v${i}`,videoMediaMetadata:{durationMillis:'119999'}})),certificate:[{name:'letter'}]};
+    video:[{id:'video',md5Checksum:'clip',videoMediaMetadata:{durationMillis:'119999'}},
+      {id:'copy',md5Checksum:'clip',videoMediaMetadata:{durationMillis:'119999'}}],certificate:[{name:'letter'}]};
   const result=core.summarizeDriveEvidence(groups);
-  assert.equal(result.photo_count,3);assert.equal(result.media_precheck_passed,false);assert.equal(result.video_average_seconds,119.999);
+  assert.equal(result.photo_count,3);assert.equal(result.video_count,1);
+  assert.equal(result.media_precheck_passed,false);assert.equal(result.video_total_seconds,119.999);
+});
+
+test('counts photos next to a company-named PDF and videos in the company folder', async () => {
+  const photos = Array.from({ length: 4 }, (_, index) => ({
+    id: `photo-${index}`, name: `ab41b66a-23d2-4f40-9801-00000000000${index}.jpg`,
+    mimeType: 'image/jpeg', md5Checksum: `photo-hash-${index}`,
+  }));
+  const videos = [77913, 69744, 44117].map((duration, index) => ({
+    id: `clip-${index}`, name: `clip-${index}.mp4`, mimeType: 'video/mp4',
+    md5Checksum: `video-hash-${index}`, videoMediaMetadata: { durationMillis: String(duration) },
+  }));
+  const letter = { id: 'pdf', name: 'Jalaram industries .pdf', mimeType: 'application/pdf' };
+  const files = [...photos, ...videos, letter];
+  const request = async () => Response.json({ files });
+  const result = core.summarizeDriveEvidence(await core.discoverCompanyEvidence('company', request));
+  assert.equal(result.photo_count, 4);
+  assert.equal(result.video_count, 3);
+  assert.equal(result.video_total_seconds, 191.774);
+  assert.equal(result.certificate_count, 1);
+  assert.deepEqual(result.certificates, [{ name: letter.name }]);
+  assert.equal(result.media_precheck_passed, true);
+
+  files.push({ id: 'scan', name: 'Commissioning Letter.jpg', mimeType: 'image/jpeg' });
+  const withScan = await core.discoverCompanyEvidence('company', request);
+  assert.equal(withScan.photo.length, 4);
+  assert.deepEqual(withScan.certificate.map(file => file.id), ['pdf', 'scan']);
 });
 
 test('Google error reasons distinguish disabled API, scope, sharing and quota without leaking raw bodies',()=>{

@@ -2,7 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
-import { evaluateMedia, evaluateCertificate } from '../integrations/commissioning-verifier/rules.mjs';
+import { RULE_VERSION, LEGACY_RULE_VERSION, evaluateMedia, evaluateCertificate } from '../integrations/commissioning-verifier/rules.mjs';
 import { findLogoMatch } from '../integrations/commissioning-verifier/logo-match.mjs';
 import { listFolder, manifest, discoverEvidence, resolveCompanyRoot } from '../integrations/commissioning-verifier/worker.mjs';
 
@@ -10,17 +10,24 @@ const media = durations => [
   ...Array.from({ length: 4 }, (_, i) => ({ kind: 'photo', sha256: `p${i}`, valid: true })),
   ...durations.map((duration_seconds, i) => ({ kind: 'video', sha256: `v${i}`, valid: true, duration_seconds })),
 ];
-test('four clips averaging exactly two minutes pass even with individually short clips', () => {
-  assert.equal(evaluateMedia(media([60, 120, 120, 180])).passed, true);
-  assert.equal(evaluateMedia(media([119.9, 119.9, 119.9, 119.9])).passed, false);
-  assert.equal(evaluateMedia(media([120, 120, 120, 120, 120, 120])).passed, true);
+test('one or more clips totaling at least two minutes pass', () => {
+  assert.equal(evaluateMedia(media([120])).passed, true);
+  assert.equal(evaluateMedia(media([35.124, 44.117, 40.759])).video_total_seconds, 120);
+  assert.equal(evaluateMedia(media([35.124, 44.117, 40.759])).passed, true);
+  assert.equal(evaluateMedia(media([60, 59.999999])).passed, false);
+  assert.equal(evaluateMedia(media([])).passed, false);
+  assert.equal(evaluateMedia(media([120]), LEGACY_RULE_VERSION).passed, false);
+  assert.equal(evaluateMedia(media([120, 120, 120, 120]), LEGACY_RULE_VERSION).passed, true);
 });
 test('copies, missing duration and unreadable files cannot inflate evidence counts', () => {
-  const files = media([120, 120, 120, 120]);
+  const files = media([60, 60]);
   files[0].sha256 = files[1].sha256;
-  assert.equal(evaluateMedia(files).photo_count, 3);
+  files[4].sha256 = files[5].sha256;
+  const duplicates = evaluateMedia(files);
+  assert.equal(duplicates.photo_count, 3);
+  assert.equal(duplicates.video_total_seconds, 60);
   assert.equal(evaluateMedia(media([120, 120, 120, null])).passed, false);
-  const corrupt = media([120, 120, 120, 120]); corrupt[4].valid = false;
+  const corrupt = media([60, 60]); corrupt[4].valid = false;
   assert.equal(evaluateMedia(corrupt).passed, false);
 });
 
@@ -178,6 +185,8 @@ before(async () => {
   await db.exec(readFileSync(new URL('../supabase/migrations/20261116123000_commissioning_drive_ui_check.sql', import.meta.url), 'utf8'));
   await db.exec(readFileSync(new URL('../supabase/migrations/20261117120000_automatic_commissioning_flow.sql', import.meta.url), 'utf8'));
   await db.exec(readFileSync(new URL('../supabase/migrations/20261117123000_automatic_commissioning_decision_guard.sql', import.meta.url), 'utf8'));
+  await db.exec(readFileSync(new URL('../supabase/migrations/20261120120000_commissioning_video_total.sql', import.meta.url), 'utf8'));
+  await db.exec(readFileSync(new URL('../supabase/migrations/20261120123000_commissioning_rejected_retry.sql', import.meta.url), 'utf8'));
 });
 after(() => db.close());
 
@@ -221,10 +230,21 @@ test('automatic finalizer requires policy and media, preserves other dates, is i
   await db.query(`INSERT INTO commissioning_drive_folders(site_id,root_folder_id,certificate_policy)
     VALUES($1,'root',$2)`, [id(14), policy]);
   const payload = await scalar('SELECT claim_commissioning_verification()');
-  const report = { status: 'passed', rule_version: 'media-average-v1', folders: payload.folders,
-    photo_count: 4, video_count: 4, video_average_seconds: 120, certificate_passed: true, manifest_rechecked: true };
-  await assert.rejects(db.query('SELECT finish_commissioning_verification($1,$2,$3)', [payload.job.id, payload.job.lease_token, { ...report, video_average_seconds: 119.99 }]), /mismatch/);
+  assert.equal(payload.job.rule_version, RULE_VERSION);
+  const report = { status: 'passed', rule_version: RULE_VERSION, folders: payload.folders,
+    photo_count: 4, video_count: 2, video_total_seconds: 120, video_average_seconds: 60, certificate_passed: true, manifest_rechecked: true };
+  for (const invalid of [{ video_total_seconds: 119.999999 }, { video_total_seconds: undefined }, { video_total_seconds: 'NaN' }, { video_count: 0 }]) {
+    await assert.rejects(db.query('SELECT finish_commissioning_verification($1,$2,$3)',
+      [payload.job.id, payload.job.lease_token, { ...report, ...invalid }]), /mismatch/);
+  }
   assert.equal(await scalar('SELECT finish_commissioning_verification($1,$2,$3)', [payload.job.id, payload.job.lease_token, report]), 'passed');
+  await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)", [user]);
+  try {
+    assert.equal((await scalar('SELECT my_commissioning_verification($1)', [id(14)])).video_total_seconds, 120);
+    assert.equal((await scalar('SELECT commissioning_verification_context($1)', [id(14)])).verification.video_total_seconds, 120);
+  } finally {
+    await db.query("SELECT set_config('request.jwt.claim.sub','',false)");
+  }
   assert.equal(await scalar('SELECT status FROM commissioning_approval_requests WHERE site_id=$1', [id(14)]), 'pending');
   // Explicitly enable approvals and resubmit; old shadow result cannot finalize by itself.
   await db.exec('UPDATE commissioning_verification_settings SET auto_approve=true');
@@ -280,7 +300,7 @@ test('single automatic action queues full checks and commissions once only after
   assert.deepEqual(await scalar('SELECT data FROM commissioning WHERE site_id=$1',[id(17)]),original,'Starting verification is not completion');
   const job=await scalar('SELECT claim_commissioning_verification()');
   assert.equal(job.job.id,started.job_id);
-  const report={status:'passed',rule_version:job.job.rule_version,folders:job.folders,photo_count:4,video_count:4,video_average_seconds:120,manifest_rechecked:true,certificate_passed:false};
+  const report={status:'passed',rule_version:job.job.rule_version,folders:job.folders,photo_count:4,video_count:1,video_total_seconds:120,manifest_rechecked:true,certificate_passed:false};
   await assert.rejects(db.query('SELECT finish_commissioning_verification($1,$2,$3)',[job.job.id,job.job.lease_token,report]),/mismatch/);
   assert.equal(await scalar("SELECT coalesce(data->>'commissioning_phase_submitted','false') FROM commissioning WHERE site_id=$1",[id(17)]),'false');
   report.certificate_passed=true;
@@ -319,6 +339,46 @@ test('manager decisions cannot bypass a pending automatic letter verification',a
   assert.equal(await scalar('SELECT status FROM commissioning_approval_requests WHERE site_id=$1',[id(20)]),'pending');
   await db.query("SELECT set_config('request.jwt.claim.role','service_role',false)");
   const claimed=await scalar('SELECT claim_commissioning_verification()');
-  const report={status:'passed',rule_version:claimed.job.rule_version,folders:claimed.folders,photo_count:4,video_count:4,video_average_seconds:120,manifest_rechecked:true,certificate_passed:true};
+  const report={status:'passed',rule_version:claimed.job.rule_version,folders:claimed.folders,photo_count:4,video_count:1,video_total_seconds:120,manifest_rechecked:true,certificate_passed:true};
   assert.equal(await scalar('SELECT finish_commissioning_verification($1,$2,$3)',[claimed.job.id,claimed.job.lease_token,report]),'approved');
+});
+
+test('a service-enrolled rejection can retry through full verification while other rejected sites stay protected', async () => {
+  for (const site of [24, 25]) {
+    await submit(site, '2026-10-01T00:00:00Z');
+    await db.query("UPDATE commissioning_approval_requests SET status='rejected',reviewed_at=requested_at,reviewed_by=$2 WHERE site_id=$1", [id(site), user]);
+    await db.query("INSERT INTO commissioning_verification_exclusions(site_id,reason) VALUES($1,'Historical request')", [id(site)]);
+  }
+  const rejected = await scalar('SELECT to_jsonb(r) FROM commissioning_approval_requests r WHERE site_id=$1', [id(24)]);
+  assert.equal(await scalar("SELECT has_function_privilege('authenticated','enroll_commissioning_rejected_retry(uuid)','EXECUTE')"), false);
+  await db.query('SELECT enroll_commissioning_rejected_retry($1)', [id(24)]);
+  await db.exec(readFileSync(new URL('../supabase/migrations/20261120123000_commissioning_rejected_retry.sql', import.meta.url), 'utf8'));
+  assert.deepEqual(await scalar('SELECT rejected_request FROM commissioning_rejected_retries WHERE site_id=$1', [id(24)]), rejected);
+  assert.deepEqual(await scalar('SELECT to_jsonb(r) FROM commissioning_approval_requests r WHERE site_id=$1', [id(24)]), rejected);
+  assert.equal(await scalar('SELECT commissioning_verification_blocked($1)', [id(25)]), true);
+  await db.query("INSERT INTO field_existing_completions VALUES($1,'commissioning')", [id(25)]);
+  await assert.rejects(db.query('SELECT enroll_commissioning_rejected_retry($1)', [id(25)]), /no previous commissioning completion/);
+
+  await db.query('SELECT activate_commissioning_verification()');
+  await db.exec('UPDATE commissioning_verification_settings SET auto_approve=true');
+  await db.query('SELECT commissioning_verification_heartbeat()');
+  await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)", [user]);
+  try {
+    const begin = site => scalar('SELECT start_automatic_commissioning($1,$2)', [id(site), 'https://drive.google.com/drive/folders/root']);
+    assert.equal((await begin(25)).status, 'historical');
+    const blocked = await begin(24);
+    assert.equal(blocked.status, 'setup_required');
+    assert.match(blocked.message, /letter/);
+    await db.query("INSERT INTO commissioning_drive_folders(site_id,root_folder_id,certificate_policy) VALUES($1,'root',$2)", [id(24), policy]);
+    const started = await begin(24);
+    assert.equal(started.status, 'queued');
+    const claimed = await scalar('SELECT claim_commissioning_verification()');
+    assert.equal(claimed.job.id, started.job_id);
+    const report = { status: 'passed', rule_version: RULE_VERSION, folders: claimed.folders,
+      photo_count: 4, video_count: 1, video_total_seconds: 120, certificate_passed: true, manifest_rechecked: true };
+    assert.equal(await scalar('SELECT finish_commissioning_verification($1,$2,$3)', [claimed.job.id, claimed.job.lease_token, report]), 'approved');
+    assert.deepEqual(await scalar('SELECT rejected_request FROM commissioning_rejected_retries WHERE site_id=$1', [id(24)]), rejected);
+  } finally {
+    await db.query("SELECT set_config('request.jwt.claim.sub','',false)");
+  }
 });

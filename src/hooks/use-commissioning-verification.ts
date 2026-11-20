@@ -16,7 +16,7 @@ export type CommissioningVerification = {
   messages: string[];
   photo_count?: number;
   video_count?: number;
-  video_average_seconds?: number;
+  video_total_seconds?: number | null;
 };
 
 // Opt-in after the migration is deployed; legacy installations make no new RPC calls.
