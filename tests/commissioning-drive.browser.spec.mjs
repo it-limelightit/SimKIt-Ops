@@ -24,8 +24,8 @@ test('Drive UI displays missing configuration and media results without invoking
     const input=route.request().postDataJSON();requests.push(input);
     await route.fulfill({json:requests.length===1
       ? {status:'setup_required',messages:['Add GOOGLE_SERVICE_ACCOUNT_JSON to Supabase Edge Function Secrets.'],read_only:true}
-      : requests.length===2 ? {status:'checked',messages:['At least 4 unique video clips are required; found 0.','Video duration metadata is unavailable. Retry after Drive finishes processing.','Read-only precheck complete. No status or dates were changed.'],photo_count:7,video_count:0,video_average_seconds:null,certificate_count:1,folder_url:'https://drive.google.com/drive/folders/company',read_only:true}
-      : {status:'checked',messages:['Read-only precheck complete. No status or dates were changed.'],photo_count:4,video_count:4,video_average_seconds:120,certificate_count:1,
+      : requests.length===2 ? {status:'checked',messages:['Upload video clips totaling at least 120 seconds.'],photo_count:4,video_count:3,video_total_seconds:119.999,certificate_count:1,folder_url:'https://drive.google.com/drive/folders/company',read_only:true}
+      : {status:'checked',messages:['Read-only precheck complete. No status or dates were changed.'],photo_count:4,video_count:1,video_total_seconds:120,certificate_count:1,
         ...(requests.length>=4?{commissioning_state:requests.length===4?'setup_required':requests.length===5?'queued':'approved',commissioning_message:'Commissioning letter verification needs setup.'}:{}),
         videos:[{name:'machine-demo.mp4',duration_seconds:120}],certificates:[{name:'Commissioning Letter.pdf'}],folder_url:'https://drive.google.com/drive/folders/company',read_only:true}});
   });
@@ -35,7 +35,9 @@ test('Drive UI displays missing configuration and media results without invoking
   await button.click();await expect(page.getByRole('alert')).toHaveText('Drive setup incomplete. Contact your manager.');
   await expect(page.getByText(/Add GOOGLE_SERVICE_ACCOUNT_JSON/)).toHaveCount(0);
   expect(await page.evaluate(()=>window.__detectedFolder)).toBeUndefined();
-  await button.click();await expect(page.getByRole('alert')).toHaveText('Upload at least four video clips.');
+  await button.click();await expect(page.getByRole('alert')).toHaveText('Upload video footage totaling at least 120 seconds.');
+  await expect(page.getByText('Photos: 4 · Videos: 3 · Letters: 1')).toBeVisible();
+  await expect(page.getByText('Total video: 119.999 seconds')).toBeVisible();
   const [red,green,blue]=await page.getByRole('alert').evaluate(element=>{
     const canvas=document.createElement('canvas');canvas.width=1;canvas.height=1;
     const context=canvas.getContext('2d');context.fillStyle=getComputedStyle(element).color;context.fillRect(0,0,1,1);
@@ -45,8 +47,8 @@ test('Drive UI displays missing configuration and media results without invoking
   await expect(page.getByText(/Video duration metadata is unavailable|Read-only precheck complete/)).toHaveCount(0);
   await page.screenshot({path:'.tmp/commissioning-ui-browser/short-video-error.png',fullPage:true});
   await button.click();await expect(page.getByRole('alert')).toHaveCount(0);
-  await expect(page.getByText('Photos: 4 · Videos: 4 · Letters: 1')).toBeVisible();
-  await expect(page.getByText('Average video: 120.0 seconds')).toBeVisible();
+  await expect(page.getByText('Photos: 4 · Videos: 1 · Letters: 1')).toBeVisible();
+  await expect(page.getByText('Total video: 120 seconds')).toBeVisible();
   await expect(page.getByText('Media checked. Letter approval still required.')).toBeVisible();
   expect(await page.evaluate(()=>window.__detectedFolder)).toBe('https://drive.google.com/drive/folders/company');
   expect(await page.evaluate(()=>window.__verificationStarted)).toBeUndefined();

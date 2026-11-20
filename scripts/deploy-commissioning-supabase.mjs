@@ -58,7 +58,7 @@ if (!historyPresent) await query(`CREATE TABLE IF NOT EXISTS public.commissionin
   ALTER TABLE public.commissioning_verification_migrations ENABLE ROW LEVEL SECURITY;
   REVOKE ALL ON public.commissioning_verification_migrations FROM PUBLIC,anon,authenticated;`);
 const applied = [];
-for (const [version, name] of [['20261116120000','commissioning_verification'], ['20261116123000','commissioning_drive_ui_check'],['20261117120000','automatic_commissioning_flow'],['20261117123000','automatic_commissioning_decision_guard']]) {
+for (const [version, name] of [['20261116120000','commissioning_verification'], ['20261116123000','commissioning_drive_ui_check'],['20261117120000','automatic_commissioning_flow'],['20261117123000','automatic_commissioning_decision_guard'],['20261120120000','commissioning_video_total'],['20261120123000','commissioning_rejected_retry']]) {
   const file = `supabase/migrations/${version}_${name}.sql`;
   const historyTable = historyPresent ? 'supabase_migrations.schema_migrations' : 'public.commissioning_verification_migrations';
   const existing = await query(`SELECT version FROM ${historyTable} WHERE version='${version}'`);

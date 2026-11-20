@@ -10,6 +10,8 @@ The local verification worker and free OCR/media tools are installed. This PC mu
 
 Local frontend preview: http://127.0.0.1:8080/. Frontend changes have not been published to the production website.
 
+For the total-duration update, run the updated verification worker before applying `20261120120000_commissioning_video_total.sql` and deploying `commissioning-drive-check`. Publish the updated frontend after the backend is available.
+
 ## Still required before a real approval
 
 Provide the approved completed-letter example, expected logo/letterhead and authorized names/designations. No trusted company letter policies have been supplied or invented. Until configured, the UI reports: Letter verification needs setup. Contact manager.
@@ -19,7 +21,7 @@ The authority check compares OCR text with approved names/designations. It does 
 ## UI flow
 
 1. Use a fresh eligible company and complete installation and the commissioning checklist.
-2. Keep at least four unique readable photos and four unique readable video clips inside the company folder. Average video duration must be at least two minutes. Keep one completed letter in its letter folder or company root.
+2. Keep at least four unique readable photos and at least 120 seconds of video across the unique readable clips inside the company folder. Keep one completed letter in its letter folder or company root.
 3. Select **Verify and commission**. The system finds the company folder by name; a manual Drive URL is unnecessary.
 4. The worker reads files directly from Drive, checks readable media and actual video duration, scans the letter, verifies configured fields and logo, then rechecks the evidence manifest.
 5. Only all checks passing permits automatic commissioning. Failure leaves the company uncommissioned and displays a short red message.

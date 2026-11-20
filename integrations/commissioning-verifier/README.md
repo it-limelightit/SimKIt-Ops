@@ -7,7 +7,7 @@ Deployment update (17 November 2026): automatic commissioning migrations and the
 ## Agreed media rules
 
 - At least **4 unique readable photos**. Four to five is the expected quantity; extra files are allowed.
-- At least **4 unique readable video clips**, with an **arithmetic mean duration of at least 120 seconds** across all qualifying unique clips. An individual clip can be shorter than two minutes. This supersedes the earlier proposal's per-video minimum assumption.
+- At least **120 seconds of video in total** across unique, readable clips. A single clip can meet the requirement.
 - Exact duplicate content counts once. Recompressed or cropped copies are not currently detected as duplicates.
 - Uses the company's existing root folder. Photos/videos are found inside Media/Photos/Videos folders, including nested folders. The letter may be in a commissioning-letter/certificate folder (common spelling variants accepted) or directly in the company root. Readable file/folder shortcuts are followed; unrelated parent shortcuts are ignored. Repeated target IDs count once, circular shortcuts fail clearly, and letter scans do not inflate photo counts.
 - Exactly one completed certificate, maximum five pages, accepted as PDF/JPEG/PNG/WebP. Word files must be saved as PDF first.
@@ -103,8 +103,10 @@ Place each approved logo crop at `<COMMISSIONING_REFERENCES_DIR>/<sha256>.png`; 
 
 There must be one unambiguous final certificate candidate across the company root and letter folders. Multiple candidates require correction; the verifier does not guess which is final. Root-level PDFs/scans are treated as possible letters, not site photos. Blank templates fail because actual approved person/role values and other required content must be read. Full OCR text is not stored by default; reports retain decision messages and a versioned Drive file manifest.
 
+When an authorized human has reviewed an original signed PDF with unreadable handwriting, a service operator can set that site's `reviewed_pdf_sha256` to the reviewed original's SHA-256 and enable `approved_for_automation`. The worker matches the exact PDF bytes and records the verification method and hash. Replacement files require ordinary letter verification or a fresh review. Media, Drive manifest and commissioning prerequisite checks still apply.
+
 ## Validation and outstanding setup
 
-Tests execute the actual migration in PGlite, the original legacy approval guard and actual earnings capture function. They cover old-record exclusions, new requests, stale worker results, the average-duration boundary, duplicates, missing durations, certificate mismatch/date checks, pagination, disabled automatic approval, service-only permissions, idempotent finalization and one earning.
+Tests execute the actual migration in PGlite, the original legacy approval guard and actual earnings capture function. They cover old-record exclusions, new requests, stale worker results, the total-duration boundary, duplicates, missing durations, certificate mismatch/date checks, pagination, disabled automatic approval, service-only permissions, idempotent finalization and one earning.
 
 Live Drive reads, OCR executables, PDF rendering and logo matching still need integration validation with actual credentials and files. No live Supabase migration, Google account configuration or production activation is performed by this implementation.

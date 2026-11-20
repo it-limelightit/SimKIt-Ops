@@ -15,7 +15,7 @@ type Result = {
   commissioning_message?: string;
   photo_count?: number;
   video_count?: number;
-  video_average_seconds?: number | null;
+  video_total_seconds?: number | null;
   certificate_count?: number;
   videos?: { name: string; duration_seconds: number | null }[];
   certificates?: { name: string }[];
@@ -44,20 +44,24 @@ function shortNotice(result: Result | null, error: string) {
       error: true,
     };
   if (result?.status === "checked") {
-    const photosMissing = (result.photo_count ?? 0) < 4;
-    const videosMissing = (result.video_count ?? 0) < 4;
-    let text = "";
-    if (photosMissing && videosMissing) text = "Upload four photos and four video clips.";
-    else if (photosMissing) text = "Upload at least four photos.";
-    else if (videosMissing) text = "Upload at least four video clips.";
-    else if (result.video_average_seconds == null)
-      text = "Video duration unavailable. Retry shortly.";
-    else if (result.video_average_seconds < 120) text = "Videos must average at least two minutes.";
-    else if (!result.certificate_count) text = "Upload the completed commissioning letter.";
-    else if (result.certificate_count > 1) text = "Keep only one final commissioning letter.";
-    else if (result.media_precheck_passed === false)
-      text = "Files need further verification before approval.";
-    return { text: text || "Media checked. Letter approval still required.", error: Boolean(text) };
+    const photosMissing = 4 - (result.photo_count ?? 0);
+    const messages = [];
+    if (photosMissing > 0)
+      messages.push(`Upload ${photosMissing} more photo${photosMissing === 1 ? "" : "s"}.`);
+    if (result.video_total_seconds == null) {
+      messages.push("Video duration unavailable. Retry shortly.");
+    } else if (result.video_total_seconds < 120) {
+      messages.push("Upload video footage totaling at least 120 seconds.");
+    }
+    if (!result.certificate_count) messages.push("Upload the completed commissioning letter.");
+    else if (result.certificate_count > 1)
+      messages.push("Keep only one final commissioning letter.");
+    if (messages.length === 0 && result.media_precheck_passed === false)
+      messages.push("Files need further verification before approval.");
+    return {
+      text: messages.join(" ") || "Media checked. Letter approval still required.",
+      error: messages.length > 0,
+    };
   }
   const details = [error, ...(result?.messages ?? [])].join(" ");
   const category = result?.diagnostic?.category;
@@ -177,8 +181,12 @@ export function CommissioningDriveCheck({
                 {current.certificate_count ?? 0}
               </p>
             )}
-            {current.video_average_seconds != null && (
-              <p>Average video: {current.video_average_seconds.toFixed(1)} seconds</p>
+            {current.video_total_seconds != null && (
+              <p>
+                Total video:{" "}
+                {current.video_total_seconds.toLocaleString("en", { maximumFractionDigits: 3 })}{" "}
+                seconds
+              </p>
             )}
           </>
         )}

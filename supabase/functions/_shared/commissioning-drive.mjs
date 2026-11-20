@@ -93,11 +93,11 @@ export async function discoverCompanyEvidence(rootId, request) {
         await walk(file.id, next, depth + 1);
       } else if (documentFile(file) && (context === 'letter' || names.some(letterName))) {
         add('certificate',file);
-      } else if (context === 'media') {
+      } else if (context === 'media' || depth === 0) {
         if (/^image\//.test(file.mimeType)) add('photo',file);
-        if (/^video\//.test(file.mimeType)) add('video',file);
-      } else if (depth === 0 && documentFile(file)) add('certificate',file);
-      else if (depth === 0 && /^video\//.test(file.mimeType)) add('video',file);
+        else if (/^video\//.test(file.mimeType)) add('video',file);
+        else if (depth === 0 && documentFile(file)) add('certificate',file);
+      }
     }
     active.delete(id);
   }
@@ -116,19 +116,19 @@ export function summarizeDriveEvidence(groups) {
   });
   const photos = unique(groups.photo);
   const videos = unique(groups.video);
-  const durations = videos.map(file => Number(file.videoMediaMetadata?.durationMillis) / 1000);
-  const durationKnown = durations.every(value => Number.isFinite(value) && value > 0);
-  const average = videos.length && durationKnown ? durations.reduce((sum, value) => sum + value, 0) / videos.length : null;
+  const durationsMs = videos.map(file => Number(file.videoMediaMetadata?.durationMillis));
+  const durationKnown = durationsMs.every(value => Number.isSafeInteger(value) && value > 0);
+  const total = durationKnown ? durationsMs.reduce((sum, value) => sum + value, 0) / 1000 : null;
   const messages = [];
   if (photos.length < 4) messages.push(`At least 4 unique photos are required; found ${photos.length}.`);
-  if (videos.length < 4) messages.push(`At least 4 unique video clips are required; found ${videos.length}.`);
-  if (average === null) messages.push('Video duration metadata is unavailable. Retry after Drive finishes processing, or use the verification worker.');
-  else if (average < 120) messages.push(`Average video duration is ${average.toFixed(1)} seconds; at least 120 seconds is required.`);
+  if (total === null) messages.push('Video duration metadata is unavailable. Retry after Drive finishes processing, or use the verification worker.');
+  else if (total < 120) messages.push('Upload video clips totaling at least 120 seconds.');
   if (groups.certificate.length !== 1) messages.push(`Expected one final commissioning letter; found ${groups.certificate.length}.`);
   if ([...photos,...videos].some(file => !file.md5Checksum)) messages.push('Some files have no checksum; duplicate verification needs the worker.');
-  return { photo_count: photos.length, video_count: videos.length, video_average_seconds: average,
+  return { photo_count: photos.length, video_count: videos.length, video_total_seconds: total,
+    video_average_seconds: total !== null && videos.length ? total / videos.length : null,
     certificate_count: groups.certificate.length, media_precheck_passed: messages.length === 0, messages,
     photos: photos.map(file => ({ name: file.name })),
-    videos: videos.map((file, index) => ({ name: file.name, duration_seconds: Number.isFinite(durations[index]) ? durations[index] : null })),
+    videos: videos.map((file, index) => ({ name: file.name, duration_seconds: durationsMs[index] > 0 && Number.isSafeInteger(durationsMs[index]) ? durationsMs[index] / 1000 : null })),
     certificates: groups.certificate.map(file => ({ name: file.name })) };
 }

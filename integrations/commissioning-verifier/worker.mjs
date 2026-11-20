@@ -5,7 +5,7 @@ import { resolve, join, sep } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { pathToFileURL } from 'node:url';
-import { RULE_VERSION, evaluateMedia, evaluateCertificate } from './rules.mjs';
+import { RULE_VERSION, LEGACY_RULE_VERSION, evaluateMedia, evaluateCertificate } from './rules.mjs';
 import { findLogoMatch } from './logo-match.mjs';
 import { listDriveFolder, findCompanyRoot, discoverCompanyEvidence } from '../../supabase/functions/_shared/commissioning-drive.mjs';
 
@@ -196,8 +196,8 @@ async function checkCertificate(file, path, directory, company, policy, requestS
 
 export async function verify(payload) {
   const { job, folders, company_name: company } = payload;
-  const base = { rule_version: RULE_VERSION, folders, messages: [] };
-  if (job.rule_version !== RULE_VERSION) throw new Error('Worker rule version does not match the queued request');
+  if (![RULE_VERSION, LEGACY_RULE_VERSION].includes(job.rule_version)) throw new Error('Worker rule version does not match the queued request');
+  const base = { rule_version: job.rule_version, folders, messages: [] };
   if (!folders) return { ...base, status: 'needs_review', messages: ['Register the company Drive evidence folders before verification.'] };
   if (!folders.certificate_policy?.approved_for_automation)
     return { ...base, status: 'needs_review', messages: ['Approved company certificate and logo references are not configured.'] };
@@ -225,16 +225,22 @@ export async function verify(payload) {
         files.push(await inspectMedia(file, kind, path, checksum));
       }
     }
-    const media = evaluateMedia(files);
+    const media = evaluateMedia(files, job.rule_version);
     if (!media.passed) return { ...base, ...media, status: 'needs_correction' };
     const letterPath = join(directory, 'certificate');
-    await download(letters[0], letterPath, budget);
-    const certificate = await checkCertificate(letters[0], letterPath, directory, company, folders.certificate_policy, job.request_stamp);
+    const letterChecksum = await download(letters[0], letterPath, budget);
+    const policy = folders.certificate_policy;
+    const reviewedPdf = policy.reviewed_pdf_sha256;
+    const matchesReviewedPdf = letters[0].mimeType === 'application/pdf' && reviewedPdf === letterChecksum;
+    const certificate = matchesReviewedPdf
+      ? { passed: true, messages: [] }
+      : await checkCertificate(letters[0], letterPath, directory, company, policy, job.request_stamp);
     const afterRoot = await resolveCompanyRoot(company, folders, process.env.GOOGLE_DRIVE_COMPANIES_ROOT_ID);
     const after = await discoverEvidence(rootId);
     if (afterRoot !== rootId || JSON.stringify(manifest(groups)) !== JSON.stringify(manifest(after)))
       return { ...base, status: 'needs_correction', messages: ['Drive evidence changed during verification. Submit again after uploads finish.'] };
     return { ...base, ...media, resolved_root_folder_id: rootId, manifest: manifest(groups), manifest_rechecked: true, certificate_passed: certificate.passed,
+      ...(matchesReviewedPdf ? { certificate_verification_method: 'reviewed_pdf_sha256', certificate_sha256: letterChecksum } : {}),
       status: certificate.passed ? 'passed' : 'needs_review', messages: certificate.messages };
   } finally {
     // Only remove the exact directory created by mkdtemp under the system temp root.
