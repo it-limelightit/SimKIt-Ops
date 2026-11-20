@@ -24,6 +24,7 @@ import { LeaveWorkspace } from "@/components/attendance/LeaveWorkspace";
 import { LeaveRequestsButton } from "@/components/attendance/LeaveRequestsButton";
 import { canReviewLeave } from "@/lib/attendance-access";
 import { FirmwareInventory } from "@/components/inventory/FirmwareInventory";
+import { InventoryWorkspace } from "@/components/inventory/InventoryWorkspace";
 import { firmwareInventoryRpc } from "@/lib/firmware-inventory";
 import "@/components/attendance/employee-portal.css";
 import { TeamAttendance } from "@/components/attendance/TeamAttendance";
@@ -60,9 +61,10 @@ function EmployeePortal() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [firmwareInventory, setFirmwareInventory] = useState(false);
+  const [inventoryReadOnly, setInventoryReadOnly] = useState(false);
   const reviewer = canReviewLeave(email);
   const [selectedTab, setTab] = useState<
-    "overview" | "review" | "leave" | "attendance" | "team" | "expense" | "inventory" | null
+    "overview" | "review" | "leave" | "attendance" | "team" | "expense" | "inventory" | "inventory-management" | null
   >(null);
   const tab = selectedTab ?? (reviewer ? "overview" : "leave");
 
@@ -83,6 +85,7 @@ function EmployeePortal() {
     let cancelled = false;
     setAccount(null);
     setFirmwareInventory(false);
+    setInventoryReadOnly(false);
     setEntries([]);
     setError(null);
     setLoading(true);
@@ -94,11 +97,15 @@ function EmployeePortal() {
             "Your office account is inactive or not linked. Contact your administrator.",
           );
         const history = await attendanceRpc<Entry[]>("attendance_my_history");
-        const inventoryAccess = await firmwareInventoryRpc<boolean>("firmware_inventory_access").catch(() => false);
+        const [inventoryAccess, inventoryReader] = await Promise.all([
+          firmwareInventoryRpc<boolean>("firmware_inventory_access").catch(() => false),
+          firmwareInventoryRpc<boolean>("inventory_read_only_access").catch(() => false),
+        ]);
         if (!cancelled) {
           setAccount(next);
           setEntries(history ?? []);
           setFirmwareInventory(inventoryAccess);
+          setInventoryReadOnly(inventoryReader === true);
         }
       } catch (failure) {
         if (!cancelled)
@@ -207,6 +214,7 @@ function EmployeePortal() {
               { key: "team", label: "Team attendance", icon: Users },
               { key: "expense", label: "Expense", icon: Receipt },
               { key: "inventory", label: "Inventory Own", icon: Boxes },
+              { key: "inventory-management", label: "Inventory Management", icon: Boxes },
             ] as const
           )
             .filter(
@@ -214,6 +222,7 @@ function EmployeePortal() {
                 ((key !== "overview" && key !== "review") || reviewer) &&
                 (key !== "expense" || !canManageFinance(email)) &&
                 (key !== "inventory" || firmwareInventory) &&
+                (key !== "inventory-management" || inventoryReadOnly) &&
                 (key !== "team" || isTeamLead(email)),
             )
             .map(({ key, label, icon: Icon }) => (
@@ -287,6 +296,10 @@ function EmployeePortal() {
               </p>
             </div>
             <LeaveWorkspace key="review" embedded showHeader={false} initialTab="review" />
+          </section>
+        ) : tab === "inventory-management" && inventoryReadOnly ? (
+          <section id="employee-inventory-management" aria-label="Read-only inventory management">
+            <InventoryWorkspace readOnly />
           </section>
         ) : tab === "inventory" && firmwareInventory ? (
           <section id="employee-inventory" aria-label="My testing inventory">

@@ -10,6 +10,7 @@ async function fixture(
     held = false,
     longText = false,
     deviceTests,
+    inventoryReader = false,
   } = {},
 ) {
   const user = {
@@ -97,6 +98,7 @@ async function fixture(
     else if (name === "attendance_my_account")
       data = { id: user.id, name: "Firmware Engineer", enroll_id: "1001", active: true };
     else if (name === "firmware_inventory_access") data = firmware;
+    else if (name === "inventory_read_only_access") data = inventoryReader;
     else if (name === "device_test_devices" && deviceTests) {
       const args = req.postDataJSON();
       calls.push({ name, args });
@@ -161,6 +163,21 @@ async function fixture(
       .click();
   return { calls, errors };
 }
+
+test("an inventory reader can open all inventory sections without central stock write controls", async ({ page }) => {
+  await fixture(page, { firmware: false, inventoryReader: true });
+  await page.getByRole("button", { name: "Inventory Management", exact: true }).click();
+  const workspace = page.getByRole("region", { name: "Read-only inventory management" });
+  await expect(workspace.getByRole("heading", { name: "Inventory Cost by Category" })).toBeVisible();
+  await expect(workspace.getByRole("button", { name: "Add Inventory Item" })).toHaveCount(0);
+  await expect(workspace.getByRole("button", { name: "Save", exact: true })).toHaveCount(0);
+  await expect(workspace.getByRole("spinbutton", { name: "Bulk order Data Meter quantity" })).not.toBeEditable();
+  for (const name of ["Inventory History", "Field Associate Inventory", "Firmware Inventory History", "Device Testing"]) {
+    const tab = workspace.getByRole("button", { name, exact: true });
+    await tab.click();
+    await expect(tab).toHaveAttribute("aria-pressed", "true");
+  }
+});
 
 test("Device Testing lets managers filter checkpoints and inspect earlier attempts", async ({
   page,

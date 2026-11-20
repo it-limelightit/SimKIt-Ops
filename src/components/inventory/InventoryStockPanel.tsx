@@ -242,7 +242,7 @@ function matchesStatusFilter(status: InventoryStatus, filter: StatusFilter) {
   return status === "AVAILABLE";
 }
 
-export function InventoryStockPanel() {
+export function InventoryStockPanel({ readOnly = false }: { readOnly?: boolean } = {}) {
   const [stock, setStock] = useState<InventoryStockItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -1827,6 +1827,7 @@ export function InventoryStockPanel() {
               onChange={(e) => setBulkOrderDeviceQuantity(e.target.value === "" ? "" : Number(e.target.value))}
               className="h-9 w-full min-w-0 bg-surface-raised/50 text-xl font-extrabold text-rose-400"
               aria-label="Bulk order Data Meter quantity"
+              readOnly={readOnly}
             />
             <p className="mt-1 text-[10px] text-text-muted">Data Meters in this bulk order</p>
           </div>
@@ -1845,14 +1846,14 @@ export function InventoryStockPanel() {
               >
                 <FileText size={13} /> PDF
               </Button>
-              <Button
+              {!readOnly && <Button
                 type="button"
                 onClick={() => void handleSaveBulkOrderPlan()}
                 disabled={saving || Number(bulkOrderDeviceQuantity) <= 0}
                 className="h-7 px-2 text-[10px] bg-violet hover:bg-violet-dark text-white"
               >
                 {saving ? "Saving..." : "Save"}
-              </Button>
+              </Button>}
             </div>
           </div>
         </Card>
@@ -1879,13 +1880,13 @@ export function InventoryStockPanel() {
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
             Refresh
           </Button>
-          <Button
+          {!readOnly && <Button
             onClick={handleOpenAddModal}
             className="h-9 px-4 text-xs bg-violet hover:bg-violet-dark text-white font-semibold flex items-center gap-1.5 cursor-pointer rounded-lg shadow-md transition-all"
           >
             <Plus size={16} />
             Add Inventory Item
-          </Button>
+          </Button>}
         </div>
       </Card>
 
@@ -1943,7 +1944,7 @@ export function InventoryStockPanel() {
                           <span className="p-3 text-center"><Badge className={isOut ? "border border-rose-500/40 bg-rose-500/15 text-rose-300" : isLow ? "border border-amber-500/40 bg-amber-500/15 text-amber-300" : "text-emerald-400"}>{status}</Badge></span>
                           <span className="p-3 text-right font-mono">{stockItem ? `₹${unitValue.toLocaleString("en-IN")}` : "-"}</span>
                           <span className="p-3 text-right font-mono font-bold text-emerald-400">{stockItem ? `₹${(Math.max(0, Number(stockItem.actual_quantity) || 0) * unitValue).toLocaleString("en-IN")}` : "-"}</span>
-                          <span className="p-3"><span className="flex justify-center gap-1">{stockItem ? <><button type="button" onClick={() => handleEditItem(stockItem)} className="p-1.5 text-text-secondary hover:text-violet" title="Edit inventory item"><Edit2 size={13} /></button><button type="button" onClick={() => void handleDeleteItem(stockItem.id, stockItem.category)} className="p-1.5 text-text-secondary hover:text-rose-300" title="Delete inventory item"><Trash2 size={13} /></button></> : bom ? <><button type="button" onClick={() => handleEditBomItem(bom)} className="p-1.5 text-text-secondary hover:text-violet" title="Edit BOM item"><Edit2 size={13} /></button><button type="button" onClick={() => void handleDeleteBomItem(bom)} className="p-1.5 text-text-secondary hover:text-rose-300" title="Delete BOM item"><Trash2 size={13} /></button></> : null}</span></span>
+                          <span className="p-3"><span className="flex justify-center gap-1">{!readOnly && (stockItem ? <><button type="button" onClick={() => handleEditItem(stockItem)} className="p-1.5 text-text-secondary hover:text-violet" title="Edit inventory item"><Edit2 size={13} /></button><button type="button" onClick={() => void handleDeleteItem(stockItem.id, stockItem.category)} className="p-1.5 text-text-secondary hover:text-rose-300" title="Delete inventory item"><Trash2 size={13} /></button></> : bom ? <><button type="button" onClick={() => handleEditBomItem(bom)} className="p-1.5 text-text-secondary hover:text-violet" title="Edit BOM item"><Edit2 size={13} /></button><button type="button" onClick={() => void handleDeleteBomItem(bom)} className="p-1.5 text-text-secondary hover:text-rose-300" title="Delete BOM item"><Trash2 size={13} /></button></> : null)}</span></span>
                         </div>;
                       })}
                       </div>
@@ -2070,7 +2071,7 @@ export function InventoryStockPanel() {
                       <td className="p-3 text-right font-mono">{stockItem ? `₹${displayedUnitValue.toLocaleString("en-IN")}` : "-"}</td>
                       <td className="p-3 text-right font-mono font-bold text-emerald-400">{stockItem ? `₹${(Math.max(0, Number(stockItem.actual_quantity)) * displayedUnitValue).toLocaleString("en-IN")}` : "-"}</td>
                       <td className="p-3"><div className="flex justify-center gap-1">
-                        {stockItem ? <><button type="button" onClick={() => handleEditItem(stockItem)} className="p-1.5 text-text-secondary hover:text-violet" title="Edit inventory item"><Edit2 size={13} /></button><button type="button" onClick={() => void handleDeleteItem(stockItem.id, stockItem.category)} className="p-1.5 text-text-secondary hover:text-rose-300" title="Delete inventory item"><Trash2 size={13} /></button></> : bom ? <><button type="button" onClick={() => handleEditBomItem(bom)} className="p-1.5 text-text-secondary hover:text-violet" title="Edit BOM item"><Edit2 size={13} /></button><button type="button" onClick={() => void handleDeleteBomItem(bom)} className="p-1.5 text-text-secondary hover:text-rose-300" title="Delete BOM item"><Trash2 size={13} /></button></> : null}
+                        {!readOnly && (stockItem ? <><button type="button" onClick={() => handleEditItem(stockItem)} className="p-1.5 text-text-secondary hover:text-violet" title="Edit inventory item"><Edit2 size={13} /></button><button type="button" onClick={() => void handleDeleteItem(stockItem.id, stockItem.category)} className="p-1.5 text-text-secondary hover:text-rose-300" title="Delete inventory item"><Trash2 size={13} /></button></> : bom ? <><button type="button" onClick={() => handleEditBomItem(bom)} className="p-1.5 text-text-secondary hover:text-violet" title="Edit BOM item"><Edit2 size={13} /></button><button type="button" onClick={() => void handleDeleteBomItem(bom)} className="p-1.5 text-text-secondary hover:text-rose-300" title="Delete BOM item"><Trash2 size={13} /></button></> : null)}
                       </div></td>
                     </tr>
                   );
@@ -2194,16 +2195,16 @@ export function InventoryStockPanel() {
                               >
                                 <FileText size={14} />
                               </button>
-                              <button
+                              {!readOnly && <button
                                 onClick={() => handleEditBulkItem(item)}
                                 title="Edit Bulk Order"
                                 className="p-1.5 text-text-secondary hover:text-violet hover:bg-violet/10 rounded transition-colors"
                               >
                                 <Edit2 size={14} />
-                              </button>
+                              </button>}
                             </>
                           )}
-                          {!isBulkOrder && (
+                          {!readOnly && !isBulkOrder && (
                             <button
                               onClick={() => handleEditItem(item)}
                               title="Edit Stock Entry"
@@ -2212,13 +2213,13 @@ export function InventoryStockPanel() {
                               <Edit2 size={14} />
                             </button>
                           )}
-                          <button
+                          {!readOnly && <button
                             onClick={() => isBulkOrder ? void handleDeleteBulkOrder(item) : handleDeleteItem(item.id, item.category)}
                             title={isBulkOrder ? "Delete Bulk Order" : "Delete Stock Entry"}
                             className="p-1.5 text-text-secondary hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors"
                           >
                             <Trash2 size={14} />
-                          </button>
+                          </button>}
                         </div>
                       </td>
                     </tr>
