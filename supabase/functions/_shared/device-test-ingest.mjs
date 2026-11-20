@@ -1,6 +1,6 @@
 const maxBytes = 64 * 1024;
 const identifier = /^[a-zA-Z0-9._:-]{1,128}$/;
-const stepStatuses = new Set(["PASS", "FAIL", "SKIP"]);
+const stepStatuses = new Set(["PASS", "FAIL", "SKIP", "NOT_RUN", "PASS_m"]);
 const record = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 
 function parseReport(value) {
@@ -32,9 +32,9 @@ function parseReport(value) {
       ([step, status]) => !identifier.test(step) || !stepStatuses.has(status),
     )
   ) {
-    throw new Error("Expected named steps with PASS, FAIL or SKIP results");
+    throw new Error("Expected named steps with PASS, FAIL, SKIP, NOT_RUN or PASS_m results");
   }
-  for (const field of ["notes", "readings"]) {
+  for (const field of ["original_steps", "notes", "readings"]) {
     if (value[field] != null && !record(value[field]))
       throw new Error(`Expected an object for ${field}`);
   }

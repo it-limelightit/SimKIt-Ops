@@ -202,6 +202,10 @@
   --result-color: var(--device-pass);
 }
 
+.device-testing [data-result="PASS_m"] {
+  --result-color: var(--device-accent);
+}
+
 .device-testing [data-result="FAIL"] {
   --result-color: var(--device-fail);
 }
@@ -346,7 +350,7 @@
 
 .device-test-metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 7rem), 1fr));
   gap: 6px;
   margin: 9px 0 10px;
 }
@@ -417,6 +421,12 @@
   border-radius: 7px;
   font-size: 0.8rem;
   overflow-wrap: anywhere;
+}
+
+.device-test-original-result {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
 }
 
 .device-test-metadata {
