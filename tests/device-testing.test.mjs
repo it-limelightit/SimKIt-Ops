@@ -48,6 +48,10 @@ test("rejects invalid or unauthorized reports before calling storage", async () 
     (await handleDeviceTest(request({ ...report, steps: { mqtt: "OK" } }), secret, save)).status,
     400,
   );
+  assert.equal(
+    (await handleDeviceTest(request({ ...report, overall: "PASS_m" }), secret, save)).status,
+    400,
+  );
   const badTime = { ...report, tested_at: "2026-02-29T10:30:00+05:30" };
   assert.equal((await handleDeviceTest(request(badTime), secret, save)).status, 400);
   const largeReport = { ...report, notes: { mqtt: "a".repeat(64 * 1024) } };
@@ -68,12 +72,14 @@ test("saves reports once, retains an earlier failure and restricts access to inv
       CREATE FUNCTION public.field_inventory_manager() RETURNS boolean
       LANGUAGE sql STABLE AS $$ SELECT current_setting('test.manager', true) = 'yes' $$;
     `);
-    await db.exec(
-      readFileSync(
-        new URL("../supabase/migrations/20261119120000_device_test_history.sql", import.meta.url),
-        "utf8",
-      ),
-    );
+    for (const migration of [
+      "20261119120000_device_test_history.sql",
+      "20261120140000_device_test_manual_pass.sql",
+    ]) {
+      await db.exec(
+        readFileSync(new URL(`../supabase/migrations/${migration}`, import.meta.url), "utf8"),
+      );
+    }
 
     const save = async (payload) => {
       const { rows } = await db.query("SELECT public.ingest_device_test($1) AS saved", [
@@ -90,9 +96,19 @@ test("saves reports once, retains an earlier failure and restricts access to inv
       tested_at: "2026-11-19T10:30:00+05:30",
       steps: { ...report.steps, encoder: "FAIL" },
     };
-    const retest = { ...report, report_id: "attempt-2", tested_at: "2026-11-19T05:30:00Z" };
+    const retest = {
+      ...report,
+      tested_at: "2026-11-19T05:30:00Z",
+      steps: { ...report.steps, encoder: "PASS_m", modbus: "NOT_RUN" },
+      original_steps: { encoder: "FAIL", modbus: "NOT_RUN" },
+      notes: { encoder: "No edges on channel B" },
+    };
     await db.exec("SET ROLE service_role");
-    assert.equal((await post(retest)).status, 201);
+    const approved = await post(retest);
+    assert.equal(approved.status, 201);
+    const approvedRetry = await post(retest);
+    assert.equal(approvedRetry.status, 200);
+    assert.equal((await approvedRetry.json()).id, (await approved.json()).id);
     const first = await post(failed);
     assert.equal(first.status, 201);
     const retry = await post({ ...failed, mac: "020000000001", tested_at: "2026-11-19T05:00:00Z" });
@@ -119,15 +135,19 @@ test("saves reports once, retains an earlier failure and restricts access to inv
     const { rows: devices } = await db.query("SELECT * FROM public.device_test_devices('dm-old')");
     assert.equal(devices.length, 1);
     assert.equal(devices[0].dm_id, "DM-200");
-    assert.equal(devices[0].overall, "PASS");
+    assert.equal(devices[0].overall, "PASS_m");
     assert.equal(Number(devices[0].run_count), 2);
     const { rows: history } = await db.query("SELECT * FROM public.device_test_history($1)", [
       devices[0].mac,
     ]);
     assert.deepEqual(
       history.map(({ report }) => report.steps.encoder),
-      ["SKIP", "FAIL"],
+      ["PASS_m", "FAIL"],
     );
+    assert.equal(history[0].report.overall, "PASS");
+    assert.equal(history[0].report.steps.modbus, "NOT_RUN");
+    assert.deepEqual(history[0].report.original_steps, retest.original_steps);
+    assert.deepEqual(history[0].report.notes, retest.notes);
     assert.equal(history[1].report.tested_at, "2026-11-19T05:00:00.000Z");
     assert.deepEqual(history[1].report.readings, report.readings);
     assert.ok(history[1].received_at);
@@ -137,6 +157,7 @@ test("saves reports once, retains an earlier failure and restricts access to inv
     );
     assert.equal(unassigned[0].dm_id, null);
     assert.equal(unassigned[0].tested_at, null);
+    assert.equal(unassigned[0].overall, "PASS");
   } finally {
     await db.close();
   }

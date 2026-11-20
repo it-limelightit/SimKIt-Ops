@@ -10,10 +10,12 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleMinus,
+  CirclePause,
   Clock3,
   Copy,
   Cpu,
   History,
+  ListChecks,
   LoaderCircle,
   RefreshCw,
   Search,
@@ -26,12 +28,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-store";
 import "./device-testing.css";
 
-type Status = "PASS" | "FAIL" | "SKIP";
+type OverallStatus = "PASS" | "FAIL";
+type Status = OverallStatus | "SKIP" | "PASS_m" | "NOT_RUN";
 type Times = { tested_at: string | null; received_at: string };
 type Device = Times & {
   mac: string;
   dm_id: string | null;
-  overall: Exclude<Status, "SKIP">;
+  overall: OverallStatus | "PASS_m";
   run_count: number;
 };
 type Run = Times & {
@@ -40,10 +43,11 @@ type Run = Times & {
     session: string;
     report_id?: string | null;
     existing_id?: string | null;
-    overall: Device["overall"];
+    overall: OverallStatus;
     test_fw: string;
     duration_s: number;
     steps: Record<string, Status>;
+    original_steps?: Record<string, Status> | null;
     notes?: Record<string, unknown> | null;
     readings?: Record<string, unknown> | null;
   };
@@ -91,18 +95,26 @@ async function readRows<T>(
 }
 
 const outcomes = {
-  PASS: { label: "passed", icon: CheckCircle2 },
-  FAIL: { label: "failed", icon: XCircle },
-  SKIP: { label: "skipped", icon: CircleMinus },
+  PASS: { badge: "PASS", label: "passed", icon: CheckCircle2 },
+  FAIL: { badge: "FAIL", label: "failed", icon: XCircle },
+  SKIP: { badge: "SKIP", label: "skipped", icon: CircleMinus },
+  PASS_m: { badge: "PASS M", label: "manually passed", icon: ListChecks },
+  NOT_RUN: { badge: "NOT RUN", label: "not run", icon: CirclePause },
 } as const;
 const statuses = Object.keys(outcomes) as Status[];
 
+function runResult(report: Run["report"]): Device["overall"] {
+  return report.overall === "PASS" && Object.values(report.steps).includes("PASS_m")
+    ? "PASS_m"
+    : report.overall;
+}
+
 function Result({ status }: { status: Status }) {
-  const Icon = outcomes[status].icon;
+  const { icon: Icon, badge, label } = outcomes[status];
   return (
-    <span className="device-test-result" data-result={status}>
+    <span className="device-test-result" data-result={status} title={label}>
       <Icon size={13} aria-hidden="true" />
-      {status}
+      {badge}
     </span>
   );
 }
@@ -212,7 +224,7 @@ function ReportValues({
 function TestRun({ run }: { run: Run }) {
   const [filter, setFilter] = useState<Status | null>(null);
   const { report } = run;
-  const counts = { PASS: 0, FAIL: 0, SKIP: 0 };
+  const counts: Record<Status, number> = { PASS: 0, FAIL: 0, SKIP: 0, PASS_m: 0, NOT_RUN: 0 };
   for (const status of Object.values(report.steps)) counts[status] += 1;
   const stepOrder = [...new Set([...Object.keys(stepLabels), ...Object.keys(report.steps)])];
   const visibleSteps = stepOrder.filter(
@@ -229,7 +241,7 @@ function TestRun({ run }: { run: Run }) {
             <RunTime times={run} />
           </p>
         </div>
-        <Result status={report.overall} />
+        <Result status={runResult(report)} />
       </div>
 
       <section>
@@ -247,6 +259,7 @@ function TestRun({ run }: { run: Run }) {
         </div>
         <div className="device-test-metrics" role="group" aria-label="Filter checkpoints">
           {statuses.map((status) => {
+            if (status === "NOT_RUN" && counts[status] === 0) return null;
             const { icon: Icon, label } = outcomes[status];
             return (
               <button
@@ -270,6 +283,9 @@ function TestRun({ run }: { run: Run }) {
             <li key={step}>
               <span>
                 {Object.hasOwn(stepLabels, step) ? stepLabels[step] : step.replaceAll("_", " ")}
+                {report.steps[step] === "PASS_m" && report.original_steps?.[step] === "FAIL" && (
+                  <small className="device-test-original-result">Originally failed</small>
+                )}
               </span>
               <Result status={report.steps[step]} />
             </li>
@@ -412,7 +428,7 @@ function DeviceHistory({ device, onBack }: { device: Device; onBack: () => void 
                     <RunTime times={run} />
                     {page === 0 && index === 0 && <small>Latest run</small>}
                   </span>
-                  <Result status={run.report.overall} />
+                  <Result status={runResult(run.report)} />
                   <ChevronRight size={16} className="device-test-chevron" aria-hidden="true" />
                 </button>
               </li>

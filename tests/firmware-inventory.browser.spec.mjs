@@ -194,7 +194,8 @@ test("Device Testing lets managers filter checkpoints and inspect earlier attemp
       test_fw: "1.0.0",
       overall: "PASS",
       duration_s: 32,
-      steps: { mqtt: "PASS", vibration: "SKIP" },
+      steps: { mqtt: "PASS", vibration: "SKIP", encoder: "PASS_m", board: "NOT_RUN" },
+      original_steps: { encoder: "FAIL" },
     },
   };
   const prior = {
@@ -216,7 +217,7 @@ test("Device Testing lets managers filter checkpoints and inspect earlier attemp
       device: {
         mac,
         dm_id: "DM-200",
-        overall: "PASS",
+        overall: "PASS_m",
         test_fw: "1.0.0",
         tested_at: latest.tested_at,
         received_at: latest.received_at,
@@ -227,8 +228,18 @@ test("Device Testing lets managers filter checkpoints and inspect earlier attemp
   });
   const device = page.getByRole("button", { name: /DM-200.*2 runs/ });
   await expect(page.getByRole("heading", { name: "Select a device" })).toBeVisible();
+  await expect(device).toContainText("PASS M");
   await device.click();
   await expect(device).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: /Latest run.*PASS M/ })).toBeVisible();
+  const manual = page.getByRole("button", { name: "1 manually passed" });
+  await manual.click();
+  await expect(manual).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByText("Originally failed", { exact: true })).toBeVisible();
+  await expect(page.getByText("MQTT", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "1 not run" }).click();
+  await expect(page.getByText("Board check", { exact: true })).toBeVisible();
+  await expect(page.getByText("Originally failed", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "0 failed" })).toBeDisabled();
   const skipped = page.getByRole("button", { name: "1 skipped" });
   await skipped.click();

@@ -1,6 +1,6 @@
 # Device Testing
 
-SimKit receives completed DataMeter factory tests over HTTPS. Managers open **Inventory → Device Testing** to search by DM ID or MAC, see the latest result, and open previous attempts. The dashboard displays the board's reported result alongside the checkpoint counts because factory firmware can report PASS with skipped steps.
+SimKit receives completed DataMeter factory tests over HTTPS. Managers open **Inventory → Device Testing** to search by DM ID or MAC, see the latest result, and open previous attempts. A firmware PASS with any manually approved checkpoint appears as **PASS M**. The saved report retains the original checkpoint results and notes supplied by firmware.
 
 ## Supabase setup
 
@@ -8,14 +8,14 @@ The migration and `device-test-ingest` version 1 are deployed on project `jhhiwy
 
 1. Apply [the Device Testing migration](../supabase/migrations/20261119120000_device_test_history.sql) to the SimKit project. For a dashboard deployment, open a new query in the [SQL Editor](https://supabase.com/dashboard/project/jhhiwyvrhfhvvougkqmm/sql/new), paste the full migration, and run it once. The migration uses the existing Inventory manager permission.
 2. In [Edge Function Secrets](https://supabase.com/dashboard/project/jhhiwyvrhfhvvougkqmm/functions/secrets), set `DEVICE_TEST_INGEST_SECRET` to a long random value generated for this integration. Share it with the firmware team through a private channel.
-3. Deploy the function from the repository root. The function's `verify_jwt = false` setting lets firmware call it without a user session. The function checks the dedicated secret before reading or saving a report.
+3. Apply the [manual-pass migration](../supabase/migrations/20261120140000_device_test_manual_pass.sql) and release the SimKit frontend before enabling manual-pass uploads. Deploy the function from the repository root. The function's `verify_jwt = false` setting lets firmware call it without a user session. The function checks the dedicated secret before reading or saving a report.
 
    ```powershell
    npx supabase login
    npx supabase functions deploy device-test-ingest --project-ref jhhiwyvrhfhvvougkqmm
    ```
 
-4. Verify that a sample POST receives HTTP 201, an identical retry receives HTTP 200 with the same ID, and an incorrect key receives HTTP 401. Use an agreed test board for a live test because successful reports become part of its history. Release the SimKit frontend through the existing app deployment process.
+4. Verify that a sample POST with a `PASS_m` checkpoint receives HTTP 201 and appears as **PASS M** in Device Testing. An identical retry should receive HTTP 200 with the same ID, and an incorrect key should receive HTTP 401. Use an agreed test board for a live test because successful reports become part of its history.
 
 See the [Supabase deployment guide](https://supabase.com/docs/guides/functions/deploy) and [secrets guide](https://supabase.com/docs/guides/functions/secrets).
 
@@ -62,7 +62,7 @@ Use the existing factory report format from the CSV's `report_json` column. This
 - Generate a new `report_id` for each completed attempt, even when a retest reuses the session. Keep the exact report and ID until delivery succeeds. Retry a timeout, HTTP 429, or HTTP 5xx with backoff using that same report.
 - Omit `tested_at` when the board lacks a reliable clock. Otherwise send an ISO 8601 timestamp with seconds and a time zone. SimKit stores its receipt time in either case and displays times in IST.
 - Send an empty string or omit `existing_id` for boards without a DM ID. The MAC is the board identity. Each attempt retains its own DM ID.
-- Send `PASS`, `FAIL`, or `SKIP` for each checkpoint. Notes and readings are optional JSON objects. Keep the request body within 64 KiB.
+- Send `PASS`, `FAIL`, `SKIP`, `NOT_RUN`, or `PASS_m` for each checkpoint. An operator-approved run uses `overall: "PASS"` and `PASS_m` for the approved checkpoints. Preserve the pre-approval results in `original_steps` and failure details in `notes`. `original_steps`, `notes`, and `readings` are optional JSON objects. Keep the request body within 64 KiB.
 - Legacy reports without a `report_id` are accepted. Identical legacy payloads for the same MAC count as one attempt.
 
 | Response | Meaning                                                                                |
